@@ -29,7 +29,6 @@ rule read =
   | newline  { next_line lexbuf; read lexbuf }
   | int      { INT (int_of_string (Lexing.lexeme lexbuf)) }
   | float    { FLOAT (float_of_string (Lexing.lexeme lexbuf)) }
-  | id       { IDENT (Lexing.lexeme lexbuf) }
   | "true"   { TRUE }
   | "false"  { FALSE }
   | "nil"    { NIL }
@@ -45,6 +44,7 @@ rule read =
   | "if"     { IF }
   | "then"   { THEN }
   | "else"   { ELSE }
+  | '#'      { NUMBER_SIGN }
   | '_'      { WILDCARD }
   | '"'      { read_string (Buffer.create 17) lexbuf }
   | "::"     { DOUBLE_COLON }
@@ -79,6 +79,7 @@ rule read =
   | '/'      { DIV (Lexing.lexeme lexbuf) }
   | '%'      { MOD (Lexing.lexeme lexbuf) }
   | "**"      { POW (Lexing.lexeme lexbuf) }
+  | id       { IDENT (Lexing.lexeme lexbuf) }
   | _ { raise (SyntaxError ("Unexpected char: " ^ Lexing.lexeme lexbuf)) }
   | eof      { EOF }
 and read_string buf =

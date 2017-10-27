@@ -30,12 +30,13 @@ type p' =
   | PCons of p * p
   | PAs of p * string
   | PTyped of p * ty
-and ty =
+and ty' =
   | TyVar of string
   | TyApp of string * ty list
   | TyRecord of (string * ty) list
   | TyFun of tfun
 and tfun = (string list * p list * ty)
+and ty = (ty' * pos)
 and p = (p' * pos) [@@deriving sexp_of]
 
 type unop =
@@ -64,15 +65,15 @@ type e' =
   | EList of e list
   | ETuple of e list
   | ERecord of (string * e) list
-  | EDecls of decl list * e
+  | EDecl of decl * e
   | ECond of e * e * e
   | ELambda of string list * p list * ty option * e option * e
 and decl' =
   | DVal of p * e
-  | DSig of string * tfun
-  | DDef of string * tfun
+  | DSig of string * string list * ty list * ty
+  | DDef of string * tfun * e
   | DSite of string * string
-  | DInclude of string * decl list
+  | DInclude of string
   | DDatatype of string * string list * constructor list
   | DAlias of string * ty
   | DTyImport of string * string

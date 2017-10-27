@@ -1,5 +1,6 @@
-(executable
- ((name hello_world)
+(executables
+ ((names (hello_world tokenize))
   (libraries (orcml))))
+
 
 (jbuild_version 1)
