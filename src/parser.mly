@@ -28,7 +28,8 @@
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR
 
 %nonassoc low
-%nonassoc call
+%nonassoc LEFT_BRACK
+%nonassoc LEFT_PAREN
 
 %left BAR SEMICOLON LESS MORE
 %nonassoc ASSIGN
@@ -46,8 +47,10 @@ prog:
   | EOF           { None   } ;
 
 expr:
-  | LEFT_PAREN op=binop RIGHT_PAREN { (EIdent(op), make_pos $startpos $endpos) }
   | LEFT_PAREN exp=expr RIGHT_PAREN { exp }
+  | LEFT_PAREN e=expr COMMA es=separated_nonempty_list(COMMA, expr) RIGHT_PAREN
+    { (ETuple(e::es), make_pos $startpos $endpos) }
+  | LEFT_PAREN op=binop RIGHT_PAREN { (EIdent(op), make_pos $startpos $endpos) }
   | t1=expr op=binop t2=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
         (ECall(ident, [], [t1; t2]),
@@ -71,14 +74,14 @@ expr:
   | f=FLOAT { (EConst(Float f), make_pos $startpos $endpos) }
   | name=IDENT { (EIdent(name), make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
-  | target=expr ar=args
-   { (ECall(target, [], ar),
-      make_pos $startpos $endpos) } %prec call
+  | target=expr t_args=type_args? ar=args
+   { (ECall(target, Option.value t_args ~default:[], ar),
+      make_pos $startpos $endpos) }
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }
   | WILDCARD { (PWildcard, make_pos $startpos $endpos) }
 decl:
-  | VAL p=pattern EQ e=expr { (DVal(p, e), make_pos $startpos $endpos) } %prec low
+  | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
   | DEF name=IDENT t_params=type_params? args=arg_types ret=ty
     { (DSig(name, (Option.value t_params ~default:[]), args, ret),
        make_pos $startpos $endpos) }
