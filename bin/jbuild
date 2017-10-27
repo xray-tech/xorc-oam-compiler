@@ -1,0 +1,5 @@
+(executable
+ ((name hello_world)
+  (libraries (orcml))))
+
+(jbuild_version 1)

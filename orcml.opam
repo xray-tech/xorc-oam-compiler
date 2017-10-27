@@ -1,0 +1,13 @@
+opam-version: "1.2"
+maintainer: ""
+authors: [""]
+homepage: ""
+bug-reports: ""
+dev-repo: ""
+license: ""
+build: [
+  ["jbuilder" "build" "-p" name "-j" jobs]
+]
+depends: []
+available: [ ocaml-version >= "4.04.1" ]
+descr: ""
