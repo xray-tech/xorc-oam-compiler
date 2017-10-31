@@ -22,9 +22,20 @@ let dummy = let z = Lexing.{ pos_bol = 0;
                              pos_cnum = 0 } in
   { pstart = z; pend = z }
 
+type const =
+  | Int of int
+  | Float of float
+  | String of string
+  | Signal
+  | Null
+  | Bool of bool [@@deriving sexp]
+
+type ident = string [@@deriving sexp]
+
 type p' =
-  | PVar of string
+  | PVar of ident
   | PWildcard
+  | PConst of const
   | PTuple of p list
   | PList of p list
   | PCons of p * p
@@ -43,13 +54,6 @@ type unop =
   | OpNot
   | OpNeg
   | OpDeref [@@deriving sexp]
-
-type const =
-  | Int of int
-  | Float of float
-  | String of string [@@deriving sexp]
-
-type ident = string [@@deriving sexp]
 
 type e' =
   | EHasType of e * ty

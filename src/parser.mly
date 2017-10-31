@@ -12,7 +12,7 @@
 %token <float> FLOAT
 %token <string> IDENT
 %token <string> STRING
-%token TRUE FALSE NIL SIGNAL STOP WILDCARD
+%token TRUE FALSE NULL SIGNAL STOP WILDCARD
 %token VAL TYPE IMPORT INCLUDE
 %token LAMBDA AS DEF
 %token IF THEN ELSE
@@ -28,8 +28,8 @@
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR
 
 %nonassoc low
-%nonassoc LEFT_BRACK
-%nonassoc LEFT_PAREN
+
+%nonassoc IDENT
 
 %left BAR SEMICOLON LESS MORE
 %nonassoc ASSIGN
@@ -40,21 +40,40 @@
 %left ADD SUB
 %left MULT DIV MOD POW
 
+%left LEFT_PAREN
+%left LEFT_BRACK
+
 %start <Ast.e option> prog
 %%
 prog:
   | v = expr; EOF { Some v }
   | EOF           { None   } ;
 
+
 expr:
   | LEFT_PAREN exp=expr RIGHT_PAREN { exp }
   | LEFT_PAREN e=expr COMMA es=separated_nonempty_list(COMMA, expr) RIGHT_PAREN
     { (ETuple(e::es), make_pos $startpos $endpos) }
+  | LEFT_BRACE
+      pairs=separated_list(COMMA, k=IDENT EQ e=expr { (k, e) })
+    RIGHT_BRACE
+    { (ERecord(pairs), make_pos $startpos $endpos) }
+  | LEFT_BRACK es=separated_nonempty_list(COMMA, expr) RIGHT_BRACK
+    { (EList(es), make_pos $startpos $endpos) }
   | LEFT_PAREN op=binop RIGHT_PAREN { (EIdent(op), make_pos $startpos $endpos) }
+  | STOP { (EStop, make_pos $startpos $endpos)}
   | t1=expr op=binop t2=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
         (ECall(ident, [], [t1; t2]),
          make_pos $startpos $endpos) }
+  | c=const { (EConst c, make_pos $startpos $endpos) }
+  | name=IDENT { (EIdent(name), make_pos $startpos $endpos) }
+  | target=expr ar=args 
+   { (ECall(target, [], ar),
+      make_pos $startpos $endpos) }
+  | target=expr t_args=type_args ar=args 
+   { (ECall(target, t_args, ar),
+      make_pos $startpos $endpos) }
   | e1=expr BAR e2=expr
     { (EParallel(e1, e2),
        make_pos $startpos $endpos) }
@@ -70,16 +89,15 @@ expr:
   | IF p=expr THEN t=expr ELSE e=expr
     { (ECond(p, t, e),
        make_pos $startpos $endpos) } %prec low
-  | i=INT { (EConst(Int i), make_pos $startpos $endpos) }
-  | f=FLOAT { (EConst(Float f), make_pos $startpos $endpos) }
-  | name=IDENT { (EIdent(name), make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
-  | target=expr t_args=type_args? ar=args
-   { (ECall(target, Option.value t_args ~default:[], ar),
-      make_pos $startpos $endpos) }
+
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }
   | WILDCARD { (PWildcard, make_pos $startpos $endpos) }
+  | c=const { (PConst(c), make_pos $startpos $endpos) }
+  | LEFT_PAREN p=pattern COMMA ps=separated_nonempty_list(COMMA, pattern) RIGHT_PAREN
+    { (PTuple(p::ps), make_pos $startpos $endpos) }
+   
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
   | DEF name=IDENT t_params=type_params? args=arg_types ret=ty
@@ -96,6 +114,15 @@ ty:
       pairs=separated_nonempty_list(COMMA, k=IDENT EQ t=ty { (k, t) })
     RIGHT_BRACE
     { (TyRecord(pairs), make_pos $startpos $endpos) }
+const:
+  | i=INT { Int i }
+  | f=FLOAT { Float f }
+  | s=STRING { String s }
+  | NULL { Null }
+  | FALSE { Bool false }
+  | TRUE { Bool true }
+  | SIGNAL { Signal }
+
 
 %inline binop:
   | t=ADD | t=MULT | t=SUB | t=DIV | t=POW | t=MOD

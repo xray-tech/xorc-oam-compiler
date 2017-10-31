@@ -31,7 +31,7 @@ rule read =
   | float    { FLOAT (float_of_string (Lexing.lexeme lexbuf)) }
   | "true"   { TRUE }
   | "false"  { FALSE }
-  | "nil"    { NIL }
+  | "null"    { NULL }
   | "signal" { SIGNAL }
   | "stop"   { STOP }
   | "type"   { TYPE }
