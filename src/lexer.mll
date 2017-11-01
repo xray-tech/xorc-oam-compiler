@@ -60,6 +60,7 @@ rule read =
   | ')'      { RIGHT_PAREN }
   | ','      { COMMA }
   | '?'      { DEREFERENCE }
+  | '~'      { NOT (Lexing.lexeme lexbuf) }
   | '+'      { ADD (Lexing.lexeme lexbuf) }
   | '-'      { SUB (Lexing.lexeme lexbuf) }
   | '='      { EQ (Lexing.lexeme lexbuf) }
@@ -79,6 +80,8 @@ rule read =
   | '/'      { DIV (Lexing.lexeme lexbuf) }
   | '%'      { MOD (Lexing.lexeme lexbuf) }
   | "**"      { POW (Lexing.lexeme lexbuf) }
+  | ':'      { COLON (Lexing.lexeme lexbuf) }
+  | '.'      { DOT }
   | id       { IDENT (Lexing.lexeme lexbuf) }
   | _ { raise (SyntaxError ("Unexpected char: " ^ Lexing.lexeme lexbuf)) }
   | eof      { EOF }
