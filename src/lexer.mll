@@ -41,6 +41,7 @@ rule read =
   | "lambda" { LAMBDA }
   | "as"     { AS }
   | "def"    { DEF }
+  | "sig"    { SIG  }
   | "if"     { IF }
   | "then"   { THEN }
   | "else"   { ELSE }
@@ -51,15 +52,14 @@ rule read =
   | ":!:"    { TOVERRIDE }
   | "{."     { LEFT_BRACE }
   | ".}"     { RIGHT_BRACE }
-  | "{-"     { LEFT_COMMENT }
-  | "-}"     { RIGHT_COMMENT }
-  | "--"     { COMMENT }
+  | "{-"     { read_comment lexbuf }
+  | "--"     { read_comment_line lexbuf }
   | '['      { LEFT_BRACK }
   | ']'      { RIGHT_BRACK }
   | '('      { LEFT_PAREN }
   | ')'      { RIGHT_PAREN }
   | ','      { COMMA }
-  | '?'      { DEREFERENCE }
+  | '?'      { DEREFERENCE (Lexing.lexeme lexbuf) }
   | '~'      { NOT (Lexing.lexeme lexbuf) }
   | '+'      { ADD (Lexing.lexeme lexbuf) }
   | '-'      { SUB (Lexing.lexeme lexbuf) }
@@ -101,3 +101,12 @@ and read_string buf =
     }
   | _ { raise (SyntaxError ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
   | eof { raise (SyntaxError ("String is not terminated")) }
+and read_comment_line =
+  parse
+  | newline | eof { read lexbuf }
+  | _ { read_comment_line lexbuf }
+and read_comment =
+  parse
+  | "-}" { read lexbuf }
+  | eof { raise (SyntaxError ("Comment is not terminated")) }
+  | _ { read_comment lexbuf }

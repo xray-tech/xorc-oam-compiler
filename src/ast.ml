@@ -52,11 +52,6 @@ and tyfun = string list * ty list * ty
 and ty = (ty' * pos)
 and p = (p' * pos) [@@deriving sexp_of]
 
-type unop =
-  | OpNot
-  | OpNeg
-  | OpDeref [@@deriving sexp]
-
 type e' =
   | EHasType of e * ty
   | EOverrideType of e * ty
@@ -77,42 +72,19 @@ type e' =
   | ELambda of string list * p list * ty option * e
 and decl' =
   | DVal of p * e
-  | DSig of string * tyfun
-  | DDef of string * string list * p list * ty option * e option  * e
-  | DSite of string * string
+  | DSig of ident * tyfun
+  | DDef of ident * string list * p list * ty option * e option  * e
+  | DSite of ident * string
   | DInclude of string
-  | DDatatype of string * string list * constructor list
-  | DAlias of string * ty
+  | DData of string * string list * constructor list
+  | DAlias of ident * string list * ty
   | DTyImport of string * string
 and constructor = string * ty option list
 and decl = decl' * pos
 and e = e' * pos [@@deriving sexp_of]
 
-type p_or_ty' =
-  | PTyIdent of ident
-  | PTyApp of ident * ty list
-  | PTyWildcard
-  | PTyConst of const
-  | PTyTuple of p_or_ty list
-  | PTyList of p list
-  | PTyRecord of (string * p_or_ty) list
-  | PTyCons of p_or_ty * p_or_ty
-  | PTyAs of p_or_ty * string
-  | PTyTyped of p_or_ty * ty
-  | PTyFun of string list * ty list * ty
-and p_or_ty = p_or_ty' * pos [@@deriving sexp_of]
+exception UnsupportedImportType of string
 
-exception NotPattern
-exception NotType
-
-let p_of_p_or_ty (v, pos) =
-  let p' = match v with
-  | PTyIdent i -> PVar i
-  | _ -> raise NotPattern in
-  (p', pos)
-
-let ty_of_p_or_ty (v, pos) =
-  let p' = match v with
-  | PTyIdent i -> TyVar i
-  | _ -> raise NotType in
-  (p', pos)
+let import_decl i n def = match i with
+  | "site" -> Some (DSite (n, def))
+  | _ -> None
