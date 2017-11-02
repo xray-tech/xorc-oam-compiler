@@ -1,16 +1,7 @@
-sig each[A](List[A]) :: A
-def each([]) = stop
-def each(h:t) = h | each(t)
-
-
-sig map[A,B](lambda (A) :: B, List[A]) :: List[B]
-def map(f,[]) = []
-def map(f,h:t) = f(h):map(f,t)
-
 
 sig reverse[A](List[A]) :: List[A]
 def reverse(l) =
-  def tailrev(List[A], List[A]) :: List[A]
+  sig tailrev(List[A], List[A]) :: List[A]
   def tailrev([],x) = x
   def tailrev(h:t,x) = tailrev(t,h:x)
   tailrev(l,[])
@@ -76,7 +67,7 @@ sig afold[A](lambda (A, A) :: A, List[A]) :: A
 def afold(f, [x]) = x
 {- Here's the interesting part -}
 def afold(f, xs) =
-  def afold'(List[A]) :: List[A]
+  sig afold'(List[A]) :: List[A]
   def afold'([]) = []
   def afold'([x]) = [x]
   def afold'(x:y:xs) = f(x,y):afold'(xs)
@@ -201,7 +192,7 @@ sig groupBy[A,B](lambda (A,A) :: Boolean,
   :: List[(A,List[B])]
 def groupBy(eq, []) = []
 def groupBy(eq, (k,v):kvs) =
-  def helper(A, List[B], List[(A,B)]) :: List[(A,List[B])]
+  sig helper(A, List[B], List[(A,B)]) :: List[(A,List[B])]
   def helper(k,vs, []) = [(k,vs)]
   def helper(k,vs, (k2,v):kvs) =
     if eq(k2,k) then helper(k, v:vs, kvs)
