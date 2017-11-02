@@ -1,5 +1,5 @@
 B ../_build/default/src
-FLG -open Orcml -w -40
+FLG -open Orcml -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml"'\'''
 PKG base
 PKG base.caml

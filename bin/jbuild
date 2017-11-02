@@ -1,5 +1,5 @@
 (executables
- ((names (hello_world tokenize))
+ ((names (hello_world tokenize simple))
   (libraries (orcml))))
 
 
