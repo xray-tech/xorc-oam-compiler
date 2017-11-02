@@ -1,13 +1,11 @@
 (library
  ((name orcml)
-  (libraries (core))
+  (libraries (base menhirLib stdio js_of_ocaml js_of_ocaml.weak))
   (preprocess (pps (ppx_jane)))
 ))
 
 (menhir
  ((flags (--explain --dump))
   (modules (parser))))
-
-(ocamllex (lexer))
 
 (jbuild_version 1)

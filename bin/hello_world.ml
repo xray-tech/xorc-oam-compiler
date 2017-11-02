@@ -1,41 +1,32 @@
-open Core
-open Lexing
-
-module Parser = Orcml.Parser
-module Lexer = Orcml.Lexer
+open Base
+module Lexer = Orcml_lexer
 
 let print_position outx lexbuf =
-  let pos = lexbuf.lex_curr_p in
-  fprintf outx "%s:%d:%d" pos.pos_fname
+  let pos = lexbuf.Lexer.pos in
+  Stdio.Out_channel.fprintf outx "%s:%d:%d" pos.pos_fname
     pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1)
 
 let parse_with_error lexbuf =
-  try Parser.prog Lexer.read lexbuf with
-  | Lexer.SyntaxError msg ->
-    fprintf stderr "%a: %s\n" print_position lexbuf msg;
-    None
-  | Parser.Error ->
-    fprintf stderr "%a: syntax error\n" print_position lexbuf;
-    exit (-1)
+  let lexer () =
+    let open Lexer in
+    let ante_position = lexbuf.pos in
+    let token = Lexer.token lexbuf in
+    let post_position = lexbuf.pos
+    in (token, ante_position, post_position) in
+  let parser = MenhirLib.Convert.Simplified.traditional2revised Orcml.Parser.prog in
+  try parser lexer with
+  | Orcml.Parser.Error ->
+    Stdio.eprintf "%a: syntax error\n" print_position lexbuf;
 
-let rec parse_and_print lexbuf =
+    Stdio.print_endline "syntax error";
+    None
+
+let parse_and_print lexbuf =
   match parse_with_error lexbuf with
-  | Some e ->
-    print_endline (Sexp.to_string_hum (Orcml.Ast.sexp_of_e e));
-    parse_and_print lexbuf
+  | Some(x) ->
+    Stdio.print_endline (Sexp.to_string_hum (Orcml.Ast.sexp_of_e x))
   | None -> ()
 
-let loop filename () =
-  let inx = match filename with
-    | "%" -> In_channel.stdin
-    | filename -> In_channel.create filename in
-  let lexbuf = Lexing.from_channel inx in
-  lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
-  parse_and_print lexbuf;
-  In_channel.close inx
-
 let () =
-  Command.basic ~summary:"Parse and display Orc"
-    Command.Spec.(empty +> anon ("filename" %: file))
-    loop
-  |> Command.run
+  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
+  parse_and_print lexbuf

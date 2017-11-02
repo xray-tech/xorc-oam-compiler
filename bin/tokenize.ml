@@ -1,8 +1,10 @@
-open Core
+open Base
 open Lexing
 
 module Parser = Orcml.Parser
-module Lexer = Orcml.Lexer
+module Lexer = Orcml_lexer
+
+let sprintf = Printf.sprintf
 
 let to_string token =
   let open Parser in
@@ -14,7 +16,7 @@ let to_string token =
   | TRUE -> "TRUE"
   | FALSE -> "FALSE"
   | SIGNAL -> "SIGNAL"
-  | NIL -> "NIL"
+  | NULL -> "NULL"
   | STOP -> "STOP"
   | VAL -> "VAL"
   | IF -> "IF"
@@ -25,8 +27,6 @@ let to_string token =
   | TOVERRIDE -> "TOVERRIDE"
   | LEFT_BRACE -> "LEFT_BRACE"
   | RIGHT_BRACE -> "RIGHT_BRACE"
-  | LEFT_COMMENT -> "LEFT_COMMENT"
-  | RIGHT_COMMENT -> "RIGHT_COMMENT"
   | COMMA -> "COMMA"
   | ADD _ -> "ADD"
   | SUB _ -> "SUB"
@@ -40,7 +40,12 @@ let to_string token =
   | GTE _ -> "GTE"
   | EQ _ -> "EQ"
   | NOT_EQ _ -> "NOT_EQ"
-  | DEREFERENCE -> "DEREFERENCE"
+  | NOT _ -> "NOT"
+  | COLON _ -> "COLON"
+  | DOT -> "DOT"
+  | SIG -> "SIG"
+  | NUMBER_SIGN -> "NUMBER_SIGN"
+  | DEREFERENCE _ -> "DEREFERENCE"
   | ASSIGN _ -> "ASSIGN"
   | WILDCARD -> "WILDCARD"
   | TYPE -> "TYPE"
@@ -54,20 +59,18 @@ let to_string token =
   | LAMBDA -> "LAMBDA"
   | INCLUDE -> "INCLUDE"
   | IMPORT -> "IMPORT"
-  | COMMENT -> "COMMENT"
   | BAR -> "BAR"
   | AS -> "AS"
   | STRING s -> sprintf "STRING(%s)" s
   | OR _ -> "OR"
   | AND _ -> "AND"
-  
 
 let () =
-  let lexbuf = Lexing.from_channel In_channel.stdin in
+  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
   let rec loop acc =  function
     | Parser.EOF   ->  to_string Parser.EOF :: acc |> List.rev
-    | x     ->  loop (to_string x :: acc) (Lexer.read lexbuf)
+    | x     ->  loop (to_string x :: acc) (Lexer.token lexbuf)
   in
-  loop [] (Lexer.read lexbuf)
+  loop [] (Lexer.token lexbuf)
   |> String.concat ~sep:" "
-  |> print_endline
+  |> Stdio.print_endline

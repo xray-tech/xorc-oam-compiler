@@ -1,4 +1,4 @@
-open Core
+open Base
 
 module Lexing = struct
   include Lexing
@@ -7,8 +7,8 @@ module Lexing = struct
     let open Sexp in
     List [Atom "pos";
           Atom pos_fname;
-          Atom (string_of_int pos_lnum);
-          Atom (string_of_int (pos_cnum - pos_bol))]
+          Atom (Int.to_string (pos_lnum + 1));
+          Atom (Int.to_string (pos_cnum - pos_bol))]
 end
 
 type pos = {

@@ -1,10 +1,13 @@
 %{ open Ast
-   open Core
   let make_pos start e =
     Ast.{ pstart = start; pend = e }
   let pattern_or_wildcard = function
   | Some x -> x
   | None -> (PWildcard, dummy)
+
+  let optional_list = function
+  | Some l -> l
+  | None -> []
 %}
 
 %token EOF
@@ -63,7 +66,7 @@ expr:
       pairs=separated_list(COMMA, k=IDENT EQ e=expr { (k, e) })
     RIGHT_BRACE
     { (ERecord(pairs), make_pos $startpos $endpos) }
-  | LEFT_BRACK es=separated_nonempty_list(COMMA, expr) RIGHT_BRACK
+  | LEFT_BRACK es=separated_list(COMMA, expr) RIGHT_BRACK
     { (EList(es), make_pos $startpos $endpos) }
   | LEFT_PAREN op=binop RIGHT_PAREN { (EIdent(op), make_pos $startpos $endpos) }
   | STOP { (EStop, make_pos $startpos $endpos)}
@@ -106,17 +109,17 @@ expr:
   | e=expr DOUBLE_COLON ty=ty { (EHasType(e, ty), make_pos $startpos $endpos) }
   | e=expr TOVERRIDE ty=ty { (EOverrideType(e, ty), make_pos $startpos $endpos) }
   | LAMBDA ty_ps=type_params? ps=params return=ty? EQ e=expr
-    { (ELambda(Option.value ty_ps ~default:[], ps, return, e),
+    { (ELambda(optional_list ty_ps, ps, return, e),
        make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
 
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
   | DEF name=IDENT t_ps=type_params? ps=params ret=ty? guard=guard? EQ e=expr
-    { (DDef(name, (Option.value t_ps ~default:[]), ps, ret, guard, e),
+    { (DDef(name, (optional_list t_ps), ps, ret, guard, e),
        make_pos $startpos $endpos) }
-  | SIG name=IDENT t_ps=type_params? args=arg_types ret=ty
-    { (DSig(name, ((Option.value t_ps ~default:[]), args, ret)),
+  | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
+    { (DSig(name, ((optional_list t_ps), args, ret)),
        make_pos $startpos $endpos) }
   | IMPORT t=IDENT n=IDENT EQ def=STRING
     { match import_decl t n def with
@@ -127,10 +130,10 @@ decl:
     { (DInclude(p),
        make_pos $startpos $endpos) }
   | TYPE i=IDENT t_ps=type_params? EQ ty=ty
-    { (DAlias(i, Option.value t_ps ~default:[], ty),
+    { (DAlias(i, optional_list t_ps, ty),
        make_pos $startpos $endpos) }
   | TYPE i=IDENT t_ps=type_params? EQ cs=constructors
-    { (DData(i, Option.value t_ps ~default:[], cs),
+    { (DData(i, optional_list t_ps, cs),
        make_pos $startpos $endpos) }
 
 guard: IF LEFT_PAREN e=expr RIGHT_PAREN { e }
@@ -162,8 +165,8 @@ ty:
       l=separated_nonempty_list(COMMA, ty)
     RIGHT_PAREN
     { (TyTuple(l), make_pos $startpos $endpos) }
-  | LAMBDA ty_ps=type_params? args=arg_types return=ty
-    { (TyFun((Option.value ty_ps ~default:[], args, return)),
+  | LAMBDA ty_ps=type_params? args=arg_types DOUBLE_COLON return=ty
+    { (TyFun((optional_list ty_ps, args, return)),
        make_pos $startpos $endpos) }
 
 pattern:

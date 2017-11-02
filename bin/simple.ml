@@ -1,30 +1,25 @@
-open Core
-open Lexing
+module Lexer = Orcml_lexer
 
-module Parser = Orcml.Parser
-module Lexer = Orcml.Lexer
-
-let print_position outx lexbuf =
-  let pos = lexbuf.lex_curr_p in
-  fprintf outx "%s:%d:%d" pos.pos_fname
-    pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1)
-
+open Base
 let parse_with_error lexbuf =
-  try Parser.prog Lexer.read lexbuf with
-  | Lexer.SyntaxError msg ->
-    fprintf stderr "%a: %s\n" print_position lexbuf msg;
+  let lexer () =
+    let open Lexer in
+    let ante_position = lexbuf.pos in
+    let token = Lexer.token lexbuf in
+    let post_position = lexbuf.pos
+    in (token, ante_position, post_position) in
+  let parser = MenhirLib.Convert.Simplified.traditional2revised Orcml.Parser.prog in
+  try parser lexer with
+  | _ ->
+    Stdio.print_endline "syntax error";
     None
-  | Parser.Error ->
-    fprintf stderr "%a: syntax error\n" print_position lexbuf;
-    exit (-1)
 
-let rec parse_and_print lexbuf =
+let parse_and_print lexbuf =
   match parse_with_error lexbuf with
-  | Some e ->
-    print_endline (Sexp.to_string_hum (Orcml.Ast.sexp_of_e e));
-    parse_and_print lexbuf
+  | Some(x) ->
+    Stdio.print_endline (Sexp.to_string_hum (Orcml.Ast.sexp_of_e x))
   | None -> ()
 
 let () =
-  let lexbuf = Lexing.from_string "def foo(a) = a + 2 foo(3)" in
+  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_string "1") in
   parse_and_print lexbuf

@@ -1,5 +1,5 @@
 B ../_build/default/src
-FLG -open Orcml -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs
+FLG -open Orcml -w -40
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml"'\'''
 PKG base
 PKG base.caml
@@ -7,13 +7,12 @@ PKG base.shadow_stdlib
 PKG bigarray
 PKG bin_prot
 PKG bin_prot.shape
-PKG core
-PKG core_kernel
-PKG core_kernel.base_for_tests
+PKG bytes
 PKG fieldslib
-PKG jane-street-headers
-PKG num
-PKG num.core
+PKG js_of_ocaml
+PKG js_of_ocaml-compiler.runtime.weak
+PKG js_of_ocaml.weak
+PKG menhirLib
 PKG ppx_assert.runtime-lib
 PKG ppx_bench.runtime-lib
 PKG ppx_compare.runtime-lib
@@ -24,12 +23,8 @@ PKG ppx_hash.runtime-lib
 PKG ppx_inline_test.config
 PKG ppx_inline_test.runtime-lib
 PKG sexplib
-PKG sexplib.0
-PKG sexplib.unix
-PKG spawn
 PKG stdio
-PKG threads
-PKG threads.posix
 PKG typerep
+PKG uchar
 PKG unix
 PKG variantslib
