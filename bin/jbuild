@@ -1,5 +1,5 @@
 (executables
  ((names (hello_world tokenize simple))
-  (libraries (orcml orcml_lexer))))
+  (libraries (orcml orcml_lexer benchmark))))
 
 (jbuild_version 1)

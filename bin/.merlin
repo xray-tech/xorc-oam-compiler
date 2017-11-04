@@ -5,6 +5,7 @@ FLG -w -40
 PKG base
 PKG base.caml
 PKG base.shadow_stdlib
+PKG benchmark
 PKG bigarray
 PKG bin_prot
 PKG bin_prot.shape
