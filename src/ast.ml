@@ -41,20 +41,9 @@ type p' =
   | PCons of p * p
   | PRecord of (string * p) list
   | PAs of p * string
-  | PTyped of p * ty
-and ty' =
-  | TyVar of string
-  | TyApp of string * ty list
-  | TyRecord of (string * ty) list
-  | TyTuple of ty list
-  | TyFun of tyfun
-and tyfun = string list * ty list * ty
-and ty = (ty' * pos)
 and p = (p' * pos) [@@deriving sexp_of]
 
 type e' =
-  | EHasType of e * ty
-  | EOverrideType of e * ty
   | EOtherwise of e * e
   | EParallel of e * e
   | EPruning of e * p * e
@@ -62,24 +51,21 @@ type e' =
   | EConst of const
   | EIdent of ident
   | EFieldAccess of e * string
-  | ECall of e * ty list * e list
+  | ECall of e * e list
   | EStop
   | EList of e list
   | ETuple of e list
   | ERecord of (string * e) list
   | EDecl of decl * e
   | ECond of e * e * e
-  | ELambda of string list * p list * ty option * e
+  | ELambda of p list * e
 and decl' =
   | DVal of p * e
-  | DSig of ident * tyfun
-  | DDef of ident * string list * p list * ty option * e option  * e
+  | DDef of ident * p list * e option  * e
   | DSite of ident * string
   | DInclude of string
-  | DData of string * string list * constructor list
-  | DAlias of ident * string list * ty
-  | DTyImport of string * string
-and constructor = string * ty option list
+  | DData of string * constructor list
+and constructor = ident * int
 and decl = decl' * pos
 and e = e' * pos [@@deriving sexp_of]
 

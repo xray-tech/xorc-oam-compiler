@@ -17,7 +17,7 @@
 %token <string> STRING
 %token TRUE FALSE NULL SIGNAL STOP WILDCARD
 %token VAL TYPE IMPORT INCLUDE
-%token LAMBDA AS DEF SIG
+%token LAMBDA AS DEF
 %token IF THEN ELSE
 %token LEFT_BRACE RIGHT_BRACE
 %token LEFT_BRACK RIGHT_BRACK
@@ -26,7 +26,6 @@
 %token COMMA DOT
 %token LESS MORE
 %token BAR SEMICOLON
-%token DOUBLE_COLON TOVERRIDE
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR NOT COLON DEREFERENCE
 
 %nonassoc low
@@ -34,7 +33,6 @@
 %left AS
 %nonassoc IDENT
 
-%left DOUBLE_COLON TOVERRIDE
 %left BAR SEMICOLON LESS MORE
 %nonassoc ASSIGN
 %left OR
@@ -47,7 +45,6 @@
 
 %left DOT
 %left LEFT_PAREN
-%left LEFT_BRACK
 
 %nonassoc DEREFERENCE
 %nonassoc high
@@ -73,23 +70,20 @@ expr:
   | t=expr DOT f=IDENT { (EFieldAccess(t, f), make_pos $startpos $endpos)}
   | t=expr op=DEREFERENCE
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [], [t]),
+        (ECall(ident, [t]),
          make_pos $startpos $endpos) }
   | op=unop e=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [], [e]),
+        (ECall(ident, [e]),
          make_pos $startpos $endpos) } %prec high
   | t1=expr op=binop t2=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [], [t1; t2]),
+        (ECall(ident, [t1; t2]),
          make_pos $startpos $endpos) }
   | c=const { (EConst c, make_pos $startpos $endpos) }
   | name=IDENT { (EIdent(name), make_pos $startpos $endpos) }
-  | target=expr ar=args 
-   { (ECall(target, [], ar),
-      make_pos $startpos $endpos) }
-  | target=expr t_args=type_args ar=args 
-   { (ECall(target, t_args, ar),
+  | target=expr ar=args
+   { (ECall(target, ar),
       make_pos $startpos $endpos) }
   | e1=expr BAR e2=expr
     { (EParallel(e1, e2),
@@ -106,34 +100,26 @@ expr:
   | IF p=expr THEN t=expr ELSE e=expr
     { (ECond(p, t, e),
        make_pos $startpos $endpos) } %prec low
-  | e=expr DOUBLE_COLON ty=ty { (EHasType(e, ty), make_pos $startpos $endpos) }
-  | e=expr TOVERRIDE ty=ty { (EOverrideType(e, ty), make_pos $startpos $endpos) }
-  | LAMBDA ty_ps=type_params? ps=params return=ty? EQ e=expr
-    { (ELambda(optional_list ty_ps, ps, return, e),
+  | LAMBDA ps=params EQ e=expr
+    { (ELambda(ps, e),
        make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
 
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
-  | DEF name=IDENT t_ps=type_params? ps=params ret=ty? guard=guard? EQ e=expr
-    { (DDef(name, (optional_list t_ps), ps, ret, guard, e),
-       make_pos $startpos $endpos) }
-  | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
-    { (DSig(name, ((optional_list t_ps), args, ret)),
+  | DEF name=IDENT ps=params guard=guard? EQ e=expr
+    { (DDef(name, ps, guard, e),
        make_pos $startpos $endpos) }
   | IMPORT t=IDENT n=IDENT EQ def=STRING
     { match import_decl t n def with
       | Some d -> (d,
                    make_pos $startpos $endpos)
       | None -> $syntaxerror }
-  | INCLUDE p=STRING 
+  | INCLUDE p=STRING
     { (DInclude(p),
        make_pos $startpos $endpos) }
-  | TYPE i=IDENT t_ps=type_params? EQ ty=ty
-    { (DAlias(i, optional_list t_ps, ty),
-       make_pos $startpos $endpos) }
-  | TYPE i=IDENT t_ps=type_params? EQ cs=constructors
-    { (DData(i, optional_list t_ps, cs),
+  | TYPE i=IDENT EQ cs=constructors
+    { (DData(i, cs),
        make_pos $startpos $endpos) }
 
 guard: IF LEFT_PAREN e=expr RIGHT_PAREN { e }
@@ -143,31 +129,10 @@ constructors:
   | BAR c=constructor { [c] }
   | cs=constructors c=constructor { c::cs }
 
-constructor: n=IDENT LEFT_PAREN slots=slot* RIGHT_PAREN { (n, slots) }
-slot:
-  | WILDCARD { None }
-  | ty=ty { Some(ty) }
+constructor: n=IDENT LEFT_PAREN slots=separated_list(COMMA, WILDCARD) RIGHT_PAREN { (n, List.length slots) }
 
-type_params: LEFT_BRACK l=separated_nonempty_list(COMMA, IDENT) RIGHT_BRACK { l }
 params: LEFT_PAREN l=separated_list(COMMA, pattern) RIGHT_PAREN { l }
-type_args: LEFT_BRACK l=separated_nonempty_list(COMMA, ty) RIGHT_BRACK { l }
-arg_types: LEFT_PAREN l=separated_list(COMMA, ty) RIGHT_PAREN { l }
 args: LEFT_PAREN l=separated_list(COMMA, expr) RIGHT_PAREN { l }
-
-ty:
-  | name=IDENT { (TyVar(name), make_pos $startpos $endpos) }
-  | name=IDENT args=type_args { (TyApp(name, args), make_pos $startpos $endpos) }
-  | LEFT_BRACE
-      pairs=separated_nonempty_list(COMMA, k=IDENT EQ t=ty { (k, t) })
-    RIGHT_BRACE
-    { (TyRecord(pairs), make_pos $startpos $endpos) }
-  | LEFT_PAREN
-      l=separated_nonempty_list(COMMA, ty)
-    RIGHT_PAREN
-    { (TyTuple(l), make_pos $startpos $endpos) }
-  | LAMBDA ty_ps=type_params? args=arg_types DOUBLE_COLON return=ty
-    { (TyFun((optional_list ty_ps, args, return)),
-       make_pos $startpos $endpos) }
 
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }
@@ -185,8 +150,6 @@ pattern:
     { (PCons(head, tail), make_pos $startpos $endpos) }
   | p=pattern AS n=IDENT
     { (PAs(p, n), make_pos $startpos $endpos) }
-  | p=pattern DOUBLE_COLON ty=ty
-    { (PTyped(p, ty), make_pos $startpos $endpos) }
   | LEFT_PAREN p=pattern RIGHT_PAREN
     { p }
 
