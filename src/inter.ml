@@ -181,12 +181,14 @@ and tick
          publish state token res
        | None -> raise TODO)
   | Call(TFun(pc'), args) ->
-    let (size, _) = code.(pc') in
+    let (size, f_code) = code.(pc') in
     let env' = alloc_env size in
     let frame = FCall(token.env) in
+    Array.iter args (fun i ->
+        env'.(i) <- env.(i));
     token.env <- env';
     token.stack <- frame::stack;
-    token.pc <- (pc', 0);
+    token.pc <- (pc', Array.length f_code - 1);
     tick state token
   | Call(TClosure(i), args) ->
     (match env.(i) with
@@ -213,8 +215,8 @@ let run code clb =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
   let state = { code; instance; prims = default_prims } in
-  let (init_env_size, e_code) = code.(0) in
-  let token = { pc = (0, Array.length e_code - 1);
+  let (init_env_size, e_code) = code.(Array.length code - 1) in
+  let token = { pc = (Array.length code - 1, Array.length e_code - 1);
                 env = alloc_env init_env_size;
                 stack = [(FResult clb)]} in
   tick state token

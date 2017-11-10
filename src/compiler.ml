@@ -1,8 +1,19 @@
 open Base
 
-type prim = Let [@@deriving compare, enumerate]
+type prim = Let | Add [@@deriving compare, enumerate]
 
 exception UnboundVar of string
+
+type binding =
+  | BindVar of string
+  | BindFun of string * int
+  | BindPrim of string * prim [@@deriving variants]
+
+type state = { mutable code : (int * Inter.t list) list }
+
+let prims_map = [("Let", Let); ("+", Add)]
+
+let prims = List.map prims_map (fun ((s, p)) -> BindPrim(s, p))
 
 let list_index l v ~f =
   let rec index acc = function
@@ -11,10 +22,26 @@ let list_index l v ~f =
     | _::xs -> index (acc + 1) xs in
   index 0 l
 
-let rec ctx_index ctx ident =
-  match list_index ctx ident String.compare with
-  | None -> raise (UnboundVar ident)
-  | Some i -> i
+let ctx_find ctx ident =
+  let rec find acc = function
+    | [] -> raise (UnboundVar ident)
+    | BindVar(ident')::_ when String.equal ident ident' ->
+      (acc, BindVar ident')
+    | BindVar(_)::xs -> find (acc + 1) xs
+    | BindFun(ident', c)::xs when String.equal ident ident' ->
+      (acc, BindFun(ident', c))
+    | BindFun(_, _)::xs -> find acc xs
+    | BindPrim(ident', p)::_ when String.equal ident ident' ->
+      (acc, BindPrim(ident', p))
+    | BindPrim(_,_)::xs -> find acc xs in
+  find 0 ctx
+
+let new_index ctx  =
+  let rec find acc = function
+    | [] -> acc
+    | BindVar(_)::xs -> find (acc + 1) xs
+    | BindFun(_)::xs | BindPrim(_)::xs -> find acc xs in
+  find 0 ctx
 
 let prim_index p =
   match list_index all_of_prim p compare_prim with
@@ -23,45 +50,55 @@ let prim_index p =
 
 let prim_target p = Inter.TPrim(prim_index p)
 
-type state = { ctx : string list;
-               mutable code : (int * Inter.t list) list }
+let len = List.length
 
-type fun_state = { mutable e_code : Inter.t list;
-                   mutable max_stack : int }
-
-let set_max_stack fun_state ctx =
-  fun_state.max_stack <- Int.max (List.length ctx) fun_state.max_stack
-
-let rec compile_e fun_state ({ ctx } as state) (e, pos) =
-  set_max_stack fun_state ctx;
-  let open Ast in
-  let op = match e with
-    | EIdent x -> Inter.Call(prim_target Let, [| (ctx_index ctx x) |])
-    | EConst v -> Inter.Const v
-    | EParallel(e1, e2) ->
-      let e1' = compile_e fun_state state e1 in
-      let e2' = compile_e fun_state state e2 in
-      Inter.Parallel(e1', e2')
-    | EPruning(e1, ((PVar v), _), e2) ->
-      let state' = { state with ctx = v::ctx } in
-      let e1' = compile_e fun_state state' e1 in
-      let e2' = compile_e fun_state state e2 in
-      Inter.Pruning(e1', List.length ctx, e2')
-    | EDecl((DVal(((PVar v), _), val_e), _), e) ->
-      compile_e fun_state state ((EPruning(e, p, val_e)), pos) in
-  let i = List.length fun_state.e_code in
-  fun_state.e_code <- op::fun_state.e_code;
-  i
-
-let compile_fun state params body =
+let rec compile_e state ctx e =
+  let open Ir1 in
+  match e with
+  | EIdent x ->
+    (match ctx_find ctx x with
+     | (i, BindVar(_)) -> (0, [Inter.Call(prim_target Let, [| i |])])
+     | (_, BindFun(_, i)) -> (0, [Inter.Closure(i)]))
+  | EConst v -> (0, [Inter.Const v])
+  | EParallel(e1, e2) ->
+    let (s1, e1') = compile_e state ctx e1 in
+    let (s2, e2') = (compile_e state ctx e2) in
+    let e2'' = e2' @ e1' in
+    ((Int.max s1 s2),
+     Inter.Parallel(len e1' - 1, len e2'' - 1)::e2'')
+  | EPruning(e1, v, e2) ->
+    let ctx' = BindVar(v)::ctx in
+    let (s1, e1') = compile_e state ctx' e1 in
+    let (s2, e2') = compile_e state ctx e2 in
+    let e2'' = e2' @ e1' in
+    ((Int.max s1 s2) + 1,
+     Inter.Pruning(len e1' - 1, new_index ctx, len e2'' -1)::e2'')
+  | EFix(fs, e) ->
+    (* TODO closures *)
+    let names = List.map fs (fun (n, _, _) -> BindFun(n, i)) in
+    let ctx' = names @ ctx  in
+    let fs' = List.map fs (fun (ident, params, body) ->
+        (ident, compile_fun state ctx' params body)) in
+    compile_e state ctx' e
+  | ECall(ident, args) ->
+    let args' = List.map args (fun arg ->
+        match ctx_find ctx arg with
+        | (i, BindVar(_)) -> i) in
+    (match ctx_find ctx ident with
+     | (_, BindPrim(_, p)) ->
+       (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
+     | (_, BindFun(_, c)) ->
+       (0, [Inter.Call(Inter.TFun(c), Array.of_list args')]))
+and compile_fun state ctx params body =
   let i = List.length state.code in
-  let fun_state = { e_code = []; max_stack = 0 } in
-  compile_e fun_state state body |> ignore;
-  state.code <- (fun_state.max_stack, fun_state.e_code)::state.code;
+  let params' = List.map params bindvar in
+  let ctx' = params' @ ctx  in
+  let (env_size, body) = compile_e state ctx' body in
+  state.code <- (env_size + List.length params, body)::state.code;
   i
 
 let compile e =
-  let state = { ctx = []; code = [] } in
-  compile_fun state [] e |> ignore;
+  let state = { code = [] } in
+  compile_fun state prims [] e |> ignore;
   Array.of_list_rev_map state.code ~f:(fun (s, code) ->
       (s, Array.of_list_rev code))

@@ -37,11 +37,21 @@ let bench () =
   let samples = Benchmark.latency1 1000L parse_and_ignore s in
   Benchmark.tabulate samples
 
+let ir1 () =
+  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
+  match parse_with_error lexbuf with
+  | Some(x) ->
+    let res = Orcml.Ir1.translate x in
+    Stdio.print_endline (Sexp.to_string_hum (Orcml.Ir1.sexp_of_e res))
+  | None -> ()
+
+
 let compile () =
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
   match parse_with_error lexbuf with
   | Some(x) ->
-    let res = Orcml.Compiler.compile x in
+    let ir1 = Orcml.Ir1.translate x in
+    let res = Orcml.Compiler.compile ir1 in
     Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_code res))
   | None -> ()
 
@@ -49,9 +59,10 @@ let eval () =
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
   match parse_with_error lexbuf with
   | Some(x) ->
-    let res = Orcml.Compiler.compile x in
+    let ir1 = Orcml.Ir1.translate x in
+    let res = Orcml.Compiler.compile ir1 in
     Orcml.Inter.run res (fun v ->
-      Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
+        Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
   | None -> ()
 
 
@@ -59,6 +70,8 @@ let () =
   match Caml.Sys.argv.(1) with
   | "bench" -> bench ()
   | "parse" -> parse_and_print ()
+  | "ir1" -> ir1 ()
   | "compile" -> compile ()
   | "eval" -> eval ()
   | _ -> Caml.exit(-1)
+
