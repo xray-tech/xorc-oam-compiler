@@ -71,12 +71,12 @@ let bytegen () =
   | Some(x) ->
     let ir1 = Orcml.Ir1.translate x in
     let compiled = Orcml.Compiler.compile ir1 in
-    Stdio.printf "%s" (Orcml.Compiler.serialize compiled)
+    Stdio.printf "%s" (Orcml.Serialize.serialize_bc compiled)
   | None -> ()
 
 let byterun () =
   let input = Stdio.In_channel.input_all Stdio.stdin in
-  let prog = Orcml.Compiler.deserialize input in
+  let prog = Orcml.Serialize.deserialize_bc input in
   Orcml.Inter.run prog (fun v ->
       Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
 

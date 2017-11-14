@@ -14,7 +14,9 @@ let serialize_bc code =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
   let obj = array_to_list_map code (fun (i, ecode) ->
-      M.List ((M.Int i)::(List.concat (array_to_list_map ecode (function
+      M.List ((M.Int i)::
+              (M.Int (Array.length ecode))::
+              (List.concat (array_to_list_map ecode (function
           | Inter.Parallel(c1,c2) -> [M.Int 0; M.Int c1; M.Int c2]
           | Inter.Otherwise(c1,c2) -> [M.Int 1; M.Int c1; M.Int c2]
           | Inter.Pruning(c1,arg,c2) -> [M.Int 2;
@@ -40,7 +42,7 @@ let serialize_bc code =
              | Inter.TFun i -> [M.Int 1; M.Int i]
              | Inter.TClosure i -> [M.Int 2; M.Int i]) @
             [(M.List (array_to_list_map args (fun i -> M.Int i)))]
-          | Inter.Coeffect(v) -> [M.Int 6; M.String v]
+          | Inter.Coeffect(i) -> [M.Int 6; M.Int i]
           | Inter.Stop -> [M.Int 7]
           | Inter.Const(v) -> [M.Int 8; serialize_const v]
           | Inter.Closure(p, to_copy) -> [M.Int 9; M.Int p; M.Int to_copy]
@@ -64,7 +66,8 @@ let deserialize_bc s =
     | ((M.Int 3)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
       let arg' = (match arg with -1 -> None | x -> Some(x)) in
       Inter.Sequential(c1, arg', c2)::(des_fun xs)
-    | ((M.Int i)::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
+    | ((M.Int (4 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs)
+    | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
       let target = match t with
         | 0 -> Inter.TPrim t_arg
         | 1 -> Inter.TFun t_arg
@@ -78,8 +81,8 @@ let deserialize_bc s =
        | 4 -> Inter.Call(target, args')
        | 5 -> Inter.TailCall(target, args')
        | _ -> raise BadFormat)::(des_fun xs)
-    | ((M.Int 6)::(M.String s)::xs) ->
-      Inter.Coeffect(s)::(des_fun xs)
+    | ((M.Int 6)::(M.Int i)::xs) ->
+      Inter.Coeffect(i)::(des_fun xs)
     | ((M.Int 7)::xs) ->
       Inter.Stop::(des_fun xs)
     | ((M.Int 8)::v::xs) ->
@@ -97,7 +100,7 @@ let deserialize_bc s =
     | _ -> raise BadFormat in
   match packed with
   | M.List xs -> Array.of_list (List.map xs (function
-      | M.List ((M.Int i)::xs) -> (i, Array.of_list @@ des_fun xs)
+      | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list @@ des_fun xs)
       | _ -> raise BadFormat))
   | _ -> raise BadFormat
 
@@ -119,8 +122,8 @@ let serialize { current_coeffect; blocks } =
       M.Int id in
   let serialize_frame (id, frame) =
     let f = match frame with
-      | FPruning { realized; instances; pending } ->
-        [M.Int 0; M.Bool realized; M.Int instances; dedup pendings pending]
+      | FPruning { instances; pending } ->
+        [M.Int 0; M.Int instances; dedup pendings pending]
       | FOtherwise { first_value; instances; pc = (pc, c) } ->
         [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c]
       | FSequential(i, (pc, c)) ->
@@ -161,32 +164,33 @@ let serialize { current_coeffect; blocks } =
           M.List (List.concat_map !envs serialize_env);
           M.List blocks;]
 
-let deserialize s =
-  let (_, packed) = M.String.read s in
-  let frames = ref [] in
-  let envs = ref [] in
-  let pendings = ref [] in
-  let cache_find cache id =
-    List.Assoc.find_exn !cache ~equal:Int.equal id in
-  let rec deserialize_frames = function
-  | [] -> []
-  | [M.Int id; M.Int 0; M.Bool realized; M.Int instances; M.Int pending]::xs ->
-    FPruning { realized; instances; pending = cache_find pendings pending}::
-    (deserialize_frames xs)
-  | [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c] ->
-  | [M.Int 2; M.Int i; M.Int pc; M.Int c] ->
-  | [M.Int 3; M.Int env]in
-
-
-  match packed with
-  | M.List [M.Int current_coeffect;
-            M.List frames;
-            M.List pendings;
-            M.List envs;
-            M.List blocks] ->
-    deserialize_frames frames;
-    deserialize_pendings pendings;
-    deserialize_envs envs;
-    let blocks = deserialize_blocks blocks in
-    { current_coeffect; blocks = blocks' }
-  | _ -> raise BadFormat
+(* let deserialize s =
+ *   let (_, packed) = M.String.read s in
+ *   let frames = ref [] in
+ *   let envs = ref [] in
+ *   let pendings = ref [] in
+ *   let cache_find cache id =
+ *     List.Assoc.find_exn !cache ~equal:Int.equal id in
+ *   let dummy_pending () = { pend_value = Pend; pend_waiters = [] } in
+ *   let rec deserialize_frames = function
+ *   | [] -> []
+ *   | [M.Int id; M.Int 0; M.Bool realized; M.Int instances; M.Int pending]::xs ->
+ *     FPruning { realized; instances; pending = cache_find pendings pending}::
+ *     (deserialize_frames xs)
+ *   | [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c] ->
+ *   | [M.Int 2; M.Int i; M.Int pc; M.Int c] ->
+ *   | [M.Int 3; M.Int env] in
+ * 
+ * 
+ *   match packed with
+ *   | M.List [M.Int current_coeffect;
+ *             M.List frames;
+ *             M.List pendings;
+ *             M.List envs;
+ *             M.List blocks] ->
+ *     deserialize_frames frames;
+ *     deserialize_pendings pendings;
+ *     deserialize_envs envs;
+ *     let blocks = deserialize_blocks blocks in
+ *     { current_coeffect; blocks = blocks' }
+ *   | _ -> raise BadFormat *)

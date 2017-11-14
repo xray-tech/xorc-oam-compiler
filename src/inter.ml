@@ -10,13 +10,16 @@ type t =
   | Sequential of c * int option * c
   | Call of call_target * int array
   | TailCall of call_target * int array
-  | Coeffect of string
+  | Coeffect of int
   | Stop
   | Const of Ast.const
   | Closure of (int * int)
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
+  (* | VTuple of v list
+   * | VList of v list
+   * | VRecord of (string * v) list *)
 and env_v =
   | Value of v | Pending of pending
 and env = env_v array
@@ -26,8 +29,7 @@ and pending = {
   mutable pend_waiters : token list;
 }
 and frame =
-  | FPruning of { mutable realized : bool;
-                  mutable instances : int;
+  | FPruning of { mutable instances : int;
                   pending : pending }
   | FOtherwise of { mutable first_value : bool;
                     mutable instances : int;
@@ -58,36 +60,40 @@ exception TODO
 exception RuntimeError
 
 let default_prims = [|
+  (* Let *)
   (function
     | [| VConst _ as v |] -> PrimVal v
     | _ -> PrimUnsupported);
+  (* Add *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x + y)))
     | [| VConst(Ast.String x); VConst(Ast.String y) |] -> PrimVal (VConst(Ast.String(String.concat [x;y])))
     | _ -> PrimUnsupported);
+  (* Sub *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x - y)))
     | _ -> PrimUnsupported);
+  (* Ift *)
   (function
     | [| VConst(Ast.Bool true) |] -> PrimVal (VConst(Ast.Signal))
     | [| VConst(Ast.Bool false) |] -> PrimHalt
     | _ -> PrimUnsupported);
+  (* Iff *)
   (function
     | [| VConst(Ast.Bool false) |] -> PrimVal (VConst(Ast.Signal))
     | [| VConst(Ast.Bool true) |] -> PrimHalt
     | _ -> PrimUnsupported);
+  (* Eq *)
   (function
     | [| VConst(v1); VConst(v2) |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
     | _ -> PrimUnsupported)
 |]
 
-let increment_instances stack =
-  let rec incr = function
-    | [] -> ()
-    | FOtherwise(r)::_ -> r.instances <- r.instances + 1
-    | FPruning(r)::_ -> r.instances <- r.instances + 1
-    | x::xs -> incr xs in
-  incr stack
+let rec increment_instances = function
+  | [] -> ()
+  | FOtherwise(r)::_ -> r.instances <- r.instances + 1
+  | FPruning(r)::_ -> r.instances <- r.instances + 1
+  | x::xs -> increment_instances xs
 
 let alloc_env size = Array.create size (Value (VConst Ast.Null))
 
@@ -125,7 +131,7 @@ let rec publish state stack env v =
   | x::stack' -> match x with
     | FResult -> state.result v
     | FSequential(i, pc) ->
-      increment_instances stack;
+      increment_instances stack';
       (match i with
        | None -> ()
        | Some i ->
@@ -136,12 +142,12 @@ let rec publish state stack env v =
       publish state stack' env v
     | FOtherwise _ ->
       publish state stack' env v
-    | FPruning ({ realized = false; pending } as r) ->
-      r.realized <- true;
-      pending.pend_value <- PendVal v;
-      List.iter pending.pend_waiters ~f:(fun token ->
+    | FPruning ({ pending = { pend_value = Pend } } as r) ->
+      r.pending.pend_value <- PendVal v;
+      List.iter r.pending.pend_waiters ~f:(fun token ->
           unblock state token)
-    | FPruning { realized = true } -> ()
+    | FPruning { pending = { pend_value = PendVal(_) } } -> ()
+    | FPruning { pending = { pend_value = PendStopped } } -> assert false
     | FCall env' ->
       publish state stack' env' v
 and halt state stack env =
@@ -155,7 +161,7 @@ and halt state stack env =
         in_stack stack'
       | FOtherwise r ->
         r.instances <- r.instances - 1
-      | FPruning { instances = 1; realized = false; pending} ->
+      | FPruning { instances = 1; pending = ({ pend_value = Pend } as pending)} ->
         pending.pend_value <- PendStopped
       | FPruning r ->
         r.instances <- r.instances - 1
@@ -180,8 +186,7 @@ and tick
     tick state (pc, c1) (frame::stack) env
   | Pruning(c1, i, c2) ->
     let pending = { pend_value = Pend; pend_waiters = [] } in
-    let frame = FPruning { realized = false;
-                           instances = 1;
+    let frame = FPruning { instances = 1;
                            pending;} in
     (match i with
      | None -> ()
