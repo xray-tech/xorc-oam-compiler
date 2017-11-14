@@ -8,12 +8,12 @@ type t =
   | Otherwise of c * c
   | Pruning of c * int option * c
   | Sequential of c * int option * c
-  | Stop
-  | Const of Ast.const
-  | Closure of (int * int)
   | Call of call_target * int array
   | TailCall of call_target * int array
   | Coeffect of string
+  | Stop
+  | Const of Ast.const
+  | Closure of (int * int)
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
@@ -34,12 +34,12 @@ and frame =
                     pc : (int * c) }
   | FSequential of (int option * (int * c))
   | FCall of env
-  | FResult of (v -> unit)
+  | FResult
 and stack = frame list
 and token = {
-  mutable pc : (int * c);
-  mutable env : env;
-  mutable stack : stack;
+  pc : (int * c);
+  env : env;
+  stack : stack;
 } [@@deriving sexp]
 
 type code = (int * t array) array [@@deriving sexp]
@@ -49,9 +49,10 @@ type instance = { mutable current_coeffect : int;
 type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
 type prims = (v array -> prim_v) array
 
-type state = { code : code;
-               instance : instance;
-               prims : prims }
+type program = { code : code;
+                 instance : instance;
+                 prims : prims;
+                 result : (v -> unit)}
 
 exception TODO
 exception RuntimeError
@@ -80,16 +81,13 @@ let default_prims = [|
     | _ -> PrimUnsupported)
 |]
 
-let increment_instances { stack } =
+let increment_instances stack =
   let rec incr = function
     | [] -> ()
     | FOtherwise(r)::_ -> r.instances <- r.instances + 1
     | FPruning(r)::_ -> r.instances <- r.instances + 1
     | x::xs -> incr xs in
   incr stack
-
-let token_copy_env token =
-  { token with env = Array.copy token.env }
 
 let alloc_env size = Array.create size (Value (VConst Ast.Null))
 
@@ -111,7 +109,7 @@ let format_env env =
             |> Sequence.to_list) in
   "(" ^ String.concat ~sep:", " vs ^ ")"
 
-let print_token { code } { pc = (pc, c); env; stack; } =
+let print_debug { code } (pc, c) env  =
   let (size, f) = code.(pc) in
   let op = f.(c) in
   Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
@@ -119,49 +117,40 @@ let print_token { code } { pc = (pc, c); env; stack; } =
     (sexp_of_t op |> Sexp.to_string_hum)
     (format_env env)
 
+let unblock state token = ()
 
-let rec publish state ({ stack } as token) v =
-  let rec in_stack = function
-    | [] -> assert false
-    | x::stack' -> match x with
-      | FResult clb -> clb v
-      | FSequential(i, pc) ->
-        increment_instances token;
-        let token' = (token_copy_env token) in
-        token'.stack <- stack';
-        token'.pc <- pc;
-        (match i with
-         | None -> ()
-         | Some i ->
-           token'.env.(i) <- Value(v));
-        tick state token'
-      | FOtherwise ({ first_value = false } as r) ->
-        r.first_value <- true;
-        in_stack stack'
-      | FOtherwise _ ->
-        in_stack stack'
-      | FPruning ({ realized = false; pending } as r) ->
-        r.realized <- true;
-        (* (match v with
-         *  | VClosure _ -> ()
-         *  | v -> sexp_of_v v |> Sexp.to_string_hum |> Stdio.printf "---PruningVAL: %s\n"); *)
-        pending.pend_value <- PendVal v;
-        List.iter pending.pend_waiters ~f:(fun token ->
-            tick state token)
-      | FPruning { realized = true } -> ()
-      | FCall env ->
-        token.env <- env;
-        in_stack stack' in
-  in_stack stack
-and halt state ({ stack; pc = (pc, _) } as token) =
+let rec publish state stack env v =
+  match stack with
+  | [] -> assert false
+  | x::stack' -> match x with
+    | FResult -> state.result v
+    | FSequential(i, pc) ->
+      increment_instances stack;
+      (match i with
+       | None -> ()
+       | Some i ->
+         env.(i) <- Value(v));
+      tick state pc stack' env
+    | FOtherwise ({ first_value = false } as r) ->
+      r.first_value <- true;
+      publish state stack' env v
+    | FOtherwise _ ->
+      publish state stack' env v
+    | FPruning ({ realized = false; pending } as r) ->
+      r.realized <- true;
+      pending.pend_value <- PendVal v;
+      List.iter pending.pend_waiters ~f:(fun token ->
+          unblock state token)
+    | FPruning { realized = true } -> ()
+    | FCall env' ->
+      publish state stack' env' v
+and halt state stack env =
   let rec in_stack = function
     | [] -> ()
     | x::stack' -> match x with
       | FOtherwise {instances =  1 ;
                     first_value = false; pc } ->
-        token.pc <- pc;
-        token.stack <- stack';
-        tick state token
+        tick state pc stack' env
       | FOtherwise { instances = 1 } ->
         in_stack stack'
       | FOtherwise r ->
@@ -174,25 +163,21 @@ and halt state ({ stack; pc = (pc, _) } as token) =
   in_stack stack
 and tick
     ({ code; prims; instance } as state)
-    ({ pc = (pc, c); env; stack } as token) =
-  (* print_token state token; *)
+    (pc, c) stack env =
+  (* print_debug state (pc, c) env; *)
   let (_, proc) = code.(pc) in
   match proc.(c) with
-  | Const v -> publish state token (VConst v)
-  | Stop -> halt state token
+  | Const v -> publish state stack env (VConst v)
+  | Stop -> halt state stack env
   | Parallel(c1, c2) ->
-    increment_instances token;
-    token.pc <- (pc, c1);
-    tick state token;
-    token.pc <- (pc, c2);
-    tick state token
+    increment_instances stack;
+    tick state (pc, c1) stack env;
+    tick state (pc, c2) stack env;
   | Otherwise(c1, c2) ->
     let frame = FOtherwise { first_value = false;
                              instances = 1;
                              pc = (pc, c2); } in
-    token.pc <- (pc, c1);
-    token.stack <- frame::stack;
-    tick state token
+    tick state (pc, c1) (frame::stack) env
   | Pruning(c1, i, c2) ->
     let pending = { pend_value = Pend; pend_waiters = [] } in
     let frame = FPruning { realized = false;
@@ -200,26 +185,20 @@ and tick
                            pending;} in
     (match i with
      | None -> ()
-     | Some i -> token.env.(i) <- Pending pending);
-    token.stack <- frame::stack;
-    token.pc <- (pc, c2);
-    tick state token;
-    token.stack <- stack;
-    token.pc <- (pc, c1);
-    tick state token
+     | Some i -> env.(i) <- Pending pending);
+    tick state (pc, c2) (frame::stack) env;
+    tick state (pc, c1) stack env
   | Sequential(c1, i, c2) ->
     let frame = FSequential(i, (pc, c2)) in
-    token.stack <- frame::stack;
-    token.pc <- (pc, c1);
-    tick state token
+    tick state (pc, c1) (frame::stack) env
   | Closure (pc', to_copy) ->
-    publish state token (VClosure(pc', to_copy, env))
+    publish state stack env (VClosure(pc', to_copy, env))
   | Call(TPrim(prim), args) ->
-    (* Stdio.printf "---PRIM CALL %i\n" prim; *)
     let impl = prims.(prim) in
     (match (try `Args (Array.map args ~f:(fun i ->
          match env.(i) with
          | Pending ({ pend_value = Pend } as p) ->
+           let token = { pc = (pc, c); stack; env } in
            p.pend_waiters <- token::p.pend_waiters;
            raise ToWait
          | Pending { pend_value = PendStopped } ->
@@ -228,28 +207,25 @@ and tick
          | Value v -> v)) with
        | ToWait -> `Wait
        | ToStop -> `Stop) with
-     | `Stop -> halt state token
+     | `Stop -> halt state stack env
      | `Wait -> ()
      | `Args args' ->
-       (* [%sexp_of: v array] args' |> Sexp.to_string_hum |> Stdio.printf "---ARGS: %s\n"; *)
        match impl args' with
        | PrimVal res ->
-         publish state token res
-       | PrimHalt -> halt state token
+         publish state stack env res
+       | PrimHalt -> halt state stack env
        | PrimUnsupported -> raise RuntimeError)
   | Call(TFun(pc'), args) ->
     let (size, f_code) = code.(pc') in
     let env' = alloc_env size in
-    let frame = FCall(token.env) in
+    let frame = FCall(env) in
     Array.iteri args (fun i arg ->
         env'.(i) <- env.(arg));
-    token.env <- env';
-    token.stack <- frame::stack;
-    token.pc <- (pc', Array.length f_code - 1);
-    tick state token
+    tick state (pc', Array.length f_code - 1) (frame::stack) env'
   | Call(TClosure(i), args) ->
     (match env.(i) with
      | Pending ({ pend_value = Pend } as p) ->
+       let token = { pc = (pc, c); stack; env } in
        p.pend_waiters <- token::p.pend_waiters;
      | Pending { pend_value = PendStopped } ->
        raise Util.TODO
@@ -258,21 +234,17 @@ and tick
      | Value(VClosure(pc', to_copy, closure_env)) ->
        let (size, f_code) = code.(pc') in
        let env' = alloc_env size in
-       (* Stdio.printf "----ALL: size: %i; closure_sizr: %i\n" size (Array.length closure_env); *)
        for i = 0 to to_copy - 1 do
          env'.(i) <- closure_env.(i)
        done;
-       (* Stdio.printf "----ARGS size: %i; env_size: %i\n" (Array.length args) (Array.length env); *)
        Array.iteri args (fun i arg ->
            env'.(i + to_copy) <- env.(arg));
-       let frame = FCall(token.env) in
-       token.env <- env';
-       token.stack <- frame::stack;
-       token.pc <- (pc', Array.length f_code - 1);
-       tick state token
+       let frame = FCall(env) in
+       tick state (pc', Array.length f_code - 1) (frame::stack) env'
      | Pending { pend_value = PendVal(_) } ->
        raise RuntimeError)
   | Coeffect descr ->
+    let token = { pc = (pc, c); stack; env } in
     instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
     instance.current_coeffect <- instance.current_coeffect + 1
   | _ -> raise TODO
@@ -280,9 +252,9 @@ and tick
 let run code clb =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
-  let state = { code; instance; prims = default_prims } in
+  let state = { code; instance; prims = default_prims; result = clb } in
   let (init_env_size, e_code) = code.(Array.length code - 1) in
-  let token = { pc = (Array.length code - 1, Array.length e_code - 1);
-                env = alloc_env init_env_size;
-                stack = [(FResult clb)]} in
-  tick state token
+  let pc = (Array.length code - 1, Array.length e_code - 1) in
+  let env = alloc_env init_env_size in
+  let stack = [FResult] in
+  tick state pc stack env

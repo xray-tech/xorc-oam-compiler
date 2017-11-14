@@ -65,6 +65,20 @@ let eval () =
         Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
   | None -> ()
 
+let bytegen () =
+  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
+  match parse_with_error lexbuf with
+  | Some(x) ->
+    let ir1 = Orcml.Ir1.translate x in
+    let compiled = Orcml.Compiler.compile ir1 in
+    Stdio.printf "%s" (Orcml.Compiler.serialize compiled)
+  | None -> ()
+
+let byterun () =
+  let input = Stdio.In_channel.input_all Stdio.stdin in
+  let prog = Orcml.Compiler.deserialize input in
+  Orcml.Inter.run prog (fun v ->
+      Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
 
 let () =
   match Caml.Sys.argv.(1) with
@@ -72,6 +86,7 @@ let () =
   | "parse" -> parse_and_print ()
   | "ir1" -> ir1 ()
   | "compile" -> compile ()
+  | "bytegen" -> bytegen ()
+  | "byterun" -> byterun ()
   | "eval" -> eval ()
   | _ -> Caml.exit(-1)
-

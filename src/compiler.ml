@@ -133,8 +133,6 @@ let rec compile_e ctx shift e =
       (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc) in
     let init = (shift + len body, new_index ctx, []) in
     let (_, _, closures) = List.fold (List.rev fs) ~init ~f:make_closure in
-
-    [%sexp_of: Inter.t list] closures |> Sexp.to_string_hum |> Stdio.printf("---CLOSURES (shift: %i): %s\n") shift;
     (s + (len closures / 2), closures @ body)
   (* (\* TODO closures *\)
    * let names = List.map fs (fun (ident, _, _) ->
@@ -195,3 +193,4 @@ let compile e =
   let code' = change_labels labels_mapping code in
   Array.of_list_map code' ~f:(fun (s, f) ->
       (s, Array.of_list_rev f))
+

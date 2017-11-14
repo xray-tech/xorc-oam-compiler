@@ -1,6 +1,6 @@
 (library
  ((name orcml)
-  (libraries (base menhirLib stdio js_of_ocaml js_of_ocaml.weak))
+  (libraries (base menhirLib stdio js_of_ocaml js_of_ocaml.weak msgpck))
   (preprocess (pps (ppx_jane)))
 ))
 
