@@ -51,10 +51,11 @@ type instance = { mutable current_coeffect : int;
 type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
 type prims = (v array -> prim_v) array
 
-type program = { code : code;
-                 instance : instance;
-                 prims : prims;
-                 result : (v -> unit)}
+type state = { code : code;
+               instance : instance;
+               prims : prims;
+               values: (v -> unit);
+               coeffects: ((int * v) -> unit)}
 
 exception TODO
 exception RuntimeError
@@ -123,13 +124,11 @@ let print_debug { code } (pc, c) env  =
     (sexp_of_t op |> Sexp.to_string_hum)
     (format_env env)
 
-let unblock state token = ()
-
 let rec publish state stack env v =
   match stack with
   | [] -> assert false
   | x::stack' -> match x with
-    | FResult -> state.result v
+    | FResult -> state.values v
     | FSequential(i, pc) ->
       increment_instances stack';
       (match i with
@@ -144,8 +143,8 @@ let rec publish state stack env v =
       publish state stack' env v
     | FPruning ({ pending = { pend_value = Pend } } as r) ->
       r.pending.pend_value <- PendVal v;
-      List.iter r.pending.pend_waiters ~f:(fun token ->
-          unblock state token)
+      List.iter r.pending.pend_waiters ~f:(fun { pc; stack; env } ->
+          tick state pc stack env)
     | FPruning { pending = { pend_value = PendVal(_) } } -> ()
     | FPruning { pending = { pend_value = PendStopped } } -> assert false
     | FCall env' ->
@@ -171,6 +170,26 @@ and tick
     ({ code; prims; instance } as state)
     (pc, c) stack env =
   (* print_debug state (pc, c) env; *)
+  let realized arg =
+    (match env.(arg) with
+     | Pending ({ pend_value = Pend } as p) ->
+       `Pending p
+     | Pending { pend_value = PendStopped } ->
+       `Stopped
+     | Pending { pend_value = PendVal(v) }
+     | Value(v) -> `Value v) in
+  let realized_multi args =
+    let values = (Array.create (Array.length args) (VConst (Ast.Null))) in
+    let rec step i =
+      match realized args.(i) with
+      | `Pending p -> `Pending p
+      | `Stopped -> `Stopped
+      | `Value v ->
+        values.(i) <- v;
+        if i + 1 < Array.length args
+        then step (i + 1)
+        else `Values values in
+    step 0 in
   let (_, proc) = code.(pc) in
   match proc.(c) with
   | Const v -> publish state stack env (VConst v)
@@ -199,27 +218,16 @@ and tick
   | Closure (pc', to_copy) ->
     publish state stack env (VClosure(pc', to_copy, env))
   | Call(TPrim(prim), args) ->
-    let impl = prims.(prim) in
-    (match (try `Args (Array.map args ~f:(fun i ->
-         match env.(i) with
-         | Pending ({ pend_value = Pend } as p) ->
-           let token = { pc = (pc, c); stack; env } in
-           p.pend_waiters <- token::p.pend_waiters;
-           raise ToWait
-         | Pending { pend_value = PendStopped } ->
-           raise ToStop
-         | Pending { pend_value = PendVal(v) }
-         | Value v -> v)) with
-       | ToWait -> `Wait
-       | ToStop -> `Stop) with
-     | `Stop -> halt state stack env
-     | `Wait -> ()
-     | `Args args' ->
-       match impl args' with
-       | PrimVal res ->
-         publish state stack env res
-       | PrimHalt -> halt state stack env
-       | PrimUnsupported -> raise RuntimeError)
+    (match realized_multi args with
+     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+     | `Stopped -> halt state stack env
+     | `Values args' ->
+       let impl = prims.(prim) in
+       (match impl args' with
+        | PrimVal res ->
+          publish state stack env res
+        | PrimHalt -> halt state stack env
+        | PrimUnsupported -> raise RuntimeError))
   | Call(TFun(pc'), args) ->
     let (size, f_code) = code.(pc') in
     let env' = alloc_env size in
@@ -228,15 +236,11 @@ and tick
         env'.(i) <- env.(arg));
     tick state (pc', Array.length f_code - 1) (frame::stack) env'
   | Call(TClosure(i), args) ->
-    (match env.(i) with
-     | Pending ({ pend_value = Pend } as p) ->
-       let token = { pc = (pc, c); stack; env } in
-       p.pend_waiters <- token::p.pend_waiters;
-     | Pending { pend_value = PendStopped } ->
-       raise Util.TODO
-     | Value(VConst _) -> raise RuntimeError
-     | Pending { pend_value = PendVal(VClosure(pc', to_copy, closure_env)) }
-     | Value(VClosure(pc', to_copy, closure_env)) ->
+    (match realized i with
+     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+     | `Stopped -> raise Util.TODO
+     | `Value(VConst _) -> raise RuntimeError
+     | `Value(VClosure(pc', to_copy, closure_env)) ->
        let (size, f_code) = code.(pc') in
        let env' = alloc_env size in
        for i = 0 to to_copy - 1 do
@@ -245,21 +249,50 @@ and tick
        Array.iteri args (fun i arg ->
            env'.(i + to_copy) <- env.(arg));
        let frame = FCall(env) in
-       tick state (pc', Array.length f_code - 1) (frame::stack) env'
-     | Pending { pend_value = PendVal(_) } ->
-       raise RuntimeError)
-  | Coeffect descr ->
-    let token = { pc = (pc, c); stack; env } in
-    instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
-    instance.current_coeffect <- instance.current_coeffect + 1
+       tick state (pc', Array.length f_code - 1) (frame::stack) env')
+  | Coeffect arg ->
+    (match realized arg with
+     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+     | `Stopped -> raise Util.TODO
+     | `Value(descr) ->
+       let token = { pc = (pc, c); stack; env } in
+       state.coeffects (instance.current_coeffect, descr);
+       instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
+       instance.current_coeffect <- instance.current_coeffect + 1)
   | _ -> raise TODO
 
-let run code clb =
+let values_clb () =
+  let storage = ref [] in
+  (storage, (fun v -> storage:= v::!storage))
+
+let coeffects_clb () =
+  let storage = ref [] in
+  (storage, (fun v -> storage:= v::!storage))
+
+let run code =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
-  let state = { code; instance; prims = default_prims; result = clb } in
+  let (values, clb) = values_clb () in
+  let (coeffects, c_clb) = coeffects_clb () in
+  let state = { code; instance;
+                prims = default_prims;
+                values = clb;
+                coeffects = c_clb} in
   let (init_env_size, e_code) = code.(Array.length code - 1) in
   let pc = (Array.length code - 1, Array.length e_code - 1) in
   let env = alloc_env init_env_size in
   let stack = [FResult] in
-  tick state pc stack env
+  tick state pc stack env;
+  (* TODO killed coeffects *)
+  (!values, !coeffects, [], instance)
+
+let unblock code instance coeffect value =
+  let (values, clb) = values_clb () in
+  let (coeffects, c_clb) = coeffects_clb () in
+  let state = { code; instance;
+                prims = default_prims;
+                values = clb;
+                coeffects = c_clb} in
+  let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
+  publish state token.stack token.env value;
+  (!values, !coeffects, [], instance)

@@ -8,6 +8,7 @@ exception UnboundVar of string
 
 type binding =
   | BindVar
+  | BindCoeffect
   | BindFun of int
   | BindPrim of prim [@@deriving variants, sexp]
 
@@ -39,7 +40,8 @@ let ctx_vars ctx  =
   let rec find acc = function
     | [] -> acc
     | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs -> find acc xs in
+    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs | (_,BindCoeffect)::xs ->
+      find acc xs in
   find 0 ctx
 
 let ctx_find ctx ident =
@@ -80,7 +82,8 @@ let rec compile_e ctx shift e =
     (match ctx_find ctx x with
      | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
      | (_, BindFun i) -> (0, [Inter.Closure(i, 0)])
-     | (_, BindPrim prim) ->
+     | (_, BindCoeffect) -> raise Util.TODO
+     | (_, BindPrim prim)  ->
        (* translate to closure *)
        raise Util.TODO
     )
@@ -153,7 +156,11 @@ let rec compile_e ctx shift e =
      | (_, BindFun c) ->
        (0, [Inter.Call(Inter.TFun(c), Array.of_list args')])
      | (i, BindVar) ->
-       (0, [Inter.Call(Inter.TClosure(i), Array.of_list args')]))
+       (0, [Inter.Call(Inter.TClosure(i), Array.of_list args')])
+     | (_, BindCoeffect) ->
+       (match args' with
+        | [i] -> (0, [Inter.Coeffect i])
+        | _ -> raise Util.TODO))
   | EStop -> (0, [Inter.Stop])
   | ESite(_, _, _) -> raise Util.TODO
 
@@ -178,7 +185,7 @@ let change_labels mapping code =
 let compile e =
   compile_queue := [];
   label := 0;
-  add_to_queue !label prims [] e;
+  add_to_queue !label (("Coeffect", BindCoeffect)::prims) [] e;
   let rec compile_loop acc =
     match !compile_queue with
     | [] -> acc

@@ -21,6 +21,14 @@ let parse_with_error lexbuf =
     Stdio.print_endline "syntax error";
     None
 
+let value s =
+  let lexbuf = Orcml_lexer.create_lexbuf (Sedlexing.Utf8.from_string s) in
+  let module A = Orcml.Ast in
+  parse_with_error lexbuf
+  |> Option.bind ~f:(function
+      | (A.EConst(v), _) -> Some(Orcml.Inter.VConst(v))
+      | _ -> None)
+
 let parse_and_print () =
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
   match parse_with_error lexbuf with
@@ -61,8 +69,10 @@ let eval () =
   | Some(x) ->
     let ir1 = Orcml.Ir1.translate x in
     let res = Orcml.Compiler.compile ir1 in
-    Orcml.Inter.run res (fun v ->
-        Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
+    let (values, _, _, _) = Orcml.Inter.run res in
+    List.iter values
+      (fun v ->
+         Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
   | None -> ()
 
 let bytegen () =
@@ -74,19 +84,38 @@ let bytegen () =
     Stdio.printf "%s" (Orcml.Serialize.serialize_bc compiled)
   | None -> ()
 
+let print_result (values, coeffects, _, snapshot) =
+  List.iter values
+    (fun v ->
+       Stdio.eprintf "%s\n" (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)));
+  List.iter coeffects
+    (fun (i, v) ->
+       Stdio.eprintf "Coeffect %i -> %s\n" i (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)));
+  Stdio.printf "%s" (Orcml.Serialize.serialize snapshot)
+
+
 let byterun () =
   let input = Stdio.In_channel.input_all Stdio.stdin in
   let prog = Orcml.Serialize.deserialize_bc input in
-  Orcml.Inter.run prog (fun v ->
-      Stdio.print_endline (Sexp.to_string_hum (Orcml.Inter.sexp_of_v v)))
+  print_result @@ Orcml.Inter.run prog
+
+let unblock prog_path id v =
+  let module Serialize = Orcml.Serialize in
+  let snapshot = Serialize.deserialize @@ Stdio.In_channel.input_all Stdio.stdin in
+  let prog = Serialize.deserialize_bc @@ Stdio.In_channel.read_all prog_path in
+  let id' = Int.of_string id in
+  let v' = Option.value_exn (value v) in
+  print_result @@ Orcml.Inter.unblock prog snapshot id' v'
 
 let () =
-  match Caml.Sys.argv.(1) with
+  let argv = Caml.Sys.argv in
+  match argv.(1) with
   | "bench" -> bench ()
   | "parse" -> parse_and_print ()
   | "ir1" -> ir1 ()
   | "compile" -> compile ()
   | "bytegen" -> bytegen ()
   | "byterun" -> byterun ()
+  | "unblock" -> unblock argv.(2) argv.(3) argv.(4)
   | "eval" -> eval ()
   | _ -> Caml.exit(-1)
