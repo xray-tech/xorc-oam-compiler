@@ -29,6 +29,7 @@ PKG ppx_inline_test.config
 PKG ppx_inline_test.runtime-lib
 PKG sedlex
 PKG sexplib
+PKG sexplib.0
 PKG stdio
 PKG typerep
 PKG uchar

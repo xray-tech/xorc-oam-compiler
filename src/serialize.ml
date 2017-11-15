@@ -101,7 +101,7 @@ let deserialize_bc s =
     | _ -> raise BadFormat in
   match packed with
   | M.List xs -> Array.of_list (List.map xs (function
-      | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list @@ des_fun xs)
+      | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
       | _ -> raise BadFormat))
   | _ -> raise BadFormat
 
@@ -159,7 +159,7 @@ let serialize { current_coeffect; blocks } =
     | Value x -> M.List ((M.Int 0)::(serialize_value x))
     | Pending x -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
-    [M.Int id; M.List (Array.map env serialize_env_v |> Array.to_list)]
+    [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
   and serialize_token { pc = (pc, c); stack; env } =
     M.List [M.Int pc;
             M.Int c;
@@ -237,17 +237,17 @@ let deserialize s =
     let rec deserialize_frames = function
       | [] -> ()
       | (M.Int id)::(M.Int 0)::(M.Int instances)::(M.Int pending)::xs ->
-        add_repo frames_repo id @@ FPruning { instances; pending = repo_or_dummy_pending pending};
+        add_repo frames_repo id (FPruning { instances; pending = repo_or_dummy_pending pending});
         deserialize_frames xs
       | (M.Int id)::(M.Int 1)::(M.Bool first_value)::(M.Int instances)::(M.Int pc)::(M.Int c)::xs ->
-        add_repo frames_repo id @@ FOtherwise { first_value; instances; pc = (pc, c) };
+        add_repo frames_repo id (FOtherwise { first_value; instances; pc = (pc, c) });
         deserialize_frames xs
       | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
         let i' = if Int.equal (-1) i then None else Some(i) in
-        add_repo frames_repo id @@ FSequential(i', (pc, c));
+        add_repo frames_repo id (FSequential(i', (pc, c)));
         deserialize_frames xs
       | (M.Int id)::(M.Int 3)::(M.Int env)::xs ->
-        add_repo frames_repo id @@ FCall(repo_or_dummy_env env);
+        add_repo frames_repo id (FCall(repo_or_dummy_env env));
         deserialize_frames xs
       | (M.Int id)::(M.Int 4)::xs ->
         add_repo frames_repo id FResult;

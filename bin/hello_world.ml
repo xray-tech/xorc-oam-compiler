@@ -97,15 +97,15 @@ let print_result (values, coeffects, _, snapshot) =
 let byterun () =
   let input = Stdio.In_channel.input_all Stdio.stdin in
   let prog = Orcml.Serialize.deserialize_bc input in
-  print_result @@ Orcml.Inter.run prog
+  print_result (Orcml.Inter.run prog)
 
 let unblock prog_path id v =
   let module Serialize = Orcml.Serialize in
-  let snapshot = Serialize.deserialize @@ Stdio.In_channel.input_all Stdio.stdin in
-  let prog = Serialize.deserialize_bc @@ Stdio.In_channel.read_all prog_path in
+  let snapshot = Serialize.deserialize (Stdio.In_channel.input_all Stdio.stdin) in
+  let prog = Serialize.deserialize_bc (Stdio.In_channel.read_all prog_path) in
   let id' = Int.of_string id in
   let v' = Option.value_exn (value v) in
-  print_result @@ Orcml.Inter.unblock prog snapshot id' v'
+  print_result (Orcml.Inter.unblock prog snapshot id' v')
 
 let () =
   let argv = Caml.Sys.argv in

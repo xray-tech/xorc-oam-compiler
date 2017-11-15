@@ -232,7 +232,7 @@ and tick
     let (size, f_code) = code.(pc') in
     let env' = alloc_env size in
     let frame = FCall(env) in
-    Array.iteri args (fun i arg ->
+    Array.iteri args ~f:(fun i arg ->
         env'.(i) <- env.(arg));
     tick state (pc', Array.length f_code - 1) (frame::stack) env'
   | Call(TClosure(i), args) ->
@@ -246,7 +246,7 @@ and tick
        for i = 0 to to_copy - 1 do
          env'.(i) <- closure_env.(i)
        done;
-       Array.iteri args (fun i arg ->
+       Array.iteri args ~f:(fun i arg ->
            env'.(i + to_copy) <- env.(arg));
        let frame = FCall(env) in
        tick state (pc', Array.length f_code - 1) (frame::stack) env')
