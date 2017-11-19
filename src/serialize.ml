@@ -191,12 +191,11 @@ let serialize { current_coeffect; blocks } =
         | _ -> ())
   and walk_stack = List.iter ~f: walk_frame in
   List.iter blocks (fun (i, token) -> walk_token token);
-  let blocks' = List.concat_map blocks serialize_block in
   M.List [(M.Int current_coeffect);
           M.List (List.concat_map !frames serialize_frame);
           M.List (List.concat_map !pendings serialize_pending);
           M.List (List.concat_map !envs serialize_env);
-          M.List blocks']
+          M.List (List.concat_map blocks serialize_block)]
   |> Msgpck.String.to_string
 
 let deserialize s =
