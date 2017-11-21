@@ -1,0 +1,6 @@
+(executables
+ ((names (testkit))
+  (libraries (orcml orcml_syntax async))
+  (preprocess (pps (ppx_jane)))))
+
+(jbuild_version 1)

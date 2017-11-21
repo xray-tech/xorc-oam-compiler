@@ -1,0 +1,5 @@
+(jbuild_version 1)
+
+(library
+ ((name orcml_syntax)
+  (libraries (base orcml orcml_lexer))))

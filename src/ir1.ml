@@ -1,5 +1,5 @@
 open Base
-type e =
+type e' =
   | EOtherwise of e * e
   | EParallel of e * e
   | EPruning of e * string option * e
@@ -9,7 +9,8 @@ type e =
   | ECall of string * string list
   | EStop
   | ESite of string * string * e
-  | EFix of (string * string list * e) list * e [@@deriving variants, sexp]
+  | EFix of (string * string list * e) list * e
+and e = e' * Ast.e [@@deriving sexp_of]
 
 let fresh = ref 0
 
@@ -31,33 +32,33 @@ let rec collect_defs ((ident, _, _, _) as d) e =
 let divide_defs defs =
   [defs]
 
-let rec translate (e, pos) =
+let rec translate' ((e, pos) as ast) =
   let module A = Ast in
   (* Sexp.to_string_hum (Ast.sexp_of_e' e ) |> Stdio.print_endline; *)
   match e with
-  | A.EIdent(v) -> eident v
+  | A.EIdent(v) -> (EIdent v, ast)
   | A.EOtherwise(e1, e2) ->
-    eotherwise (translate e1) (translate e2)
+    (EOtherwise(translate' e1, translate' e2), ast)
   | A.EParallel(e1, e2) ->
-    eparallel (translate e1) (translate e2)
+    (EParallel(translate' e1, translate' e2), ast)
   | A.EPruning(e1, ((A.PVar i), _), e2) ->
-    epruning (translate e1) (Some i) (translate e2)
+    (EPruning(translate' e1, Some i, translate' e2), ast)
   | A.EPruning(e1, ((A.PWildcard), _), e2) ->
-    epruning (translate e1) None (translate e2)
+    (EPruning(translate' e1, None, translate' e2), ast)
   | A.EPruning(e1, (p, _), e2) ->
     raise Util.TODO
   | A.ESequential(e1, ((A.PVar i), _), e2) ->
-    esequential (translate e1) (Some i) (translate e2)
+    (ESequential(translate' e1, Some i, translate' e2), ast)
   | A.ESequential(e1, ((A.PWildcard), _), e2) ->
-    esequential (translate e1) None (translate e2)
+    (ESequential(translate' e1, None, translate' e2), ast)
   | A.ESequential(e1, (p, _), e2) ->
     raise Util.TODO
   | A.EList(es) ->
     deflate_many es (fun es' ->
-        ecall "'MakeList" es')
+        (ECall("'MakeList", es'), ast))
   | A.ETuple(es) ->
     deflate_many es (fun es' ->
-        ecall "'MakeTuple" es')
+        (ECall("'MakeTuple", es'), ast))
   | A.ERecord(pairs) ->
     let (keys, vals) = List.unzip pairs in
     let key_consts = (List.map keys (fun k ->
@@ -66,29 +67,30 @@ let rec translate (e, pos) =
         deflate_many vals (fun vals' ->
             let args = List.fold2_exn keys' vals' ~init:[] ~f:(fun acc k v ->
                 k::v::acc) |> List.rev in
-            ecall "'MakeRecord" args ))
+            (ECall("'MakeRecord", args), ast) ))
   | A.ECond(pred, then_, else_) ->
     deflate pred (fun pred' ->
-        EParallel(esequential (ecall "'Ift" [pred']) None (translate then_),
-                  esequential (ecall "'Iff" [pred']) None (translate else_)))
-  | A.EConst c -> econst c
+        (EParallel((ESequential((ECall("'Ift", [pred']), ast), None, translate' then_), ast),
+                   (ESequential((ECall("'Iff", [pred']), ast), None, translate' else_), ast)),
+        ast))
+  | A.EConst c -> (EConst(c), ast)
   | A.ECall(e, args) ->
     deflate e (fun e' ->
         deflate_many args (fun args' ->
-            ecall e' args'))
-  | A.EStop -> EStop
+            (ECall(e', args'), ast)))
+  | A.EStop -> (EStop, ast)
   | A.ELambda(params, body) ->
     let n = make_fresh () in
     let e' = A.EDecl((DDef(n, params, None, body), A.dummy),
                      (A.EIdent n, A.dummy)) in
-    translate((e', A.dummy))
+    translate'((e', A.dummy))
   | A.EDecl((DDef(ident, params, guard, body), _), e) ->
     translate_defs (ident, params, guard, body) e
   | A.EDecl((DVal(p, val_e), _), e) ->
-    translate ((EPruning(e, p, val_e)), pos)
+    translate' ((EPruning(e, p, val_e)), pos)
   | A.EFieldAccess(target, field) ->
     deflate target (fun t ->
-        ecall "'FieldAccess" [t])
+        (ECall("'FieldAccess", [t]), ast))
   | A.EDecl((DSite(ident, definition), _), e) ->
     raise Util.TODO
   | A.EDecl((DData(ident, constructors), _), e) ->
@@ -100,8 +102,8 @@ let rec translate (e, pos) =
 and deflate e k =
   match e with
   | (Ast.EIdent(v), _) -> k v
-  | _ ->  let f = make_fresh () in
-    epruning (k f) (Some f) (translate e)
+  | ast ->  let f = make_fresh () in
+    (EPruning(k f, Some f, translate' e), ast)
 and deflate_many es k =
   let rec step acc = function
     | e::es ->
@@ -114,8 +116,8 @@ and translate_defs d e =
   let defs' = translate_clauses defs in
   let def_groups = divide_defs defs' in
   let rec step = function
-    | group::xs -> efix group (step xs)
-    | [] -> translate e' in
+    | group::xs -> (EFix(group, step xs), e)
+    | [] -> translate' e' in
   step def_groups
 and translate_clauses defs =
   List.map defs (function
@@ -123,5 +125,7 @@ and translate_clauses defs =
         let params' = List.map params (function
             | (PVar n, _) -> n
             | _ -> raise Util.TODO) in
-        (ident, params', translate body)
+        (ident, params', translate' body)
       | _ -> raise Util.TODO )
+
+let translate e = Errors.try_with (fun () -> translate' e)

@@ -4,8 +4,6 @@ type prim = Let | Add | Sub | Ift | Iff | Eq
           | FieldAccess | MakeTuple | MakeList | MakeRecord
 [@@deriving compare, enumerate, sexp]
 
-exception UnboundVar of string
-
 type binding =
   | BindVar
   | BindCoeffect
@@ -44,9 +42,9 @@ let ctx_vars ctx  =
       find acc xs in
   find 0 ctx
 
-let ctx_find ctx ident =
+let ctx_find ctx pos ident =
   let rec find acc = function
-    | [] -> raise (UnboundVar ident)
+    | [] -> Errors.(throw (UnboundVar { var = ident; pos }))
     | (ident', bind)::xs when String.equal ident ident' ->
       (ctx_vars ctx - 1 - acc, bind)
     | (_, BindVar)::xs -> find (acc + 1) xs
@@ -75,11 +73,11 @@ let compile_queue = ref []
 let add_to_queue label ctx params body =
   compile_queue := (label, ctx, params, body)::!compile_queue
 
-let rec compile_e ctx shift e =
+let rec compile_e ctx shift (e, (ast_e, pos)) =
   let open! Ir1 in
   match e with
   | EIdent x ->
-    (match ctx_find ctx x with
+    (match ctx_find ctx pos x with
      | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
      | (_, BindFun i) -> (0, [Inter.Closure(i, 0)])
      | (_, BindCoeffect) -> raise Util.TODO
@@ -147,10 +145,10 @@ let rec compile_e ctx shift e =
    * compile_e ctx' shift e *)
   | ECall(ident, args) ->
     let args' = List.map args (fun arg ->
-        match ctx_find ctx arg with
+        match ctx_find ctx pos arg with
         | (i, BindVar) -> i
         | _ -> raise Util.TODO )in
-    (match ctx_find ctx ident with
+    (match ctx_find ctx pos ident with
      | (_, BindPrim p) ->
        (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
      | (_, BindFun c) ->
@@ -182,7 +180,7 @@ let change_labels mapping code =
   List.map code (fun (size, body) ->
       (size, List.map body change))
 
-let compile e =
+let compile' e =
   compile_queue := [];
   label := 0;
   add_to_queue !label (("Coeffect", BindCoeffect)::prims) [] e;
@@ -201,3 +199,5 @@ let compile e =
   Array.of_list_map code' ~f:(fun (s, f) ->
       (s, Array.of_list_rev f))
 
+let compile e =
+  Errors.try_with (fun () -> compile' e)

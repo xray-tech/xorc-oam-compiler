@@ -28,7 +28,7 @@ type const =
   | String of string
   | Signal
   | Null
-  | Bool of bool [@@deriving sexp]
+  | Bool of bool [@@deriving sexp, compare]
 
 type ident = string [@@deriving sexp]
 

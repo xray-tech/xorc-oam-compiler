@@ -106,6 +106,13 @@ let deserialize_bc s =
   | _ -> raise BadFormat
 
 open Inter
+
+let serialize_value on_env = function
+    | VConst x ->
+      [M.Int 0; serialize_const x]
+    | VClosure(pc, to_copy, env) ->
+      [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
+
 let serialize { current_coeffect; blocks } =
   let id = ref 0 in
   let make_id () = id := !id + 1; !id in
@@ -147,16 +154,11 @@ let serialize { current_coeffect; blocks } =
     let tokens = List.map pend_waiters serialize_token in
     let v = match pend_value with
       | Pend -> [M.Int 0; M.List tokens]
-      | PendVal v -> (M.Int 1)::(serialize_value v)
+      | PendVal v -> (M.Int 1)::(serialize_value (dedup envs) v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
-  and serialize_value = function
-    | VConst x ->
-      [M.Int 0; serialize_const x]
-    | VClosure(pc, to_copy, env) ->
-      [M.Int 1; M.Int pc; M.Int to_copy; dedup envs env]
   and serialize_env_v = function
-    | Value x -> M.List ((M.Int 0)::(serialize_value x))
+    | Value x -> M.List ((M.Int 0)::(serialize_value (dedup envs) x))
     | Pending x -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
@@ -197,6 +199,17 @@ let serialize { current_coeffect; blocks } =
           M.List (List.concat_map !envs serialize_env);
           M.List (List.concat_map blocks serialize_block)]
   |> Msgpck.String.to_string
+
+let deserialize_value on_env = function
+  | (M.Int 0)::v::xs -> (VConst(deserialize_const v), xs)
+  | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
+    (VClosure(pc, to_copy, on_env env), xs)
+  | _ -> raise BadFormat
+
+let rec deserialize_values on_env = function
+  | [] -> []
+  | xs -> let (v, xs') = deserialize_value on_env xs in
+    v::(deserialize_values on_env xs')
 
 let deserialize s =
   let (_, packed) = M.String.read s in
@@ -260,11 +273,6 @@ let deserialize s =
         { pc = (pc, c); stack; env = repo_or_dummy_env env}
       | _ -> raise BadFormat in
     let deserialize_tokens = List.map ~f:deserialize_token in
-    let deserialize_value = function
-      | (M.Int 0)::v::xs -> (VConst(deserialize_const v), xs)
-      | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
-        (VClosure(pc, to_copy, repo_or_dummy_env env), xs)
-      | _ -> raise BadFormat in
     let rec deserialize_pendings = function
       | [] -> ()
       | (M.Int id)::xs ->
@@ -272,7 +280,7 @@ let deserialize s =
           | (M.Int 0)::(M.List tokens)::xs' ->
             (Pend, deserialize_tokens tokens, xs')
           | (M.Int 1)::xs' ->
-            let (v, xs'') = deserialize_value xs' in
+            let (v, xs'') = deserialize_value repo_or_dummy_env xs' in
             (PendVal v, [], xs'')
           | (M.Int 2)::xs' -> (PendStopped, [], xs)
           | _ -> raise BadFormat in
@@ -283,7 +291,7 @@ let deserialize s =
       | _ -> raise BadFormat in
     let deserialize_env_value = function
       | M.List ((M.Int 0)::xs) ->
-        let (v, _) = deserialize_value xs in
+        let (v, _) = deserialize_value repo_or_dummy_env xs in
         Value v
       | M.List [M.Int 1; M.Int pending] ->
         Pending (repo_or_dummy_pending pending)

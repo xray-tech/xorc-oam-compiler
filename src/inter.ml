@@ -1,7 +1,7 @@
 open Base
-type call_target = TPrim of int | TFun of int | TClosure of int [@@deriving sexp]
+type call_target = TPrim of int | TFun of int | TClosure of int [@@deriving sexp, compare]
 
-type c = int [@@deriving sexp]
+type c = int [@@deriving sexp, compare]
 
 type t =
   | Parallel of c * c
@@ -42,7 +42,11 @@ and token = {
   pc : (int * c);
   env : env;
   stack : stack;
-} [@@deriving sexp]
+} [@@deriving sexp, compare]
+
+module Value = struct
+  include (val Comparator.make ~compare:compare_v ~sexp_of_t:sexp_of_v)
+end
 
 type code = (int * t array) array [@@deriving sexp]
 type instance = { mutable current_coeffect : int;
