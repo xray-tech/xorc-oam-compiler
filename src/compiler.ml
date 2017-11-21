@@ -1,7 +1,11 @@
 open Base
 
-type prim = Let | Add | Sub | Ift | Iff | Eq
-          | FieldAccess | MakeTuple | MakeList | MakeRecord
+type prim =
+  | Let | Add | Sub | Ift | Iff
+  | Mult | Div | Mod | Pow
+  | Eq | NotEq | GT | GTE | LT | LTE
+  | And | Or
+  | FieldAccess | MakeTuple | MakeList | MakeRecord
 [@@deriving compare, enumerate, sexp]
 
 type binding =
@@ -17,7 +21,18 @@ let prims_map = [("Let", Let);
                  ("Iff", Iff);
                  ("+", Add);
                  ("-", Sub);
+                 ("*", Mult);
+                 ("/", Div);
+                 ("%", Mod);
+                 ("**", Pow);
+                 ("\\=", NotEq);
                  ("=", Eq);
+                 ("<:", LT);
+                 ("<=", LTE);
+                 (":>", GT);
+                 (">=", GTE);
+                 ("and", And);
+                 ("or", Or);
                  ("'FieldAccess", FieldAccess);
                  ("'MakeTuple", MakeTuple);
                  ("'MakeList", MakeList);

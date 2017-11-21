@@ -3,27 +3,6 @@ open! Async
 
 module Lexer = Orcml_lexer
 
-type check =
-  | AllOf of string list
-  | OneOf of string list
-[@@deriving variants]
-
-type checks = | Check of check
-              | CheckAndResume of { values : check;
-                                    unblock : (int * string);
-                                    killed : int list;
-                                    next : checks}
-
-type tests = (string * checks) list
-
-let tests : tests = [
-  ("1 | 2", Check (allof ["1"; "2"]));
-  ("1 + Coeffect(1)", CheckAndResume
-     { values = allof [];
-       unblock = (0, "2");
-       killed = [];
-       next = Check (allof ["3"])})]
-
 type results = { mutable success : int;
                  mutable failed : int }
 
@@ -40,7 +19,7 @@ let run_loop p fail compiled checks =
 
   let check_values check actual =
     match check with
-    | AllOf expected ->
+    | Tests.AllOf expected ->
       let actual' = values_to_set actual in
       let expected' = strings_to_values expected in
       let expected'' = values_to_set expected' in
@@ -68,9 +47,9 @@ let run_loop p fail compiled checks =
   let rec tick check =
     let%bind (actual, killed) = Protocol.read_res output in
     match check with
-    | Check expected ->
+    | Tests.Check expected ->
       check_values expected actual |> return
-    | CheckAndResume { values; unblock = (id, v); next } ->
+    | Tests.CheckAndResume { values; unblock = (id, v); next } ->
       (match check_values values actual with
        | `Ok ->
          let v = Orcml_syntax.Syntax.value v |> Option.value_exn in
@@ -86,7 +65,7 @@ let run_test p results (e, checks) =
             |> Result.bind ~f:Orcml.Compiler.compile in
   let fail reason =
     results.failed <- results.failed + 1;
-    printf "Test program:\n%s\nFailed with error:%s\n\n" e reason in
+    printf "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
   | Ok(compiled) ->
     run_loop p fail compiled checks >>| (function
@@ -107,13 +86,14 @@ let print_stderr p =
 
 let run_tests (prog, args) tests =
   let results = { success = 0; failed = 0 } in
+  let tests' = List.concat_map tests (fun (_, l) -> l) in
   let open Async.Let_syntax in
   match%bind Process.create prog args () with
   | Error(err) ->
     printf "Can't start engine: %s\n" (Error.to_string_hum err);
     Async.exit(1)
   | Ok(p) ->
-    Monitor.try_with_or_error (fun () -> Deferred.List.iter tests (run_test p results))
+    Monitor.try_with_or_error (fun () -> Deferred.List.iter tests' (run_test p results))
     >>= function
     | Error(err) ->
       printf "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
@@ -140,6 +120,6 @@ let () =
       let prog = anon ("PROG" %: string)
       and args = flag "--" escape ~doc:"PROG arguments" in
       fun () ->
-        run_tests (prog, Option.value args ~default:[]) tests |> ignore;
+        run_tests (prog, Option.value args ~default:[]) Tests.tests |> ignore;
         Scheduler.go () |> never_returns]
   |> Command.run
