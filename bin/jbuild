@@ -1,5 +1,6 @@
 (executables
- ((names (hello_world tokenize simple))
-  (libraries (orcml orcml_lexer benchmark))))
+ ((names (orc))
+  (libraries (orcml orcml_syntax orcml_testkit benchmark core async async_extended))
+  (preprocess (pps (ppx_jane)))))
 
 (jbuild_version 1)

@@ -49,8 +49,10 @@ let ir1 () =
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_channel Stdio.stdin) in
   match parse_with_error lexbuf with
   | Some(x) ->
-    let res = Orcml.Ir1.translate x in
-    Stdio.print_endline (Sexp.to_string_hum (Orcml.Ir1.sexp_of_e res))
+    (match Orcml.Ir1.translate x with
+    | Ok(res) ->
+      Stdio.print_endline (Sexp.to_string_hum (Orcml.Ir1.sexp_of_e res))
+    | Error() -> Stdio.printf "Error")
   | None -> ()
 
 

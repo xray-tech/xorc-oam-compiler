@@ -2,12 +2,17 @@ B ../_build/default/lexer
 B ../_build/default/src
 B ../_build/default/syntax
 B ../_build/default/testkit
-FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx'
-FLG -w -40
+FLG -open Orcml_testkit -w -40 -w -40
+FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml_testkit"'\'''
 PKG async
+PKG async_extended
 PKG async_extra
+PKG async_find
+PKG async_inotify
+PKG async_interactive
 PKG async_kernel
 PKG async_rpc_kernel
+PKG async_shell
 PKG async_unix
 PKG base
 PKG base.caml
@@ -16,11 +21,14 @@ PKG bigarray
 PKG bin_prot
 PKG bin_prot.shape
 PKG bytes
+PKG command_rpc
 PKG core
+PKG core_extended
 PKG core_kernel
 PKG core_kernel.base_for_tests
 PKG fieldslib
 PKG gen
+PKG inotify
 PKG jane-street-headers
 PKG js_of_ocaml
 PKG js_of_ocaml-compiler.runtime.weak
@@ -39,18 +47,23 @@ PKG ppx_expect.config
 PKG ppx_hash.runtime-lib
 PKG ppx_inline_test.config
 PKG ppx_inline_test.runtime-lib
+PKG re2
+PKG re2.c
 PKG sedlex
 PKG sexplib
 PKG sexplib.0
+PKG sexplib.num
 PKG sexplib.unix
 PKG spawn
 PKG stdio
+PKG textutils
 PKG threads
 PKG threads.posix
 PKG typerep
 PKG uchar
 PKG unix
 PKG variantslib
+S .
 S ../lexer
 S ../src
 S ../syntax

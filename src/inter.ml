@@ -88,11 +88,50 @@ let default_prims = [|
     | [| VConst(Ast.Bool false) |] -> PrimVal (VConst(Ast.Signal))
     | [| VConst(Ast.Bool true) |] -> PrimHalt
     | _ -> PrimUnsupported);
+  (* Mult *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x * y)))
+    | _ -> PrimUnsupported);
+  (* Div *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x / y)))
+    | _ -> PrimUnsupported);
+  (* Mod *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x % y)))
+    | _ -> PrimUnsupported);
+  (* Pow *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(Int.pow x y)))
+    | _ -> PrimUnsupported);
   (* Eq *)
   (function
     | [| VConst(v1); VConst(v2) |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
-    | _ -> PrimUnsupported)
+    | _ -> PrimUnsupported);
+  (* NotEq *)
+  (function
+    | [| VConst(v1); VConst(v2) |] ->
+      PrimVal (VConst(Ast.Bool (not (Polymorphic_compare.equal v1 v2))))
+    | _ -> PrimUnsupported);
+  (* GT *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x > y)))
+    | _ -> PrimUnsupported);
+  (* GTE *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x >= y)))
+    | _ -> PrimUnsupported);
+  (* LT *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x < y)))
+    | _ -> PrimUnsupported);
+  (* LTE *)
+  (function
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x <= y)))
+    | _ -> PrimUnsupported);
+
 |]
+
 
 let rec increment_instances = function
   | [] -> ()
@@ -273,7 +312,7 @@ let coeffects_clb () =
   let storage = ref [] in
   (storage, (fun v -> storage:= v::!storage))
 
-let run code =
+let run' code =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
   let (values, clb) = values_clb () in
@@ -289,6 +328,9 @@ let run code =
   tick state pc stack env;
   (* TODO killed coeffects *)
   (!values, !coeffects, [], instance)
+
+let run code =
+  Or_error.try_with ~backtrace:true (fun () -> run' code)
 
 let unblock code instance coeffect value =
   let (values, clb) = values_clb () in

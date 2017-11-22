@@ -1,7 +1,9 @@
 open! Core
 open! Async
+open! Log.Global
 
 module Lexer = Orcml_lexer
+open Orcml_testkit
 
 type results = { mutable success : int;
                  mutable failed : int }
@@ -45,44 +47,44 @@ let run_loop p fail compiled checks =
                   ([%sexp_of: Orcml.Inter.v list] expected' |> Sexp.to_string_hum)
                   ([%sexp_of: Orcml.Inter.v list] vals |> Sexp.to_string_hum))) in
   let rec tick check =
-    let%bind (actual, killed) = Protocol.read_res output in
-    match check with
-    | Tests.Check expected ->
-      check_values expected actual |> return
-    | Tests.CheckAndResume { values; unblock = (id, v); next } ->
-      (match check_values values actual with
-       | `Ok ->
-         let v = Orcml_syntax.Syntax.value v |> Option.value_exn in
-         Protocol.write_unblock input id v;
-         tick next
-       | other -> return other)
+    Protocol.read_res output >>= function
+    | None ->
+      error "Engine stopped";
+        exit 1
+    | Some((actual, killed)) ->
+      match check with
+      | Tests.Check expected ->
+        check_values expected actual |> return
+      | Tests.CheckAndResume { values; unblock = (id, v); next } ->
+        (match check_values values actual with
+         | `Ok ->
+           let v = Orcml_syntax.Syntax.value v |> Option.value_exn in
+           Protocol.write_unblock input id v;
+           tick next
+         | other -> return other)
   in
   tick checks
 
 let run_test p results (e, checks) =
+  debug "Run test: %s" e;
   let res = Orcml_syntax.Syntax.from_string e
             |> Result.bind ~f:Orcml.Ir1.translate
             |> Result.bind ~f:Orcml.Compiler.compile in
   let fail reason =
     results.failed <- results.failed + 1;
-    printf "Test program:\n%s\nFailed with error: %s\n\n" e reason in
+    error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
   | Ok(compiled) ->
     run_loop p fail compiled checks >>| (function
         | `Ok -> results.success <- results.success + 1
         | `Fail reason ->
           fail reason)
-  | Error(NoInput) ->
-    fail "Empty test..."; return ()
-  | Error(SyntaxError { filename; line; col }) ->
-    fail (Printf.sprintf "Syntax error in %s (%i:%i)" filename line col); return ()
-  | Error(UnboundVar { var; pos }) ->
-    fail (Printf.sprintf "Unbound variable %s" var); return ()
+  | Error(err) ->
+    fail (Orcml.Errors.format err); return ()
 
 let print_stderr p =
   Reader.contents (Process.stderr p)
-  >>| (fun v -> printf "Engine stderr:\n%s\n\n" v)
-
+  >>| (fun v -> error "Engine stderr:\n%s\n\n" v)
 
 let run_tests (prog, args) tests =
   let results = { success = 0; failed = 0 } in
@@ -90,24 +92,24 @@ let run_tests (prog, args) tests =
   let open Async.Let_syntax in
   match%bind Process.create prog args () with
   | Error(err) ->
-    printf "Can't start engine: %s\n" (Error.to_string_hum err);
+    error "Can't start engine: %s\n" (Error.to_string_hum err);
     Async.exit(1)
   | Ok(p) ->
     Monitor.try_with_or_error (fun () -> Deferred.List.iter tests' (run_test p results))
     >>= function
     | Error(err) ->
-      printf "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
+      error "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
       print_stderr p >>= fun () ->
       exit 1
     | Ok(()) ->
-      printf "Success: %i; Failed: %i\n" results.success results.failed;
+      info "Success: %i; Failed: %i\n" results.success results.failed;
       Writer.close (Process.stdin p)
       >>= fun () ->
       Process.wait p
       >>= function
       | Ok(()) -> exit 0
       | Error(`Exit_non_zero code) ->
-        printf "Exit code: %i\n" code;
+        error "Exit code: %i\n" code;
         print_stderr p >>= fun () ->
         exit code
       | _ -> exit 1
@@ -118,8 +120,17 @@ let () =
     ~summary:"run tests"
     [%map_open
       let prog = anon ("PROG" %: string)
-      and args = flag "--" escape ~doc:"PROG arguments" in
+      and args = flag "--" escape ~doc:"PROG arguments"
+      and suits = flag "-s" (listed string) ~doc: "Run only provided test suites"
+      and verbose = flag "-verbose" no_arg ~doc:"Verbose logging" in
       fun () ->
-        run_tests (prog, Option.value args ~default:[]) Tests.tests |> ignore;
+        (if verbose then Log.Global.set_level `Debug);
+        let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
+        Log.Global.set_output [output];
+        let tests' = if (List.length suits > 0)
+          then List.filter Tests.tests (fun (suite, _) ->
+              List.mem suits ~equal:String.equal suite)
+          else Tests.tests in
+        run_tests (prog, Option.value args ~default:[]) tests' |> ignore;
         Scheduler.go () |> never_returns]
   |> Command.run

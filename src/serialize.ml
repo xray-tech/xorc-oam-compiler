@@ -60,9 +60,7 @@ let serialize_bc code =
                  ))))) in
   Msgpck.String.to_string (M.List obj)
 
-let deserialize_bc s =
-  let module M = Msgpck in
-  let (_, packed) = M.String.read s in
+let deserialize_bc packed =
   let rec des_fun = function
     | [] -> []
     | ((M.Int 0)::(M.Int c1)::(M.Int c2)::xs) ->
@@ -108,10 +106,10 @@ let deserialize_bc s =
 open Inter
 
 let serialize_value on_env = function
-    | VConst x ->
-      [M.Int 0; serialize_const x]
-    | VClosure(pc, to_copy, env) ->
-      [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
+  | VConst x ->
+    [M.Int 0; serialize_const x]
+  | VClosure(pc, to_copy, env) ->
+    [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
 
 let serialize { current_coeffect; blocks } =
   let id = ref 0 in
@@ -198,6 +196,17 @@ let serialize { current_coeffect; blocks } =
           M.List (List.concat_map !pendings serialize_pending);
           M.List (List.concat_map !envs serialize_env);
           M.List (List.concat_map blocks serialize_block)]
+  |> Msgpck.String.to_string
+
+let serialize_result (values, coeffects, killed, _) =
+  let serialize_value = (serialize_value (fun _ -> assert false)) in
+  let values' = (List.concat_map values serialize_value) in
+  let serialize_coeffect (id, v) =
+    M.List ((M.Int id)::(serialize_value v)) in
+  M.List
+    [M.List values';
+     M.List (List.map coeffects serialize_coeffect);
+     M.List (List.map killed (fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
 let deserialize_value on_env = function

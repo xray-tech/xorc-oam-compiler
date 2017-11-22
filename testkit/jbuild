@@ -1,6 +1,13 @@
 (executables
  ((names (testkit))
-  (libraries (orcml orcml_syntax async))
+  (libraries (orcml_testkit))
+  (modules (testkit))
+  (preprocess (pps (ppx_jane)))))
+
+(library
+ ((name orcml_testkit)
+  (libraries (orcml orcml_syntax async async_extended))
+  (modules (:standard \ testkit))
   (preprocess (pps (ppx_jane)))))
 
 (jbuild_version 1)

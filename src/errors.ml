@@ -1,3 +1,4 @@
+open Base
 type t =
   | NoInput
   | SyntaxError of { filename : string;
@@ -13,3 +14,11 @@ let try_with f =
   | Exn t -> Error(t)
 
 let throw t = raise (Exn t)
+
+let format = function
+  | NoInput ->
+    "Empty test..."
+  | SyntaxError { filename; line; col } ->
+    Printf.sprintf "Syntax error in %s (%i:%i)" filename line col
+  | UnboundVar { var; pos } ->
+    Printf.sprintf "Unbound variable %s" var
