@@ -17,9 +17,9 @@ type t =
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
-  (* | VTuple of v list
-   * | VList of v list
-   * | VRecord of (string * v) list *)
+  | VTuple of v list
+  | VList of v list
+  | VRecord of (string * v) list
 and env_v =
   | Value of v | Pending of pending
 and env = env_v array
@@ -129,7 +129,36 @@ let default_prims = [|
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x <= y)))
     | _ -> PrimUnsupported);
-
+  (* And *)
+  (function
+    | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x && y)))
+    | _ -> PrimUnsupported);
+  (* Or *)
+  (function
+    | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x || y)))
+    | _ -> PrimUnsupported);
+  (* Not *)
+  (function
+    | [| VConst(Ast.Bool x) |] -> PrimVal (VConst(Ast.Bool(not x)))
+    | _ -> PrimUnsupported);
+  (* FieldAccess *)
+  (function
+    | [| VRecord(pairs); VConst(Ast.String field) |] ->
+      PrimVal (List.Assoc.find_exn pairs ~equal:String.equal field)
+    | _ -> PrimUnsupported);
+  (* MakeTuple *)
+  (fun vals ->
+      PrimVal (VTuple(Array.to_list vals)));
+  (* MakeList *)
+  (fun vals ->
+      PrimVal (VList(Array.to_list vals)));
+  (* MakeRecord *)
+  (fun vals ->
+      let rec make acc = function
+        | [] -> PrimVal(VRecord acc)
+        | (VConst(Ast.String k))::v::xs -> make ((k, v)::acc) xs
+        | _ -> PrimUnsupported in
+      make [] (Array.to_list vals));
 |]
 
 
@@ -145,27 +174,28 @@ let alloc_env size = Array.create size (Value (VConst Ast.Null))
 exception ToWait
 exception ToStop
 
-let rec format_value = function
-  | Value v -> format_v v
-  | Pending { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
-  | Pending { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
-and format_v = function
-  | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
-  | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
-
-let format_env env =
-  let vs = (Array.to_sequence env
-            |> Sequence.map ~f:format_value
-            |> Sequence.to_list) in
-  "(" ^ String.concat ~sep:", " vs ^ ")"
-
-let print_debug { code } (pc, c) env  =
-  let (size, f) = code.(pc) in
-  let op = f.(c) in
-  Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
-    pc c size
-    (sexp_of_t op |> Sexp.to_string_hum)
-    (format_env env)
+(* let rec format_value = function
+ *   | Value v -> format_v v
+ *   | Pending { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
+ *   | Pending { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
+ * and format_v = function
+ *   | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
+ *   | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
+ *   | VTu
+ *
+ * let format_env env =
+ *   let vs = (Array.to_sequence env
+ *             |> Sequence.map ~f:format_value
+ *             |> Sequence.to_list) in
+ *   "(" ^ String.concat ~sep:", " vs ^ ")"
+ *
+ * let print_debug { code } (pc, c) env  =
+ *   let (size, f) = code.(pc) in
+ *   let op = f.(c) in
+ *   Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
+ *     pc c size
+ *     (sexp_of_t op |> Sexp.to_string_hum)
+ *     (format_env env) *)
 
 let rec publish state stack env v =
   match stack with
@@ -266,6 +296,8 @@ and tick
      | `Stopped -> halt state stack env
      | `Values args' ->
        let impl = prims.(prim) in
+(* Stdio.eprintf "---CALL\n";
+ *        Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
        (match impl args' with
         | PrimVal res ->
           publish state stack env res
@@ -282,7 +314,6 @@ and tick
     (match realized i with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
      | `Stopped -> raise Util.TODO
-     | `Value(VConst _) -> raise RuntimeError
      | `Value(VClosure(pc', to_copy, closure_env)) ->
        let (size, f_code) = code.(pc') in
        let env' = alloc_env size in
@@ -292,7 +323,8 @@ and tick
        Array.iteri args ~f:(fun i arg ->
            env'.(i + to_copy) <- env.(arg));
        let frame = FCall(env) in
-       tick state (pc', Array.length f_code - 1) (frame::stack) env')
+       tick state (pc', Array.length f_code - 1) (frame::stack) env'
+     | `Value(_) -> raise RuntimeError)
   | Coeffect arg ->
     (match realized arg with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters

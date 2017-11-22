@@ -54,8 +54,6 @@ let rec token lexbuf =
   | Plus (Chars " \t\r") -> update lexbuf; token lexbuf
   | newline -> new_line lexbuf; token lexbuf
   | eof -> update lexbuf; EOF
-  | integer -> update lexbuf; INT (Int.of_string (lexeme lexbuf))
-  | float -> update lexbuf; FLOAT (Float.of_string (lexeme lexbuf))
   | "true" -> update lexbuf; TRUE
   | "false" -> update lexbuf; FALSE
   | "null" -> update lexbuf; NULL
@@ -74,7 +72,7 @@ let rec token lexbuf =
   | '#' -> update lexbuf; NUMBER_SIGN
   | '_' -> update lexbuf; WILDCARD
   | '"' -> update lexbuf; STRING (string (Buffer.create 0) lexbuf)
-  | "{." -> update lexbuf; RIGHT_BRACE
+  | "{." -> update lexbuf; LEFT_BRACE
   | ".}" -> update lexbuf; RIGHT_BRACE
   | "{-" -> update lexbuf; read_comment lexbuf
   | "--" -> update lexbuf; read_comment_line lexbuf
@@ -93,7 +91,7 @@ let rec token lexbuf =
   | '-' -> update lexbuf; SUB (lexeme lexbuf)
   | '=' -> update lexbuf; EQ (lexeme lexbuf)
   | ":=" -> update lexbuf; ASSIGN (lexeme lexbuf)
-  | "\\=" -> update lexbuf; NOT_EQ (lexeme lexbuf)
+  | "/=" -> update lexbuf; NOT_EQ (lexeme lexbuf)
   | "<:" -> update lexbuf; LT (lexeme lexbuf)
   | ":>" -> update lexbuf; GT (lexeme lexbuf)
   | ">=" -> update lexbuf; GTE (lexeme lexbuf)
@@ -105,6 +103,8 @@ let rec token lexbuf =
   | '%' -> update lexbuf; MOD (lexeme lexbuf)
   | "**" -> update lexbuf; POW (lexeme lexbuf)
   | ':' -> update lexbuf; COLON (lexeme lexbuf)
+  | integer -> update lexbuf; INT (Int.of_string (lexeme lexbuf))
+  | float -> update lexbuf; FLOAT (Float.of_string (lexeme lexbuf))
   | id -> update lexbuf; IDENT (lexeme lexbuf)
   | _ -> assert false
 and string buffer lexbuf =

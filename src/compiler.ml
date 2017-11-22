@@ -4,7 +4,7 @@ type prim =
   | Let | Add | Sub | Ift | Iff
   | Mult | Div | Mod | Pow
   | Eq | NotEq | GT | GTE | LT | LTE
-  | And | Or
+  | And | Or | Not
   | FieldAccess | MakeTuple | MakeList | MakeRecord
 [@@deriving compare, enumerate, sexp]
 
@@ -25,7 +25,7 @@ let prims_map = [("Let", Let);
                  ("/", Div);
                  ("%", Mod);
                  ("**", Pow);
-                 ("\\=", NotEq);
+                 ("/=", NotEq);
                  ("=", Eq);
                  ("<:", LT);
                  ("<=", LTE);
@@ -33,6 +33,7 @@ let prims_map = [("Let", Let);
                  (">=", GTE);
                  ("&&", And);
                  ("||", Or);
+                 ("~", Not);
                  ("'FieldAccess", FieldAccess);
                  ("'MakeTuple", MakeTuple);
                  ("'MakeList", MakeList);

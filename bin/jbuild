@@ -1,5 +1,5 @@
 (executables
- ((names (orc))
+ ((names (orc tokenize))
   (libraries (orcml orcml_syntax orcml_testkit benchmark core async async_extended))
   (preprocess (pps (ppx_jane)))))
 

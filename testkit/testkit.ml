@@ -14,6 +14,10 @@ let strings_to_values vs =
 
 let values_to_set = Set.of_list ~comparator:Orcml.Inter.Value.comparator
 
+let print_stderr p =
+  Reader.contents (Process.stderr p)
+  >>| (fun v -> error "Engine stderr:\n%s\n\n" v)
+
 let run_loop p fail compiled checks =
   let input = Process.stdin p in
   let output = Process.stdout p in
@@ -50,7 +54,8 @@ let run_loop p fail compiled checks =
     Protocol.read_res output >>= function
     | None ->
       error "Engine stopped";
-        exit 1
+      print_stderr p >>= fun () ->
+      exit 1
     | Some((actual, killed)) ->
       match check with
       | Tests.Check expected ->
@@ -82,10 +87,6 @@ let run_test p results (e, checks) =
   | Error(err) ->
     fail (Orcml.Errors.format err); return ()
 
-let print_stderr p =
-  Reader.contents (Process.stderr p)
-  >>| (fun v -> error "Engine stderr:\n%s\n\n" v)
-
 let run_tests (prog, args) tests =
   let results = { success = 0; failed = 0 } in
   let tests' = List.concat_map tests (fun (_, l) -> l) in
@@ -99,6 +100,7 @@ let run_tests (prog, args) tests =
     >>= function
     | Error(err) ->
       error "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
+      Signal.send Signal.term (`Pid (Process.pid p)) |> ignore;
       print_stderr p >>= fun () ->
       exit 1
     | Ok(()) ->

@@ -66,7 +66,7 @@ let rec translate' ((e, pos) as ast) =
     deflate_many key_consts (fun keys' ->
         deflate_many vals (fun vals' ->
             let args = List.fold2_exn keys' vals' ~init:[] ~f:(fun acc k v ->
-                k::v::acc) |> List.rev in
+                k::v::acc) in
             (ECall("'MakeRecord", args), ast) ))
   | A.ECond(pred, then_, else_) ->
     deflate pred (fun pred' ->
@@ -90,7 +90,8 @@ let rec translate' ((e, pos) as ast) =
     translate' ((EPruning(e, p, val_e)), pos)
   | A.EFieldAccess(target, field) ->
     deflate target (fun t ->
-        (ECall("'FieldAccess", [t]), ast))
+        deflate (A.EConst(A.String field), A.dummy) (fun f ->
+            (ECall("'FieldAccess", [t; f]), ast)))
   | A.EDecl((DSite(ident, definition), _), e) ->
     raise Util.TODO
   | A.EDecl((DData(ident, constructors), _), e) ->

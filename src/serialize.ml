@@ -105,11 +105,19 @@ let deserialize_bc packed =
 
 open Inter
 
-let serialize_value on_env = function
+let rec serialize_value on_env = function
   | VConst x ->
     [M.Int 0; serialize_const x]
   | VClosure(pc, to_copy, env) ->
     [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
+  | VTuple vs ->
+    [M.Int 2; M.List (List.concat_map vs (serialize_value on_env))]
+  | VList vs ->
+    [M.Int 3; M.List (List.concat_map vs (serialize_value on_env))]
+  | VRecord pairs ->
+    [M.Int 3; M.List (List.concat_map pairs (fun (k, v) ->
+         (M.String k)::(serialize_value on_env v)))]
+
 
 let serialize { current_coeffect; blocks } =
   let id = ref 0 in
@@ -209,13 +217,16 @@ let serialize_result (values, coeffects, killed, _) =
      M.List (List.map killed (fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
-let deserialize_value on_env = function
+let rec deserialize_value on_env = function
   | (M.Int 0)::v::xs -> (VConst(deserialize_const v), xs)
   | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
     (VClosure(pc, to_copy, on_env env), xs)
+  | (M.Int 2)::(M.List vs)::xs ->
+    (VTuple(deserialize_values on_env vs), xs)
+  | (M.Int 3)::(M.List vs)::xs ->
+    (VList(deserialize_values on_env vs), xs)
   | _ -> raise BadFormat
-
-let rec deserialize_values on_env = function
+and deserialize_values on_env = function
   | [] -> []
   | xs -> let (v, xs') = deserialize_value on_env xs in
     v::(deserialize_values on_env xs')

@@ -28,7 +28,7 @@ let tests =
        ("\"All your \" + \"base are \" + \"belong to us\"",
         Check (allof ["\"All your base are belong to us\""]));
        ("7 = 7", Check (allof ["true"]));
-       ("278 /= 290", Check (allof ["false"]));
+       ("278 /= 290", Check (allof ["true"]));
        ("6 <: 10", Check (allof ["true"]));
        ("23 :> 900", Check (allof ["false"]));
        ("8 <= 2", Check (allof ["false"]));
