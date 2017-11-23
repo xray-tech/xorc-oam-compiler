@@ -107,6 +107,7 @@ let run_tests (prog, args) tests =
       info "Success: %i; Failed: %i\n" results.success results.failed;
       Writer.close (Process.stdin p)
       >>= fun () ->
+      print_stderr p >>= fun () ->
       Process.wait p
       >>= function
       | Ok(()) -> exit 0

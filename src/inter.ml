@@ -148,17 +148,17 @@ let default_prims = [|
     | _ -> PrimUnsupported);
   (* MakeTuple *)
   (fun vals ->
-      PrimVal (VTuple(Array.to_list vals)));
+     PrimVal (VTuple(Array.to_list vals)));
   (* MakeList *)
   (fun vals ->
-      PrimVal (VList(Array.to_list vals)));
+     PrimVal (VList(Array.to_list vals)));
   (* MakeRecord *)
   (fun vals ->
-      let rec make acc = function
-        | [] -> PrimVal(VRecord acc)
-        | (VConst(Ast.String k))::v::xs -> make ((k, v)::acc) xs
-        | _ -> PrimUnsupported in
-      make [] (Array.to_list vals));
+     let rec make acc = function
+       | [] -> PrimVal(VRecord acc)
+       | (VConst(Ast.String k))::v::xs -> make ((k, v)::acc) xs
+       | _ -> PrimUnsupported in
+     make [] (Array.to_list vals));
 |]
 
 
@@ -296,8 +296,8 @@ and tick
      | `Stopped -> halt state stack env
      | `Values args' ->
        let impl = prims.(prim) in
-(* Stdio.eprintf "---CALL\n";
- *        Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
+       (* Stdio.eprintf "---CALL\n";
+        *        Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
        (match impl args' with
         | PrimVal res ->
           publish state stack env res
@@ -327,10 +327,11 @@ and tick
      | `Value(_) -> raise RuntimeError)
   | Coeffect arg ->
     (match realized arg with
-     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+     | `Pending p ->
+       p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
      | `Stopped -> raise Util.TODO
      | `Value(descr) ->
-       let token = { pc = (pc, c); stack; env } in
+       let token = { pc = (pc, c); stack; env = Array.copy env } in
        state.coeffects (instance.current_coeffect, descr);
        instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
        instance.current_coeffect <- instance.current_coeffect + 1)
@@ -364,13 +365,19 @@ let run' code =
 let run code =
   Or_error.try_with ~backtrace:true (fun () -> run' code)
 
-let unblock code instance coeffect value =
+let unblock' code instance coeffect value =
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
   let state = { code; instance;
                 prims = default_prims;
                 values = clb;
                 coeffects = c_clb} in
+  Stdio.eprintf "---UNBLOCK\n";
+  List.iter instance.blocks (fun (id, _) -> 
+      Stdio.eprintf "----BLOCK ID: %i\n" id);
   let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
   publish state token.stack token.env value;
   (!values, !coeffects, [], instance)
+
+let unblock code incstance coeffect value =
+  Or_error.try_with ~backtrace:true (fun () -> unblock' code incstance coeffect value)

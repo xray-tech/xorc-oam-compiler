@@ -63,9 +63,20 @@ let tests =
        ("sqrt(4)", Check (allof ["2.0"]));
      ]);
    ("basic", [
-       ("1 | 2", Check (allof ["1"; "2"]));
-       ("1 + Coeffect(1)", CheckAndResume
-          { values = allof [];
-            unblock = (0, "2");
-            killed = [];
-            next = Check (allof ["3"])})]);]
+       (* ("1 | 2", Check (allof ["1"; "2"]));
+        * ("1 + Coeffect(1)", CheckAndResume
+        *    { values = allof [];
+        *      unblock = (0, "2");
+        *      killed = [];
+        *      next = Check (allof ["3"])});
+        * ("2 | 3 >x> (def foo() = x + 1 foo())",
+        *  Check (allof ["3"; "4"])); *)
+       ("2 | 3 >x> (def foo() = x + 1 foo() + Coeffect(1))",
+        CheckAndResume { values = allof [];
+                         unblock = (0, "1");
+                         killed = [];
+                         next = CheckAndResume { values = allof ["4"];
+                                                 unblock = (1, "1");
+                                                 killed = [];
+                                                 next = Check (allof ["5"])}})]);
+  ]

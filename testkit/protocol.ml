@@ -45,5 +45,4 @@ let write_unblock w id v =
   let module M = Message_pack in
   let write v = Writer.write w (M.String.to_string v) in
   write (M.Int 1);
-  write (M.Int id);
-  List.iter ~f:write (Orcml.Serialize.serialize_value (fun _ -> assert false) v)
+  write (M.List ((M.Int id)::(Orcml.Serialize.serialize_value (fun _ -> assert false) v)))

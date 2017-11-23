@@ -173,7 +173,8 @@ let serialize { current_coeffect; blocks } =
             M.Int c;
             M.List (List.map stack (dedup frames));
             dedup envs env] in
-  let serialize_block (i, token) = [M.Int i; serialize_token token] in
+  let serialize_block (i, token) =
+    [M.Int i; serialize_token token] in
   let rec walk_token { stack; env } =
     walk_stack stack;
     walk_env env
