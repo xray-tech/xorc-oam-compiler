@@ -20,6 +20,11 @@ let read_msg r =
     debug  "Msg: %s\n" (Message_pack.sexp_of_t v |> Sexp.to_string_hum);
     Some(v)
 
+let read_msg_or_exit ~code r =
+  read_msg r >>= function
+  | Some(v) -> return v
+  | None -> exit code
+
 let read_res r =
   let module M = Msgpck in
   read_msg r
@@ -35,14 +40,20 @@ let read_res r =
     printf "Bad protocol message: %s" (Message_pack.sexp_of_t invalid |> Sexp.to_string_hum);
     exit 1
 
+module M = Msgpck
+
+let write w v =
+  Writer.write w (M.String.to_string v)
+
 let write_code w code =
-  let module M = Msgpck in
-  let v = (M.String.to_string (M.Int 0)) in
-  Writer.write w v;
+  write w (M.Int 0);
   Writer.write w (Orcml.Serialize.serialize_bc code)
 
 let write_unblock w id v =
-  let module M = Message_pack in
-  let write v = Writer.write w (M.String.to_string v) in
-  write (M.Int 1);
-  write (M.List ((M.Int id)::(Orcml.Serialize.serialize_value (fun _ -> assert false) v)))
+  write w (M.Int 1);
+  write w (M.List ((M.Int id)::(Orcml.Serialize.serialize_value (fun _ -> assert false) v)))
+
+let write_bench w code n =
+  write w (M.Int 2);
+  write w (M.Int n);
+  Writer.write w (Orcml.Serialize.serialize_bc code)

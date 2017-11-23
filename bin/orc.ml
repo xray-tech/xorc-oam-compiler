@@ -66,46 +66,48 @@ let exec =
     ]
 
 let tests_server =
+  let write v = Writer.write (Lazy.force Writer.stdout) v in
   let write_result r =
-    Writer.write (Lazy.force Writer.stdout) (Orcml.Serialize.serialize_result r) in
+    write (Orcml.Serialize.serialize_result r) in
   let rec server code state =
     let open Orcml_testkit in
     let module M = Message_pack in
     let input = (Lazy.force Reader.stdin) in
-    Protocol.read_msg input  >>= function
-    | Some(M.Int 0) ->
-      (Protocol.read_msg input >>= function
-        | None -> exit 0
-        | Some(code) ->
-          debug "----RUN";
-          let code' = Orcml.Serialize.deserialize_bc code in
-          (match Orcml.Inter.run code' with
-           | Ok((_, _, _, state as v)) ->
-             write_result v;
-             server (Some code') (Some state)
-           | Error(err) ->
-             error "Runtime error:\n%s" (Error.to_string_hum err);
-             exit 1))
-    | Some(M.Int 1) when Option.is_empty code ->
+    Protocol.read_msg_or_exit ~code:0 input >>= function
+    | M.Int 0 ->
+      Protocol.read_msg_or_exit ~code:0 input >>= fun code ->
+      let code' = Orcml.Serialize.deserialize_bc code in
+      handle_res (Some code') (Orcml.Inter.run code')
+    | M.Int 1 when Option.is_empty code ->
       error "Unblock before code";
       exit 1
-    | Some(M.Int 1) ->
-      debug "---UNBLOCK";
-      (Protocol.read_msg input >>= function
-        | None -> exit 0
-        | Some(M.List ((M.Int id)::vs)) ->
+    | M.Int 1 ->
+      (Protocol.read_msg_or_exit ~code:0 input >>= function
+        | M.List ((M.Int id)::vs) ->
           let (v, _) = Orcml.Serialize.deserialize_value (fun _ -> assert false) vs in
           let res = Orcml.Inter.unblock (Option.value_exn code) (Option.value_exn state) id v in
-          (match res with
-           | Ok((_, _, _, state as v)) ->
-             write_result v;
-             server code (Some state)
-           | Error(err) ->
-             error "Runtime error:\n%s" (Error.to_string_hum err);
-             exit 1)
+          handle_res code res
         | _ -> error "Bad message"; exit 1)
-    | None -> exit 0
-    | _ -> error "Bad message"; exit 1 in
+    | M.Int 2 ->
+      (Protocol.read_msg_or_exit ~code:0 input >>= function
+        | M.Int n ->
+          Protocol.read_msg_or_exit ~code:0 input >>= fun code ->
+          let code' = Orcml.Serialize.deserialize_bc code in
+          (match Benchmark.latency1 ~style:Benchmark.Nil
+                   (Int64.of_int n) Orcml.Inter.run code' with
+           | [(_, [{Benchmark.wall}])] ->
+             write (M.Float (wall *. 1000.0) |> M.String.to_string);
+             server None None
+           | _ -> assert false)
+        | _ -> error "Bad message"; exit 1)
+    | _ -> error "Bad message"; exit 1
+  and handle_res code = function
+    | Ok((_, _, _, state as v)) ->
+      write_result v;
+      server code (Some state)
+    | Error(err) ->
+      error "Runtime error:\n%s" (Error.to_string_hum err);
+      exit 1 in
   let open Command.Let_syntax in
   Command.basic'
     ~summary: "tests-server. supports TestKit protocol"

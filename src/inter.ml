@@ -269,7 +269,7 @@ and tick
   | Stop -> halt state stack env
   | Parallel(c1, c2) ->
     increment_instances stack;
-    tick state (pc, c1) stack env;
+    tick state (pc, c1) stack (Array.copy env);
     tick state (pc, c2) stack env;
   | Otherwise(c1, c2) ->
     let frame = FOtherwise { first_value = false;
@@ -372,9 +372,6 @@ let unblock' code instance coeffect value =
                 prims = default_prims;
                 values = clb;
                 coeffects = c_clb} in
-  Stdio.eprintf "---UNBLOCK\n";
-  List.iter instance.blocks (fun (id, _) -> 
-      Stdio.eprintf "----BLOCK ID: %i\n" id);
   let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
   publish state token.stack token.env value;
   (!values, !coeffects, [], instance)

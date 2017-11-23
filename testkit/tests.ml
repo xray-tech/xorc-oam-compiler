@@ -78,5 +78,18 @@ let tests =
                          next = CheckAndResume { values = allof ["4"];
                                                  unblock = (1, "1");
                                                  killed = [];
-                                                 next = Check (allof ["5"])}})]);
+                                                 next = Check (allof ["5"])}});
+       ("def bar(f) = f(3) + Coeffect(1)
+         1 | 2 >x> (def foo(y) = x + y bar(foo))",
+        CheckAndResume { values = allof [];
+                         unblock = (0, "1");
+                         killed = [];
+                         next = CheckAndResume { values = allof ["5"];
+                                                 unblock = (1, "1");
+                                                 killed = [];
+                                                 next = Check (allof ["6"])}});
+     ("def even(x) = if x = 0 then true else odd(x - 1)
+       def odd(x) = if x = 0 then false else even(x - 1)
+
+       even(1001)", Check (allof ["false"]))]);
   ]
