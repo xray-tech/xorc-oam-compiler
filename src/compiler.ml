@@ -12,6 +12,7 @@ type binding =
   | BindVar
   | BindCoeffect
   | BindFun of int
+  | BindSite of string
   | BindPrim of prim [@@deriving variants, sexp]
 
 type ctx = (string * binding) list [@@deriving sexp]
@@ -54,18 +55,23 @@ let ctx_vars ctx  =
   let rec find acc = function
     | [] -> acc
     | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs | (_,BindCoeffect)::xs ->
+    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs  | (_,BindSite(_))::xs | (_,BindCoeffect)::xs ->
       find acc xs in
   find 0 ctx
 
-let ctx_find ctx pos ident =
+let ctx_find ctx ident =
   let rec find acc = function
-    | [] -> Errors.(throw (UnboundVar { var = ident; pos }))
+    | [] -> None
     | (ident', bind)::xs when String.equal ident ident' ->
-      (ctx_vars ctx - 1 - acc, bind)
+      Some(ctx_vars ctx - 1 - acc, bind)
     | (_, BindVar)::xs -> find (acc + 1) xs
     | _::xs -> find acc xs in
   find 0 ctx
+
+let ctx_find_exn ctx pos ident =
+  match ctx_find ctx ident with
+  | None -> Errors.(throw (UnboundVar { var = ident; pos }))
+  | Some(v) -> v
 
 let new_index = ctx_vars
 
@@ -89,14 +95,51 @@ let compile_queue = ref []
 let add_to_queue label ctx params body =
   compile_queue := (label, ctx, params, body)::!compile_queue
 
+let free_vars init e =
+  let rec step ctx (e, (ast_e, pos)) =
+    let open! Ir1 in
+    let if_out_of_scope x =
+      match ctx_find ctx x with
+       | Some(_) -> []
+       | None -> [x] in
+    match e with
+    | EIdent x -> if_out_of_scope x
+    | EParallel(e1, e2) | EOtherwise(e1, e2)
+    | EPruning(e1, None, e2) | ESequential(e1, None, e2) ->
+      step ctx e1 @ step ctx e2
+    | EPruning(e1, Some(bind), e2) ->
+      let ctx' = (bind, BindVar)::ctx in
+      step ctx' e1 @ step ctx e2
+    | ESequential(e1, Some(bind), e2) ->
+      let ctx' = (bind, BindVar)::ctx in
+      step ctx e1 @ step ctx' e2
+    | ESite(bind, def, e) ->
+      let ctx' = (bind, BindSite(def))::ctx in
+      step ctx' e
+    | EFix(funs, e) ->
+      let ctx' = (List.map funs (fun (bind, _, _) -> (bind, BindVar))) @ ctx in
+      step ctx' e @ (List.concat_map funs (fun (_, params, e) ->
+          let ctx'' = List.map params (fun p -> (p, BindVar)) @ ctx' in
+          step ctx'' e))
+    | ECall(target, params) ->
+      (if_out_of_scope target) @ (List.concat_map params if_out_of_scope)
+    | EConst _ | EStop-> [] in
+  step (List.map init (fun ident -> (ident, BindVar))) e
+
+let closure_vars ctx pos vars =
+  List.filter vars (fun v ->
+      match ctx_find_exn ctx pos v with
+      | (_, BindVar) -> true
+      | _ -> false)
+
 let rec compile_e ctx shift (e, (ast_e, pos)) =
   let open! Ir1 in
   match e with
   | EIdent x ->
-    (match ctx_find ctx pos x with
+    (match ctx_find_exn ctx pos x with
      | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
      | (_, BindFun i) -> (0, [Inter.Closure(i, 0)])
-     | (_, BindCoeffect) -> raise Util.TODO
+     | (_, BindCoeffect) | (_, BindSite(_)) -> raise Util.TODO
      | (_, BindPrim prim)  ->
        (* translate to closure *)
        raise Util.TODO
@@ -139,17 +182,29 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
                       shift + len e2' - 1)
      ::(e1' @ e2'))
   | EFix(fs, e) ->
-    let names = List.map fs (fun (ident, _, _) ->
-        (ident, BindVar)) in
-    let ctx' = names @ ctx in
+    let vars = List.map fs (fun (ident, _, _) -> ident) in
+    let closure_vars = List.map fs (fun (_, params, e) ->
+        let all = free_vars (vars @ params) e in
+        closure_vars ctx pos all) in
+    let binds = List.map2_exn vars closure_vars (fun ident vars ->
+        match vars with
+        | [] -> (ident, bindfun (new_label ()))
+        | vars -> (ident, BindVar)) in
+    let ctx' = binds @ ctx in
     let (s, body) = compile_e ctx' shift e in
     let closure_size = ctx_vars ctx' in
-    let make_closure (i, index, acc) (ident, params, body) =
-      let label = new_label () in
-      add_to_queue label ctx' params body;
-      (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc) in
+    let make_fun (i, index, acc) (_, bind) (ident, params, body) =
+      match bind with
+      | BindFun(label) ->
+        add_to_queue label ctx' params body;
+        (i, index, acc)
+      | BindVar ->
+        let label = new_label () in
+        add_to_queue label ctx' params body;
+        (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc)
+      | _ -> assert false in
     let init = (shift + len body, new_index ctx, []) in
-    let (_, _, closures) = List.fold (List.rev fs) ~init ~f:make_closure in
+    let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
     (s + (len closures / 2), closures @ body)
   (* (\* TODO closures *\)
    * let names = List.map fs (fun (ident, _, _) ->
@@ -161,16 +216,18 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
    * compile_e ctx' shift e *)
   | ECall(ident, args) ->
     let args' = List.map args (fun arg ->
-        match ctx_find ctx pos arg with
+        match ctx_find_exn ctx pos arg with
         | (i, BindVar) -> i
         | _ -> raise Util.TODO )in
-    (match ctx_find ctx pos ident with
+    (match ctx_find_exn ctx pos ident with
      | (_, BindPrim p) ->
        (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
      | (_, BindFun c) ->
        (0, [Inter.Call(Inter.TFun(c), Array.of_list args')])
      | (i, BindVar) ->
        (0, [Inter.Call(Inter.TClosure(i), Array.of_list args')])
+     | (i, BindSite(_)) ->
+       raise Util.TODO
      | (_, BindCoeffect) ->
        (match args' with
         | [i] -> (0, [Inter.Coeffect i])
