@@ -100,8 +100,8 @@ let free_vars init e =
     let open! Ir1 in
     let if_out_of_scope x =
       match ctx_find ctx x with
-       | Some(_) -> []
-       | None -> [x] in
+      | Some(_) -> []
+      | None -> [x] in
     match e with
     | EIdent x -> if_out_of_scope x
     | EParallel(e1, e2) | EOtherwise(e1, e2)
@@ -132,7 +132,9 @@ let closure_vars ctx pos vars =
       | (_, BindVar) -> true
       | _ -> false)
 
-let rec compile_e ctx shift (e, (ast_e, pos)) =
+let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
+  let is_tail_call = tail_call && true in
+  let not_tail_call = tail_call && false in
   let open! Ir1 in
   match e with
   | EIdent x ->
@@ -146,15 +148,15 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
     )
   | EConst v -> (0, [Inter.Const v])
   | EParallel(e1, e2) ->
-    let (s2, e2') = compile_e ctx shift e2 in
-    let (s1, e1') = compile_e ctx (shift + len e2') e1 in
+    let (s2, e2') = compile_e ctx shift current_fun  is_tail_call e2 in
+    let (s1, e1') = compile_e ctx (shift + len e2') current_fun  is_tail_call e1 in
     ((Int.max s1 s2),
      Inter.Parallel(shift + len e1' + len e2' - 1,
                     shift + len e2' - 1)
      ::(e1' @ e2'))
   | EOtherwise(e1, e2) ->
-    let (s2, e2') = compile_e ctx shift e2 in
-    let (s1, e1') = compile_e ctx (shift + len e2') e1 in
+    let (s2, e2') = compile_e ctx shift current_fun  is_tail_call e2 in
+    let (s1, e1') = compile_e ctx (shift + len e2') current_fun  not_tail_call e1 in
     ((Int.max s1 s2),
      Inter.Otherwise(shift + len e1' + len e2' - 1,
                      shift + len e2' - 1)
@@ -163,8 +165,8 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
     let (ctx', index) = match v with
       | None -> (ctx, None)
       | Some(v) -> ((v, BindVar)::ctx, Some(new_index ctx)) in
-    let (s2, e2') = compile_e ctx' shift e2 in
-    let (s1, e1') = compile_e ctx' (shift + len e2') e1 in
+    let (s2, e2') = compile_e ctx' shift current_fun  not_tail_call e2 in
+    let (s1, e1') = compile_e ctx' (shift + len e2') current_fun  is_tail_call e1 in
     ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
      Inter.Pruning(shift + len e1' + len e2' - 1,
                    index,
@@ -174,8 +176,8 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
     let (ctx', index) = match v with
       | None -> (ctx, None)
       | Some(v) -> ((v, BindVar)::ctx, Some(new_index ctx)) in
-    let (s2, e2') = compile_e ctx' shift e2 in
-    let (s1, e1') = compile_e ctx (shift + len e2') e1 in
+    let (s2, e2') = compile_e ctx' shift current_fun  is_tail_call e2 in
+    let (s1, e1') = compile_e ctx (shift + len e2') current_fun  not_tail_call e1 in
     ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
      Inter.Sequential(shift + len e1' + len e2' - 1,
                       index,
@@ -191,7 +193,7 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
         | [] -> (ident, bindfun (new_label ()))
         | vars -> (ident, BindVar)) in
     let ctx' = binds @ ctx in
-    let (s, body) = compile_e ctx' shift e in
+    let (s, body) = compile_e ctx' shift current_fun is_tail_call e in
     let closure_size = ctx_vars ctx' in
     let make_fun (i, index, acc) (_, bind) (ident, params, body) =
       match bind with
@@ -206,14 +208,6 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
     let init = (shift + len body, new_index ctx, []) in
     let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
     (s + (len closures / 2), closures @ body)
-  (* (\* TODO closures *\)
-   * let names = List.map fs (fun (ident, _, _) ->
-   *     (ident, new_label ()))in
-   * let ctx' = List.map names (fun (ident, label) -> (ident, bindfun label))
-   *            @ ctx  in
-   * List.iter2_exn names fs (fun (_, label) (ident, params, body) ->
-   *     add_to_queue label ctx' params body);
-   * compile_e ctx' shift e *)
   | ECall(ident, args) ->
     let args' = List.map args (fun arg ->
         match ctx_find_exn ctx pos arg with
@@ -222,6 +216,8 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
     (match ctx_find_exn ctx pos ident with
      | (_, BindPrim p) ->
        (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
+     | (_, BindFun c) when Int.equal c current_fun ->
+       (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
      | (_, BindFun c) ->
        (0, [Inter.Call(Inter.TFun(c), Array.of_list args')])
      | (i, BindVar) ->
@@ -235,10 +231,10 @@ let rec compile_e ctx shift (e, (ast_e, pos)) =
   | EStop -> (0, [Inter.Stop])
   | ESite(_, _, _) -> raise Util.TODO
 
-let compile_fun ctx params body =
+let compile_fun ctx ident params body =
   let params' = List.map params (fun n -> (n, BindVar)) in
   let ctx' = params' @ ctx  in
-  let (size, f) = compile_e ctx' 0 body in
+  let (size, f) = compile_e ctx' 0 ident true body in
   (size + List.length params + ctx_vars ctx, f)
 
 let change_labels mapping code =
@@ -249,6 +245,9 @@ let change_labels mapping code =
     | Inter.Call(Inter.TFun(label), args) ->
       let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
       Inter.Call(Inter.TFun(addr), args)
+    | Inter.TailCall(Inter.TFun(label), args) ->
+      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
+      Inter.TailCall(Inter.TFun(addr), args)
     | op -> op in
   List.map code (fun (size, body) ->
       (size, List.map body change))
@@ -262,7 +261,7 @@ let compile' e =
     | [] -> acc
     | (label, ctx, params, body)::xs ->
       compile_queue := xs;
-      let f = compile_fun ctx params body in
+      let f = compile_fun ctx label params body in
       compile_loop ((label, f)::acc) in
   let repository = compile_loop [] in
   let labels_mapping = List.mapi repository (fun addr (label, _) ->

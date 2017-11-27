@@ -310,6 +310,11 @@ and tick
     Array.iteri args ~f:(fun i arg ->
         env'.(i) <- env.(arg));
     tick state (pc', Array.length f_code - 1) (frame::stack) env'
+  | TailCall(TFun(pc'), args) ->
+    let (_, f_code) = code.(pc') in
+    Array.iteri args ~f:(fun i arg ->
+        env.(i) <- env.(arg));
+    tick state (pc', Array.length f_code - 1) stack env
   | Call(TClosure(i), args) ->
     (match realized i with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
@@ -335,7 +340,8 @@ and tick
        state.coeffects (instance.current_coeffect, descr);
        instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
        instance.current_coeffect <- instance.current_coeffect + 1)
-  | _ -> raise TODO
+  | _ -> assert false
+
 
 let values_clb () =
   let storage = ref [] in
