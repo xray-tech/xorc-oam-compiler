@@ -78,14 +78,14 @@ let tests =
         Check (allof ["2"]))]);
    ("data-structures",[
        "val empty = {.  .}
-      val one = {. x = 1 .}
-      val two = {. y = 3, z = true .}
+        val one = {. x = 1 .}
+        val two = {. y = 3, z = true .}
 
-      empty
-      | one
-      | (one.x)
-      | (two.y)
-      | (two.z)",
+        empty
+        | one
+        | (one.x)
+        | (two.y)
+        | (two.z)",
        Check (allof ["{. .}"; "{. x = 1 .}"; "1"; "3"; "true"]);
      ]);
    ("basic", [
@@ -97,7 +97,7 @@ let tests =
         *      next = Check (allof ["3"])});
         * ("2 | 3 >x> (def foo() = x + 1 foo())",
         *  Check (allof ["3"; "4"])); *)
-       ("2 | 3 >x> (def foo() = x + 1 foo() + Coeffect(1))",
+       ("(2 | 3) >x> def foo() = x + 1 # foo() + Coeffect(1)",
         CheckAndResume { values = allof [];
                          unblock = (0, "1");
                          killed = [];
@@ -105,8 +105,8 @@ let tests =
                                                  unblock = (1, "1");
                                                  killed = [];
                                                  next = Check (allof ["5"])}});
-       ("def bar(f) = f(3) + Coeffect(1)
-         1 | 2 >x> (def foo(y) = x + y bar(foo))",
+       ("def bar(f) = f(3) + Coeffect(1) #
+         (1 | 2) >x> def foo(y) = x + y# bar(foo)",
         CheckAndResume { values = allof [];
                          unblock = (0, "1");
                          killed = [];
@@ -115,7 +115,7 @@ let tests =
                                                  killed = [];
                                                  next = Check (allof ["6"])}});
        ("def even(x) = if x = 0 then true else odd(x - 1)
-       def odd(x) = if x = 0 then false else even(x - 1)
+         def odd(x) = if x = 0 then false else even(x - 1)
 
-       even(1001)", Check (allof ["false"]))]);
+         even(1001)", Check (allof ["false"]))]);
   ]
