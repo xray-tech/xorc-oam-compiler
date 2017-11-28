@@ -1,4 +1,7 @@
 open Base
+open Sexplib
+open Conv
+
 type e' =
   | EOtherwise of e * e
   | EParallel of e * e
@@ -10,7 +13,7 @@ type e' =
   | EStop
   | ESite of string * string * e
   | EFix of (string * string list * e) list * e
-and e = e' * Ast.e [@@deriving sexp_of]
+and e = e' * Ast.e sexp_opaque [@@deriving sexp_of]
 
 let fresh = ref 0
 
@@ -33,7 +36,119 @@ let divide_defs defs =
   [defs]
 
 let rec translate' ((e, pos) as ast) =
+  let module DSL = struct
+    let const c =
+      (EConst c, ast)
+
+    let par left right =
+      (EParallel(left, right), ast)
+
+    let seqw left right =
+      (ESequential(left, None, right), ast)
+
+    let seq left bind right =
+      (ESequential(left, Some(bind), right), ast)
+
+    let prunew left right = (EPruning(left, None, right), ast)
+
+    let prune left bind right =
+      (EPruning(left, Some(bind), right), ast)
+
+    let call target params =
+      (ECall(target, params), ast)
+
+    let ident v =
+      (EIdent(v), ast)
+
+    let deflate' e k =
+      match e with
+      | EIdent(v), _ -> k v
+      | ast -> let f = make_fresh () in
+        prune (k f) f e
+
+    let deflate e k = deflate' (translate' e) k end in
   let module A = Ast in
+  let translate_pattern p source =
+    let module A = Ast in
+    let bindings = ref [] in
+    let rec unravel (p, pos) focus expr =
+      match p with
+      | A.PAs(p, alias) ->
+        bindings := (focus, alias)::!bindings;
+        unravel p focus expr
+      | A.PVar(x) ->
+        bindings := (focus, x)::!bindings;
+        expr ()
+      | A.PWildcard -> expr ()
+      | A.PConst(x) ->
+        DSL.(deflate' (const x) (fun x' ->
+            deflate' (call "=" [focus; x']) (fun is_eq ->
+                seqw
+                  (call "'Ift" [is_eq])
+                  (expr ()))))
+      | A.PTuple(ps) ->
+        DSL.(deflate' (const (A.Int (List.length ps))) (fun arity ->
+            seqw (call "'ArityCheck" [focus; arity])
+              (unravel_tuple ps 0 focus expr)))
+      | A.PCons(head, tail) ->
+        let head' = make_fresh () in
+        let tail' = make_fresh () in
+        DSL.(seq
+               (call "'First" [focus]) head'
+               (seq
+                  (call "'Rest" [focus]) tail'
+                  (unravel head head' (fun () ->
+                       unravel tail tail' expr))))
+      | A.PList(ps) ->
+        DSL.(deflate' (const (A.Int (List.length ps))) (fun size ->
+            seqw (call "'ListSizeCheck" [focus; size])
+              (unravel_list ps focus expr)))
+      | A.PRecord(pairs) ->
+        unravel_record pairs focus expr
+    and unravel_record pairs focus expr =
+      match pairs with
+      | [] -> expr ()
+      | (f, p)::pairs' ->
+        let bind = make_fresh () in
+        DSL.(deflate' (const (A.String f)) (fun field ->
+            seq
+              (call "'FieldAccess" [focus; field])
+              bind
+              (unravel p bind (fun () ->
+                   unravel_record pairs' focus expr))))
+    and unravel_list ps focus expr =
+      match ps with
+      | [] -> expr ()
+      | p::ps' ->
+        let head' = make_fresh () in
+        let tail' = make_fresh () in
+        DSL.(seq
+               (call "'First" [focus]) head'
+               (seq
+                  (call "'Rest" [focus]) tail'
+                  (unravel p head' (fun () ->
+                       unravel_list ps' tail' expr))))
+    and unravel_tuple ps i focus expr =
+      match ps with
+      | [] -> expr ()
+      | p::ps' ->
+        DSL.(deflate' (const (A.Int i)) (fun i' ->
+            let bind = make_fresh () in
+            seq (call focus [i']) bind (unravel p bind (fun () ->
+                unravel_tuple ps' (i + 1) focus expr)))) in
+    let on_source () = if List.length !bindings > 0
+      then DSL.call "'MakeTuple" (List.map !bindings (fun (b, _) -> b))
+      else DSL.const A.Signal in
+    let on_target bridge target =
+      if List.length !bindings > 0
+      then let (_, res) = List.fold !bindings ~init:(0, target) ~f:(fun (i, target') (_, binding) ->
+          (i + 1,
+           DSL.(deflate' (const (A.Int i)) (fun i' ->
+               seq (call bridge [i']) binding target')))) in
+        res
+      else target in
+    (unravel p source on_source,
+     on_target) in
   (* Sexp.to_string_hum (Ast.sexp_of_e' e ) |> Stdio.print_endline; *)
   match e with
   | A.EIdent(v) -> (EIdent v, ast)
@@ -45,14 +160,26 @@ let rec translate' ((e, pos) as ast) =
     (EPruning(translate' e1, Some i, translate' e2), ast)
   | A.EPruning(e1, ((A.PWildcard), _), e2) ->
     (EPruning(translate' e1, None, translate' e2), ast)
-  | A.EPruning(e1, (p, _), e2) ->
-    raise Util.TODO
+  | A.EPruning(e1, p, e2) ->
+    let source_binding = make_fresh () in
+    let bridge = make_fresh () in
+    let (source, on_target) = translate_pattern p source_binding in
+    DSL.(prune
+           (on_target bridge (translate' e1))
+           bridge
+           (seq (translate' e2) source_binding source))
   | A.ESequential(e1, ((A.PVar i), _), e2) ->
     (ESequential(translate' e1, Some i, translate' e2), ast)
   | A.ESequential(e1, ((A.PWildcard), _), e2) ->
     (ESequential(translate' e1, None, translate' e2), ast)
-  | A.ESequential(e1, (p, _), e2) ->
-    raise Util.TODO
+  | A.ESequential(e1, p, e2) ->
+    let source_binding = make_fresh () in
+    let bridge = make_fresh () in
+    let (source, on_target) = translate_pattern p source_binding in
+    DSL.(seq
+           (translate' e1)
+           source_binding
+           (seq source bridge (on_target bridge (translate' e2))))
   | A.EList(es) ->
     deflate_many es (fun es' ->
         (ECall("'MakeList", es'), ast))
@@ -69,10 +196,11 @@ let rec translate' ((e, pos) as ast) =
                 k::v::acc) in
             (ECall("'MakeRecord", args), ast) ))
   | A.ECond(pred, then_, else_) ->
-    deflate pred (fun pred' ->
-        (EParallel((ESequential((ECall("'Ift", [pred']), ast), None, translate' then_), ast),
-                   (ESequential((ECall("'Iff", [pred']), ast), None, translate' else_), ast)),
-        ast))
+    DSL.(
+      deflate pred (fun pred' ->
+          par
+            (seqw (call "'Ift" [pred']) (translate' then_))
+            (seqw (call "'Iff" [pred']) (translate' else_))))
   | A.EConst c -> (EConst(c), ast)
   | A.ECall(e, args) ->
     deflate e (fun e' ->
@@ -98,7 +226,6 @@ let rec translate' ((e, pos) as ast) =
     raise Util.TODO
   | A.EDecl((DInclude(_), _), e) ->
     assert false
-
 
 and deflate e k =
   match e with

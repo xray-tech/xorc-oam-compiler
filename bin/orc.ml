@@ -46,7 +46,13 @@ let exec =
       let exec () =
         read_file_or_stdin input >>= fun prog ->
         let res = Orcml_syntax.Syntax.from_string prog
+                  |> Result.map ~f:(fun v ->
+                      debug "Parsed:\n%s" (Orcml.Ast.sexp_of_e v |> Sexp.to_string_hum);
+                      v)
                   |> Result.bind ~f:Orcml.Ir1.translate
+                  |> Result.map ~f:(fun v ->
+                      debug "Translated:\n%s" (Orcml.Ir1.sexp_of_e v |> Sexp.to_string_hum);
+                      v)
                   |> Result.bind ~f:Orcml.Compiler.compile in
         (match res with
          | Error(err) ->
@@ -95,10 +101,10 @@ let tests_server =
           let code' = Orcml.Serialize.deserialize_bc code in
           (match Benchmark.latency1 ~style:Benchmark.Nil
                    (Int64.of_int n) Orcml.Inter.run code' with
-           | [(_, [{Benchmark.wall}])] ->
-             write (M.Float (wall *. 1000.0) |> M.String.to_string);
-             server None None
-           | _ -> assert false)
+          | [(_, [{Benchmark.wall}])] ->
+            write (M.Float (wall *. 1000.0) |> M.String.to_string);
+            server None None
+          | _ -> assert false)
         | _ -> error "Bad message"; exit 1)
     | _ -> error "Bad message"; exit 1
   and handle_res code = function
@@ -123,7 +129,6 @@ let tests_server =
            exit 1)|> don't_wait_for;
         Scheduler.go () |> never_returns
     ]
-
 
 let () =
   Command.group ~summary:"Orc programming language compiler and VM"

@@ -6,6 +6,7 @@ type prim =
   | Eq | NotEq | GT | GTE | LT | LTE
   | And | Or | Not
   | FieldAccess | MakeTuple | MakeList | MakeRecord
+  | ArityCheck | ListSizeCheck | First | Rest
 [@@deriving compare, enumerate, sexp]
 
 type binding =
@@ -40,7 +41,11 @@ let prims_map = [("Let", Let);
                  ("'MakeList", MakeList);
                  ("'MakeRecord", MakeRecord);
                  ("'Ift", Ift);
-                 ("'Iff", Iff);]
+                 ("'Iff", Iff);
+                 ("'ArityCheck", ArityCheck);
+                 ("'ListSizeCheck", ListSizeCheck);
+                 ("'First", First);
+                 ("'Rest", Rest)]
 
 let prims = List.map prims_map (fun ((s, p)) -> (s, bindprim p))
 

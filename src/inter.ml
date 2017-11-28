@@ -67,7 +67,7 @@ exception RuntimeError
 let default_prims = [|
   (* Let *)
   (function
-    | [| VConst _ as v |] -> PrimVal v
+    | [| v |] -> PrimVal v
     | _ -> PrimUnsupported);
   (* Add *)
   (function
@@ -159,6 +159,34 @@ let default_prims = [|
        | (VConst(Ast.String k))::v::xs -> make ((k, v)::acc) xs
        | _ -> PrimUnsupported in
      make [] (Array.to_list vals));
+  (* ArityCheck *)
+  (function
+    | [| VTuple(vs); VConst(Ast.Int size) |] ->
+      if (Int.equal (List.length vs) size)
+      then PrimVal (VConst(Ast.Signal))
+      else PrimHalt
+    | _ -> PrimUnsupported);
+  (* ListSizeCheck *)
+  (function
+    | [| VList(vs); VConst(Ast.Int size) |] ->
+            if (Int.equal (List.length vs) size)
+      then PrimVal (VConst(Ast.Signal))
+      else PrimHalt
+    | _ -> PrimUnsupported);
+  (* First *)
+  (function
+    | [| VList([]) |] ->
+      PrimHalt
+    | [| VList(x::_) |] ->
+      PrimVal (x)
+    | _ -> PrimUnsupported);
+  (* Rest *)
+  (function
+    | [| VList([]) |] ->
+      PrimHalt
+    | [| VList(_::xs) |] ->
+      PrimVal (VList(xs))
+    | _ -> PrimUnsupported);
 |]
 
 
@@ -296,7 +324,7 @@ and tick
      | `Stopped -> halt state stack env
      | `Values args' ->
        let impl = prims.(prim) in
-       (* Stdio.eprintf "---CALL\n";
+       (* Stdio.eprintf "---CALL %i\n" prim;
         *        Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
        (match impl args' with
         | PrimVal res ->
@@ -329,7 +357,14 @@ and tick
            env'.(i + to_copy) <- env.(arg));
        let frame = FCall(env) in
        tick state (pc', Array.length f_code - 1) (frame::stack) env'
-     | `Value(_) -> raise RuntimeError)
+     | `Value(VTuple(vs)) ->
+       (match realized args.(0) with
+        | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+        | `Stopped -> raise Util.TODO
+        | `Value(VConst(Ast.Int i)) ->
+          publish state stack env (List.nth_exn vs i)
+        | `Value(_) -> raise Util.TODO)
+     | `Value(_) -> raise Util.TODO)
   | Coeffect arg ->
     (match realized arg with
      | `Pending p ->
