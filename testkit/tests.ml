@@ -111,7 +111,7 @@ let tests =
         Check (allof ["([4],3,2,1)"]));
        ("(-1 >-1> \"ISuccess\" ; \"Fail\")
      |(-2.3 >-2.3> \"FSuccess\" ; \"Fail\")",
-        Check (allof ["ISuccess"; "FSuccess"]));
+        Check (allof ["\"ISuccess\""; "\"FSuccess\""]));
        ("( (1,(2,3)) | (4,(5,6)) ) >(a,(b,c) as d)> (a,b,c,d)",
         Check (allof ["(1,2,3,(2,3))"; "(4,5,6,(5,6))"]));
        ("( (1,(2,3)) | (4,true) | (5,[6,7]) | (8,signal) ) >(x,_)> x",
@@ -120,6 +120,15 @@ let tests =
         Check (allof ["(1,2,4)"]));
        ("{. a = 1, b = [2,3], c = {. d =  4 .} .} > {. a = a, b = b:_, c = {. d = d .} .} > (a,b,d)",
         Check (allof ["(1,2,4)"]));
+     ]);
+   ("stop-semantic", [
+       ("((1 | stop) | stop); 3", Check (allof ["1"]));
+       ("((1 >> stop) | stop); 3", Check (allof ["3"]));
+       ("(1 << stop); 3", Check (allof ["1"]));
+       ("(stop << 1); 3", Check (allof ["3"]));
+       ("(1 | stop) >> 2", Check (allof ["2"]));
+       ("(1;signal) >> stop; 3", Check (allof ["3"]));
+       ("def f(x) = x # (f(x) <x< stop); 5", Check (allof ["5"]));
      ]);
    ("basic", [
        (* ("1 | 2", Check (allof ["1"; "2"]));

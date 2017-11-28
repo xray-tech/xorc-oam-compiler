@@ -72,7 +72,14 @@ let default_prims = [|
     | vals -> PrimVal(VTuple (Array.to_list vals)));
   (* Add *)
   (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x + y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Int(x + y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x + y))))
+    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(of_int x + y))))
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x + of_int y))))
     | [| VConst(Ast.String x); VConst(Ast.String y) |] -> PrimVal (VConst(Ast.String(String.concat [x;y])))
     | [| VRecord(pairs1); VRecord(pairs2) |] ->
       let merged = List.fold pairs2 ~init:pairs1 ~f:(fun acc (a, b) ->
@@ -81,7 +88,16 @@ let default_prims = [|
     | _ -> PrimUnsupported);
   (* Sub *)
   (function
+    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int(-x)))
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x - y)))
+    | [| VConst(Ast.Float x) |] ->
+      PrimVal (VConst(Ast.Float(Float.(-x))))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.sub x y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(of_int x - y))))
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x - of_int y))))
     | _ -> PrimUnsupported);
   (* Ift *)
   (function
@@ -95,19 +111,45 @@ let default_prims = [|
     | _ -> PrimUnsupported);
   (* Mult *)
   (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x * y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Int(x * y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x * y))))
+    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(of_int x * y))))
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x * of_int y))))
     | _ -> PrimUnsupported);
   (* Div *)
   (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x / y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Int(x / y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x / y))))
+    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(of_int x / y))))
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.(x / of_int y))))
     | _ -> PrimUnsupported);
   (* Mod *)
   (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x % y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Int(x % y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.mod_float x y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+      PrimVal (VConst(Ast.Float(Float.mod_float (Float.of_int x) y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.mod_float x (Float.of_int y))))
     | _ -> PrimUnsupported);
   (* Pow *)
   (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(Int.pow x y)))
+    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Int(Int.pow x y)))
+    (* TODO float pow *)
+    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+      PrimVal (VConst(Ast.Float(Float.int_pow x y)))
+
     | _ -> PrimUnsupported);
   (* Eq *)
   (function
@@ -317,7 +359,9 @@ and tick
     step 0 in
   let (_, proc) = code.(pc) in
   match proc.(c) with
-  | Const v -> publish state stack env (VConst v)
+  | Const v ->
+    publish state stack env (VConst v);
+    halt state stack env
   | Stop -> halt state stack env
   | Parallel(c1, c2) ->
     increment_instances stack;

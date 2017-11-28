@@ -140,6 +140,8 @@ args: LEFT_PAREN l=separated_list(COMMA, expr) RIGHT_PAREN { l }
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }
   | WILDCARD { (PWildcard, make_pos $startpos $endpos) }
+  | SUB i=INT { (PConst(Int(-i)), make_pos $startpos $endpos) }
+  | SUB f=FLOAT { (PConst(Float(-. f)), make_pos $startpos $endpos)}
   | c=const { (PConst(c), make_pos $startpos $endpos) }
   | LEFT_PAREN p=pattern COMMA ps=separated_list(COMMA, pattern) RIGHT_PAREN
     { (PTuple(p::ps), make_pos $startpos $endpos) }
