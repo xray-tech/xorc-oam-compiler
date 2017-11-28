@@ -25,14 +25,22 @@ let from_string s =
   |> parse_with_error
 
 let rec value_from_ast (e, _) =
-  let list l = try Some(List.map l (fun v -> Option.value_exn (value_from_ast v))) with
-    | _ -> None in
+  let rec list acc = function
+    | [] -> Some(List.rev acc)
+    | x::xs -> Option.bind (value_from_ast x) (fun v ->
+        list (v::acc) xs) in
+  let rec pairs acc = function
+    | [] -> Some(List.rev acc)
+    | (f, x)::xs -> Option.bind (value_from_ast x) (fun v ->
+        pairs((f, v)::acc) xs) in
   match e with
   | Orcml.Ast.EConst const -> Some(Orcml.Inter.VConst(const))
   | Orcml.Ast.ETuple vs ->
-    Option.map (list vs) (fun l -> Orcml.Inter.VTuple l)
+    Option.map (list [] vs) (fun l -> Orcml.Inter.VTuple l)
   | Orcml.Ast.EList vs ->
-    Option.map (list vs) (fun l -> Orcml.Inter.VList l)
+    Option.map (list [] vs) (fun l -> Orcml.Inter.VList l)
+  | Orcml.Ast.ERecord vs ->
+    Option.map (pairs [] vs) (fun l -> Orcml.Inter.VRecord l)
   | _ -> None
 
 let value s =

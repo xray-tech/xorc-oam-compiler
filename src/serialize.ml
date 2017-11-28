@@ -115,7 +115,7 @@ let rec serialize_value on_env = function
   | VList vs ->
     [M.Int 3; M.List (List.concat_map vs (serialize_value on_env))]
   | VRecord pairs ->
-    [M.Int 3; M.List (List.concat_map pairs (fun (k, v) ->
+    [M.Int 4; M.List (List.concat_map pairs (fun (k, v) ->
          (M.String k)::(serialize_value on_env v)))]
 
 
@@ -226,7 +226,16 @@ let rec deserialize_value on_env = function
     (VTuple(deserialize_values on_env vs), xs)
   | (M.Int 3)::(M.List vs)::xs ->
     (VList(deserialize_values on_env vs), xs)
+  | (M.Int 4)::(M.List pairs)::xs ->
+    let rec deserialize_pairs = function
+      | [] -> []
+      | (M.String f)::xs ->
+        let (v, xs') = deserialize_value on_env xs in
+        (f, v)::(deserialize_pairs xs')
+      | _ -> raise BadFormat in
+    (VRecord(deserialize_pairs pairs), xs)
   | _ -> raise BadFormat
+
 and deserialize_values on_env = function
   | [] -> []
   | xs -> let (v, xs') = deserialize_value on_env xs in

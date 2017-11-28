@@ -46,7 +46,7 @@ let tests =
        ("if false then 7 else 8", Check (allof ["8"]));
 
        ("val b = true
-      Ift(b) >> \"true\" | Iff(b) >> \"false\"", Check (allof ["true"]));
+      Ift(b) >> \"true\" | Iff(b) >> \"false\"", Check (allof ["\"true\""]));
 
        ("val n = 5
       if n :> 0 then n-1 else n+1", Check (allof ["4"]));
@@ -76,6 +76,18 @@ let tests =
 
       1 + {- I am hidden in an expression -} 1",
         Check (allof ["2"]))]);
+   ("data-structures",[
+       "val empty = {.  .}
+      val one = {. x = 1 .}
+      val two = {. y = 3, z = true .}
+
+      empty
+      | one
+      | (one.x)
+      | (two.y)
+      | (two.z)",
+       Check (allof ["{. .}"; "{. x = 1 .}"; "1"; "3"; "true"]);
+     ]);
    ("basic", [
        (* ("1 | 2", Check (allof ["1"; "2"]));
         * ("1 + Coeffect(1)", CheckAndResume

@@ -67,8 +67,9 @@ exception RuntimeError
 let default_prims = [|
   (* Let *)
   (function
+    | [| |] -> PrimVal(VConst Ast.Signal)
     | [| v |] -> PrimVal v
-    | _ -> PrimUnsupported);
+    | vals -> PrimVal(VTuple (Array.to_list vals)));
   (* Add *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x + y)))
@@ -141,6 +142,21 @@ let default_prims = [|
   (function
     | [| VConst(Ast.Bool x) |] -> PrimVal (VConst(Ast.Bool(not x)))
     | _ -> PrimUnsupported);
+  (* Floor *)
+  (function
+    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
+    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_down x |> Int.of_float)))
+    | _ -> PrimUnsupported);
+  (* Ceil *)
+  (function
+    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
+    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_up x |> Int.of_float)))
+    | _ -> PrimUnsupported);
+  (* Sqrt *)
+  (function
+    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Float (Float.of_int x |> Float.sqrt)))
+    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Float (Float.sqrt x)))
+    | _ -> PrimUnsupported);
   (* FieldAccess *)
   (function
     | [| VRecord(pairs); VConst(Ast.String field) |] ->
@@ -169,7 +185,7 @@ let default_prims = [|
   (* ListSizeCheck *)
   (function
     | [| VList(vs); VConst(Ast.Int size) |] ->
-            if (Int.equal (List.length vs) size)
+      if (Int.equal (List.length vs) size)
       then PrimVal (VConst(Ast.Signal))
       else PrimHalt
     | _ -> PrimUnsupported);
@@ -281,15 +297,15 @@ and tick
      | Value(v) -> `Value v) in
   let realized_multi args =
     let values = (Array.create (Array.length args) (VConst (Ast.Null))) in
-    let rec step i =
-      match realized args.(i) with
-      | `Pending p -> `Pending p
-      | `Stopped -> `Stopped
-      | `Value v ->
-        values.(i) <- v;
-        if i + 1 < Array.length args
-        then step (i + 1)
-        else `Values values in
+    let rec step = function
+      | i when Int.equal (Array.length args) i -> `Values values
+      | i ->
+        match realized args.(i) with
+        | `Pending p -> `Pending p
+        | `Stopped -> `Stopped
+        | `Value v ->
+          values.(i) <- v;
+          step (i + 1) in
     step 0 in
   let (_, proc) = code.(pc) in
   match proc.(c) with
@@ -325,7 +341,7 @@ and tick
      | `Values args' ->
        let impl = prims.(prim) in
        (* Stdio.eprintf "---CALL %i\n" prim;
-        *        Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
+        * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
        (match impl args' with
         | PrimVal res ->
           publish state stack env res

@@ -33,7 +33,10 @@
 %left AS
 %nonassoc IDENT
 
-%left BAR SEMICOLON LESS MORE
+%left SEMICOLON
+%left LESS
+%left BAR
+%right MORE
 %nonassoc ASSIGN
 %left OR
 %left AND
