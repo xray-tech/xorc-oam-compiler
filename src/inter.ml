@@ -57,6 +57,7 @@ type prims = (v array -> prim_v) array
 
 type state = { code : code;
                instance : instance;
+               mutable queue : token list;
                prims : prims;
                values: (v -> unit);
                coeffects: ((int * v) -> unit)}
@@ -410,7 +411,10 @@ and tick
     let (_, f_code) = code.(pc') in
     Array.iteri args ~f:(fun i arg ->
         env.(i) <- env.(arg));
-    tick state (pc', Array.length f_code - 1) stack env
+    let token = { pc = (pc', Array.length f_code - 1);
+                  env = env;
+                  stack = stack } in
+    state.queue <- token::state.queue
   | Call(TClosure(i), args) ->
     (match realized i with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
@@ -454,20 +458,29 @@ let coeffects_clb () =
   let storage = ref [] in
   (storage, (fun v -> storage:= v::!storage))
 
+let rec run_loop state =
+  match state.queue with
+  | [] -> ()
+  | {pc; env; stack}::xs ->
+    state.queue <- xs;
+    tick state pc stack env;
+    run_loop state
+
 let run' code =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
-  let state = { code; instance;
-                prims = default_prims;
-                values = clb;
-                coeffects = c_clb} in
   let (init_env_size, e_code) = code.(Array.length code - 1) in
   let pc = (Array.length code - 1, Array.length e_code - 1) in
   let env = alloc_env init_env_size in
   let stack = [FResult] in
-  tick state pc stack env;
+  let state = { code; instance;
+                prims = default_prims;
+                values = clb;
+                coeffects = c_clb;
+                queue = [{pc; env; stack}]} in
+  run_loop state;
   (* TODO killed coeffects *)
   (!values, !coeffects, [], instance)
 
@@ -480,9 +493,11 @@ let unblock' code instance coeffect value =
   let state = { code; instance;
                 prims = default_prims;
                 values = clb;
-                coeffects = c_clb} in
+                coeffects = c_clb;
+                queue = [] } in
   let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
   publish state token.stack token.env value;
+  run_loop state;
   (!values, !coeffects, [], instance)
 
 let unblock code incstance coeffect value =
