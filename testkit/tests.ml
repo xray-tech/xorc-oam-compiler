@@ -62,6 +62,20 @@ let tests =
        ("ceil(3.2)", Check (allof ["4"]));
        ("sqrt(4)", Check (allof ["2.0"]));
      ]);
+   ("comments", [
+       ("{- I
+         am
+         a
+         multi-line
+         comment
+       -}
+
+      {- {- I am a nested comment -} -}
+
+      -- I am a single-line comment
+
+      1 + {- I am hidden in an expression -} 1",
+        Check (allof ["2"]))]);
    ("basic", [
        (* ("1 | 2", Check (allof ["1"; "2"]));
         * ("1 + Coeffect(1)", CheckAndResume
@@ -88,7 +102,7 @@ let tests =
                                                  unblock = (1, "1");
                                                  killed = [];
                                                  next = Check (allof ["6"])}});
-     ("def even(x) = if x = 0 then true else odd(x - 1)
+       ("def even(x) = if x = 0 then true else odd(x - 1)
        def odd(x) = if x = 0 then false else even(x - 1)
 
        even(1001)", Check (allof ["false"]))]);

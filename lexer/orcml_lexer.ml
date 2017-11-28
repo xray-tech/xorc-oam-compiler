@@ -74,7 +74,7 @@ let rec token lexbuf =
   | '"' -> update lexbuf; STRING (string (Buffer.create 0) lexbuf)
   | "{." -> update lexbuf; LEFT_BRACE
   | ".}" -> update lexbuf; RIGHT_BRACE
-  | "{-" -> update lexbuf; read_comment lexbuf
+  | "{-" -> update lexbuf; read_comment 0 lexbuf
   | "--" -> update lexbuf; read_comment_line lexbuf
   | '[' -> update lexbuf; LEFT_BRACK
   | ']' -> update lexbuf; RIGHT_BRACK
@@ -119,15 +119,20 @@ and string buffer lexbuf =
   | '"' -> update lexbuf; Buffer.contents buffer
   | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store(); string buffer lexbuf
   | _ -> assert false
-and read_comment lexbuf =
+and read_comment level lexbuf =
   let buf = lexbuf.stream in
   match%sedlex buf with
-  | "-}" -> token lexbuf
+  | "{-" -> read_comment (level + 1) lexbuf
+  | "-}" ->
+    if Int.equal level 0
+    then token lexbuf
+    else read_comment (level - 1) lexbuf
   | eof -> raise (SyntaxError ("Comment is not terminated"))
-  | any -> read_comment lexbuf
+  | any -> read_comment level lexbuf
   | _ -> assert false
 and read_comment_line lexbuf =
   let buf = lexbuf.stream in
   match%sedlex buf with
   | newline | eof -> token lexbuf
-  | _ -> read_comment_line lexbuf
+  | any -> read_comment_line lexbuf
+  | _ -> assert false
