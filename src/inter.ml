@@ -74,6 +74,10 @@ let default_prims = [|
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x + y)))
     | [| VConst(Ast.String x); VConst(Ast.String y) |] -> PrimVal (VConst(Ast.String(String.concat [x;y])))
+    | [| VRecord(pairs1); VRecord(pairs2) |] ->
+      let merged = List.fold pairs2 ~init:pairs1 ~f:(fun acc (a, b) ->
+          List.Assoc.add acc ~equal:String.equal a b) in
+      PrimVal(VRecord merged)
     | _ -> PrimUnsupported);
   (* Sub *)
   (function
@@ -156,6 +160,10 @@ let default_prims = [|
   (function
     | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Float (Float.of_int x |> Float.sqrt)))
     | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Float (Float.sqrt x)))
+    | _ -> PrimUnsupported);
+  (* Cons *)
+  (function
+    | [| x; VList(xs) |] -> PrimVal (VList(x::xs))
     | _ -> PrimUnsupported);
   (* FieldAccess *)
   (function
