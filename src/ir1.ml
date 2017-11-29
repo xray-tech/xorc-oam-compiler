@@ -22,14 +22,15 @@ let make_fresh () =
   fresh := i + 1;
   "'fresh" ^ (Int.to_string i)
 
-let rec collect_defs ((ident, _, _, _) as d) e =
-  let rec collect_clauses current (x::acc as res) = function
-    | (Ast.EDecl((DDef(ident, params, guard, body), _), e), _) when String.equal ident current ->
-      collect_clauses current (((ident, params, guard, body)::x)::acc) e
+let rec collect_defs e =
+  let acc = Hashtbl.create (module String) () in
+  let rec collect_clauses = function
     | (Ast.EDecl((DDef(ident, params, guard, body), _), e), _) ->
-      collect_clauses ident ([(ident, params, guard, body)]::res) e
-    | e -> (res, e) in
-  collect_clauses ident [[d]] e
+      let clauses = Hashtbl.find_or_add acc ident ~default:(fun () -> []) in
+      Hashtbl.set acc ident ((ident, params, guard, body)::clauses);
+      collect_clauses e
+    | e -> (Hashtbl.data acc, e) in
+  collect_clauses e
 
 (* TODO *)
 let divide_defs defs =
@@ -57,8 +58,13 @@ let rec translate' ((e, pos) as ast) =
     let call target params =
       (ECall(target, params), ast)
 
+    let otherwise left right =
+      (EOtherwise(left, right), ast)
+
     let ident v =
       (EIdent(v), ast)
+
+    let stop = (EStop, ast)
 
     let deflate' e k =
       match e with
@@ -68,7 +74,7 @@ let rec translate' ((e, pos) as ast) =
 
     let deflate e k = deflate' (translate' e) k end in
   let module A = Ast in
-  let translate_pattern p source =
+  let rec translate_pattern p source =
     let module A = Ast in
     let bindings = ref [] in
     let rec unravel (p, pos) focus expr =
@@ -148,7 +154,69 @@ let rec translate' ((e, pos) as ast) =
         res
       else target in
     (unravel p source on_source,
-     on_target) in
+     on_target)
+  and translate_defs e =
+    let (defs, e') = collect_defs e in
+    let defs' = translate_clauses defs in
+    let def_groups = divide_defs defs' in
+    let rec step = function
+      | group::xs -> (EFix(group, step xs), e)
+      | [] -> translate' e' in
+    step def_groups
+  and make_match source target else_ =
+    let res = make_fresh () in
+    let maybe_res = make_fresh () in
+    let target_binding = make_fresh () in
+    DSL.(seq
+           (otherwise
+              (seq source res (call "'WrapSome" [res]))
+              (call "'GetNone" []))
+           maybe_res
+           (par
+              (seq (call "'UnwrapSome" [maybe_res]) target_binding (target target_binding))
+              (seqw (call "'IsNone" [maybe_res]) else_)))
+  and translate_clauses defs =
+    let rebind_vars vars expr =
+      List.fold vars ~init:expr ~f:(fun acc (p, binding) ->
+          match p with
+          | (Ast.PVar(v), _) -> DSL.(seq (ident binding) v acc)
+          | _ -> assert false) in
+    let clause' vars strict else_ body =
+      let stricted_values = make_fresh () in
+      let pattern = Ast.PTuple (List.map strict (fun (x, _) -> x)) in
+      let values = DSL.call "'MakeTuple" (List.map strict (fun (_, x) -> x)) in
+      let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
+      let body' = rebind_vars vars body in
+      let to_match = make_match source (fun bind -> on_target bind body') else_ in
+      DSL.(seq values stricted_values to_match) in
+    let is_strict (p, _) = match p with
+      | Ast.PVar(_) | Ast.PWildcard -> false
+      | _ -> true in
+    let is_var (p, _) = match p with
+      | Ast.PVar(_) -> true
+      | _ -> false in
+    let clause bindings else_ (_, params, _, body) =
+      let pairs = List.zip_exn params bindings in
+      let vars = List.filter pairs (fun (p, _) -> is_var p) in
+      let strict = List.filter pairs (fun (p, _) -> is_strict p) in
+      let body' = translate' body in
+      if (List.length strict > 0)
+      then clause' vars strict else_ body'
+      else rebind_vars vars body' in
+    let clauses bindings instances =
+      List.fold instances ~init:DSL.stop ~f:(clause bindings) in
+    let is_no_stricts params = List.find params is_strict |> Option.is_none in
+    List.map defs (function
+        | [(ident, params, None, body)] when is_no_stricts params ->
+          let params' = List.map params (function
+              | (PVar n, _) -> n
+              | _ -> raise Util.TODO) in
+          (ident, params', translate' body)
+        | ((ident, params, _, _)::_ as instances) ->
+          let arity = List.length params in
+          let bindings = List.init arity (fun _ -> make_fresh ()) in
+          (ident, bindings, clauses bindings instances)
+        | [] -> assert false) in
   (* Sexp.to_string_hum (Ast.sexp_of_e' e ) |> Stdio.print_endline; *)
   match e with
   | A.EIdent(v) -> (EIdent v, ast)
@@ -212,8 +280,8 @@ let rec translate' ((e, pos) as ast) =
     let e' = A.EDecl((DDef(n, params, None, body), A.dummy),
                      (A.EIdent n, A.dummy)) in
     translate'((e', A.dummy))
-  | A.EDecl((DDef(ident, params, guard, body), _), e) ->
-    translate_defs (ident, params, guard, body) e
+  | A.EDecl((DDef(_, _, _, _), _), _) ->
+    translate_defs (e, pos)
   | A.EDecl((DVal(p, val_e), _), e) ->
     translate' ((EPruning(e, p, val_e)), pos)
   | A.EFieldAccess(target, field) ->
@@ -239,21 +307,5 @@ and deflate_many es k =
           step (i::acc) es)
     | [] -> k (List.rev acc) in
   step [] es
-and translate_defs d e =
-  let (defs, e') = collect_defs d e in
-  let defs' = translate_clauses defs in
-  let def_groups = divide_defs defs' in
-  let rec step = function
-    | group::xs -> (EFix(group, step xs), e)
-    | [] -> translate' e' in
-  step def_groups
-and translate_clauses defs =
-  List.map defs (function
-      | [(ident, params, guard, body)] ->
-        let params' = List.map params (function
-            | (PVar n, _) -> n
-            | _ -> raise Util.TODO) in
-        (ident, params', translate' body)
-      | _ -> raise Util.TODO )
 
 let translate e = Errors.try_with (fun () -> translate' e)

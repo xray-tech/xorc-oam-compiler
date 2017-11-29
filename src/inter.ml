@@ -1,5 +1,5 @@
 open Base
-type call_target = TPrim of int | TFun of int | TClosure of int [@@deriving sexp, compare]
+type call_target = TPrim of int | TFun of int | TDynamic of int [@@deriving sexp, compare]
 
 type c = int [@@deriving sexp, compare]
 
@@ -14,9 +14,11 @@ type t =
   | Stop
   | Const of Ast.const
   | Closure of (int * int)
+  | Label of int
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
+  | VLabel of int
   | VTuple of v list
   | VList of v list
   | VRecord of (string * v) list
@@ -254,6 +256,22 @@ let default_prims = [|
     | [| VList(_::xs) |] ->
       PrimVal (VList(xs))
     | _ -> PrimUnsupported);
+  (* WrapSome *)
+  (function
+    | [| v |] -> PrimVal(VTuple [v])
+    | _ -> PrimUnsupported);
+  (* UnwrapSome *)
+  (function
+    | [| VTuple [v] |] -> PrimVal(v)
+    | _ -> PrimHalt);
+  (* GetNone *)
+  (function
+    | [| |] -> PrimVal(VTuple [])
+    | _ -> PrimUnsupported);
+  (* IsNone *)
+  (function
+    | [| VTuple [] |] -> PrimVal(VConst(Ast.Signal))
+    | _ -> PrimHalt);
 |]
 
 
@@ -318,13 +336,22 @@ let rec publish state stack env v =
     | FCall env' ->
       publish state stack' env' v
 and halt state stack env =
+  (* Stdio.eprintf "---HALT %s\n" ([%sexp_of: string list] (List.map stack ~f:(function
+   *     | FOtherwise {instances; first_value} ->
+   *       Printf.sprintf "(otherwise instances: %i; first_value: %b)" instances first_value
+   *     | FPruning { instances } -> Printf.sprintf "(pruning instances: %i)" instances
+   *     | FSequential _ -> "(seq)"
+   *     | FResult -> "(res)"
+   *     | FCall _ -> "(call)")
+   *   )
+   *                               |> Sexp.to_string_hum); *)
   let rec in_stack = function
     | [] -> ()
     | x::stack' -> match x with
-      | FOtherwise {instances =  1 ;
+      | FOtherwise {instances = 1 ;
                     first_value = false; pc } ->
         tick state pc stack' env
-      | FOtherwise { instances = 1 } ->
+      | FOtherwise { instances = 1} ->
         in_stack stack'
       | FOtherwise r ->
         r.instances <- r.instances - 1
@@ -363,6 +390,9 @@ and tick
   | Const v ->
     publish state stack env (VConst v);
     halt state stack env
+  | Label i ->
+    publish state stack env (VLabel i);
+    halt state stack env
   | Stop -> halt state stack env
   | Parallel(c1, c2) ->
     increment_instances stack;
@@ -386,7 +416,8 @@ and tick
     let frame = FSequential(i, (pc, c2)) in
     tick state (pc, c1) (frame::stack) env
   | Closure (pc', to_copy) ->
-    publish state stack env (VClosure(pc', to_copy, env))
+    publish state stack env (VClosure(pc', to_copy, env));
+    halt state stack env
   | Call(TPrim(prim), args) ->
     (match realized_multi args with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
@@ -397,7 +428,8 @@ and tick
         * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
        (match impl args' with
         | PrimVal res ->
-          publish state stack env res
+          publish state stack env res;
+          halt state stack env
         | PrimHalt -> halt state stack env
         | PrimUnsupported -> raise RuntimeError))
   | Call(TFun(pc'), args) ->
@@ -415,7 +447,7 @@ and tick
                   env = env;
                   stack = stack } in
     state.queue <- token::state.queue
-  | Call(TClosure(i), args) ->
+  | Call(TDynamic(i), args) ->
     (match realized i with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
      | `Stopped -> raise Util.TODO
@@ -429,12 +461,20 @@ and tick
            env'.(i + to_copy) <- env.(arg));
        let frame = FCall(env) in
        tick state (pc', Array.length f_code - 1) (frame::stack) env'
+     | `Value(VLabel(pc')) ->
+       let (size, f_code) = code.(pc') in
+       let env' = alloc_env size in
+       Array.iteri args ~f:(fun i arg ->
+           env'.(i) <- env.(arg));
+       let frame = FCall(env) in
+       tick state (pc', Array.length f_code - 1) (frame::stack) env'
      | `Value(VTuple(vs)) ->
        (match realized args.(0) with
         | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
         | `Stopped -> raise Util.TODO
         | `Value(VConst(Ast.Int i)) ->
-          publish state stack env (List.nth_exn vs i)
+          publish state stack env (List.nth_exn vs i);
+          halt state stack env
         | `Value(_) -> raise Util.TODO)
      | `Value(_) -> raise Util.TODO)
   | Coeffect arg ->
@@ -447,8 +487,8 @@ and tick
        state.coeffects (instance.current_coeffect, descr);
        instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
        instance.current_coeffect <- instance.current_coeffect + 1)
-  | _ -> assert false
-
+  | TailCall(TDynamic(_), _) -> raise Util.TODO
+  | TailCall(TPrim(_), _) -> assert false
 
 let values_clb () =
   let storage = ref [] in

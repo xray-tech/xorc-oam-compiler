@@ -101,23 +101,33 @@ let tests =
    ("patterns", [
        ("( (1,4) | (2,5) | (1,6) )  >(1,x)> x",
         Check (allof ["4"; "6"]));
+
        ("x <(1,x)<  ( (2,5) | (1,4) | (1,6) )",
         Check (oneof ["4"; "6"]));
+
        ("( (1,2) | (1,2,3) | (5,6) | (5,6,7) ) >(x,y)> (y,x)",
         Check (allof ["(2,1)"; "(6,5)"]));
+
        ("( [1,2,3] | [4,5] | [6] | [] ) >a:b:c> (a,b,c)",
         Check (allof ["(1,2,[3])"; "(4,5,[])"]));
+
        ("[1,2,3,4] >a:t> t >b:c:u> (u,c,b,a)",
         Check (allof ["([4],3,2,1)"]));
+
        ("(-1 >-1> \"ISuccess\" ; \"Fail\")
-     |(-2.3 >-2.3> \"FSuccess\" ; \"Fail\")",
+         |
+         (-2.3 >-2.3> \"FSuccess\" ; \"Fail\")",
         Check (allof ["\"ISuccess\""; "\"FSuccess\""]));
+
        ("( (1,(2,3)) | (4,(5,6)) ) >(a,(b,c) as d)> (a,b,c,d)",
         Check (allof ["(1,2,3,(2,3))"; "(4,5,6,(5,6))"]));
+
        ("( (1,(2,3)) | (4,true) | (5,[6,7]) | (8,signal) ) >(x,_)> x",
         Check (allof ["1"; "4"; "5"; "8"]));
+
        ("(1, [2,3], (4, 5)) > (a, b:_, (c,_)) > (a,b,c)",
         Check (allof ["(1,2,4)"]));
+
        ("{. a = 1, b = [2,3], c = {. d =  4 .} .} > {. a = a, b = b:_, c = {. d = d .} .} > (a,b,d)",
         Check (allof ["(1,2,4)"]));
      ]);
@@ -143,12 +153,64 @@ let tests =
       pubNums(5) >x> x", Check (allof ["5"; "4"; "3"; "2"; "1"]));
        ("1 >> (if true then 2 else 3)", Check (allof ["2"]));
      ]);
+   ("defs", [
+       ("def f(a, b) = a + 2 * b
+         f(1, 2)",
+        Check (allof ["5"]));
+
+       ("val (x,_,_) = (1,(2,2),[3,3,3])
+         x",
+        Check (allof ["1"]));
+
+       ("def onetwosum(f) = f(1) + f(2)
+         onetwosum( lambda(x) = x * 3 )",
+        Check (allof ["9"]));
+
+       ("def pow2(0) = 1
+         def pow2(n) = 2 * pow2(n-1)
+         pow2(8)",
+        Check (allof ["256"]));
+
+       ("def even(0) = true
+         def odd(0) = false
+         def even(n) = (if n :> 0 then n-1 else n+1) >i> odd(i)
+         def odd(n) = (if n :> 0 then n-1 else n+1) >i> even(i)
+         even(9)",
+        Check (allof ["false"]));
+
+       ("def sumto(n) = if n <: 1 then 0 else n + sumto(n-1)
+         sumto(10)",
+        Check (allof ["55"]));
+
+       ("def Sum(a) = ( lambda(b) = a+b )
+         val f = Sum(3)
+         f(4)",
+        Check (allof ["7"]));
+
+       ("def foo(x) =
+         def bar(y) = x + y
+         bar
+         foo(10)(20)",
+        Check (allof ["30"]));
+
+       ("def sum(a) = ( lambda(b) = a+b )
+         val f = sum(3)
+         f(4)",
+        Check (allof ["7"]));
+
+       ("def foo((1, x)) = x foo((2, 1)) | foo((1,2))",
+        Check (allof ["2"]));
+
+       ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(1)",
+        Check (allof ["0"]))
+     ]);
    ("blocks", [
        ("Coeffect(1) >x> x + 2",
         CheckAndResume { values = allof [];
                          unblock = (0, "1");
                          killed = [];
                          next = Check (allof ["3"])});
+
        ("Coeffect(1) >x>
         (val y = 3
          x + y)",
@@ -156,11 +218,13 @@ let tests =
                          unblock = (0, "4");
                          killed = [];
                          next = Check (allof ["7"])});
+
        ("Coeffect(1) >(x, y)> x + y",
         CheckAndResume { values = allof [];
                          unblock = (0, "(1,2)");
                          killed = [];
                          next = Check (allof ["3"])});
+
        ("Coeffect(1) >x> (Coeffect(2), x) >z> z",
         CheckAndResume
           { values = allof [];
@@ -171,11 +235,13 @@ let tests =
                   unblock = (1, "\"b\"");
                   killed = [];
                   next = Check (allof ["(\"b\", \"a\")"])}});
+
        ("val x = Coeffect(1) | Coeffect(2) x",
         CheckAndResume { values = allof [];
                          unblock = (0, "2");
                          killed = [1];
                          next = Check (allof ["2"])});
+
        ("val (1, y) = Coeffect(1) | Coeffect(2)
         y",
         CheckAndResume
@@ -215,7 +281,7 @@ let tests =
        (* ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(10000)",
         *  Check (allof ["0"])); *)
        ("def f(x)=if (x<:10000) then (stop|f(x+1)) else stop\n f(0)",
-       Check (allof []))
+        Check (allof []))
      ]);
    ("basic", [
        (* ("1 | 2", Check (allof ["1"; "2"]));

@@ -51,12 +51,13 @@ let serialize_bc code =
                      (match t with
                       | Inter.TPrim i -> [M.Int 0; M.Int i]
                       | Inter.TFun i -> [M.Int 1; M.Int i]
-                      | Inter.TClosure i -> [M.Int 2; M.Int i]) @
+                      | Inter.TDynamic i -> [M.Int 2; M.Int i]) @
                      [(M.List (array_to_list_map args (fun i -> M.Int i)))]
                    | Inter.Coeffect(i) -> [M.Int 6; M.Int i]
                    | Inter.Stop -> [M.Int 7]
                    | Inter.Const(v) -> [M.Int 8; serialize_const v]
                    | Inter.Closure(p, to_copy) -> [M.Int 9; M.Int p; M.Int to_copy]
+                   | Inter.Label(p) -> [M.Int 10; M.Int p]
                  ))))) in
   Msgpck.String.to_string (M.List obj)
 
@@ -78,7 +79,7 @@ let deserialize_bc packed =
       let target = match t with
         | 0 -> Inter.TPrim t_arg
         | 1 -> Inter.TFun t_arg
-        | 2 -> Inter.TClosure t_arg
+        | 2 -> Inter.TDynamic t_arg
         |_ -> raise BadFormat in
       let args' = List.map args (function
           | M.Int x -> x
@@ -96,6 +97,8 @@ let deserialize_bc packed =
       Inter.Const(deserialize_const v)::(des_fun xs)
     | ((M.Int 9)::(M.Int pc)::(M.Int to_copy)::xs) ->
       Inter.Closure(pc, to_copy)::(des_fun xs)
+    | (M.Int 10)::(M.Int p)::xs ->
+      Inter.Label(p)::(des_fun xs)
     | _ -> raise BadFormat in
   match packed with
   | M.List xs -> Array.of_list (List.map xs (function
@@ -117,7 +120,8 @@ let rec serialize_value on_env = function
   | VRecord pairs ->
     [M.Int 4; M.List (List.concat_map pairs (fun (k, v) ->
          (M.String k)::(serialize_value on_env v)))]
-
+  | VLabel pc ->
+    [M.Int 5; M.Int pc]
 
 let serialize { current_coeffect; blocks } =
   let id = ref 0 in
@@ -234,6 +238,8 @@ let rec deserialize_value on_env = function
         (f, v)::(deserialize_pairs xs')
       | _ -> raise BadFormat in
     (VRecord(deserialize_pairs pairs), xs)
+  | (M.Int 5)::(M.Int pc)::xs ->
+    (VLabel(pc), xs)
   | _ -> raise BadFormat
 
 and deserialize_values on_env = function

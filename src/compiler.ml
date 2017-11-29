@@ -9,6 +9,7 @@ type prim =
   | Cons
   | FieldAccess | MakeTuple | MakeList | MakeRecord
   | ArityCheck | ListSizeCheck | First | Rest
+  | WrapSome | UnwrapSome | GetNone | IsNone
 [@@deriving compare, enumerate, sexp]
 
 type binding =
@@ -19,6 +20,12 @@ type binding =
   | BindPrim of prim [@@deriving variants, sexp]
 
 type ctx = (string * binding) list [@@deriving sexp]
+
+type unit = { is_closure : bool;
+              label : int;
+              ctx : ctx;
+              params : string list;
+              body : Ir1.e }
 
 let prims_map = [("Let", Let);
                  ("Ift", Ift);
@@ -51,7 +58,11 @@ let prims_map = [("Let", Let);
                  ("'ArityCheck", ArityCheck);
                  ("'ListSizeCheck", ListSizeCheck);
                  ("'First", First);
-                 ("'Rest", Rest)]
+                 ("'Rest", Rest);
+                 ("'WrapSome", WrapSome);
+                 ("'UnwrapSome", UnwrapSome);
+                 ("'IsNone", IsNone);
+                 ("'GetNone", GetNone)]
 
 let prims = List.map prims_map (fun ((s, p)) -> (s, bindprim p))
 
@@ -103,8 +114,8 @@ let new_label () =
 
 let compile_queue = ref []
 
-let add_to_queue label ctx params body =
-  compile_queue := (label, ctx, params, body)::!compile_queue
+let add_to_queue unit =
+  compile_queue := unit::!compile_queue
 
 let free_vars init e =
   let rec step ctx (e, (ast_e, pos)) =
@@ -145,13 +156,14 @@ let closure_vars ctx pos vars =
 
 let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
   let is_tail_call = tail_call && true in
-  let not_tail_call = tail_call && false in
+  let not_tail_call = false in
   let open! Ir1 in
   match e with
   | EIdent x ->
+    (* Stdio.eprintf "--LOOKUP %s: %s\n" x (sexp_of_ctx ctx |> Sexp.to_string_hum); *)
     (match ctx_find_exn ctx pos x with
      | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
-     | (_, BindFun i) -> (0, [Inter.Closure(i, 0)])
+     | (_, BindFun i) -> (0, [Inter.Label(i)])
      | (_, BindCoeffect) | (_, BindSite(_)) -> raise Util.TODO
      | (_, BindPrim prim)  ->
        (* translate to closure *)
@@ -159,15 +171,15 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     )
   | EConst v -> (0, [Inter.Const v])
   | EParallel(e1, e2) ->
-    let (s2, e2') = compile_e ctx shift current_fun  is_tail_call e2 in
-    let (s1, e1') = compile_e ctx (shift + len e2') current_fun  is_tail_call e1 in
+    let (s2, e2') = compile_e ctx shift current_fun is_tail_call e2 in
+    let (s1, e1') = compile_e ctx (shift + len e2') current_fun is_tail_call e1 in
     ((Int.max s1 s2),
      Inter.Parallel(shift + len e1' + len e2' - 1,
                     shift + len e2' - 1)
      ::(e1' @ e2'))
   | EOtherwise(e1, e2) ->
     let (s2, e2') = compile_e ctx shift current_fun  is_tail_call e2 in
-    let (s1, e1') = compile_e ctx (shift + len e2') current_fun  not_tail_call e1 in
+    let (s1, e1') = compile_e ctx (shift + len e2') current_fun not_tail_call e1 in
     ((Int.max s1 s2),
      Inter.Otherwise(shift + len e1' + len e2' - 1,
                      shift + len e2' - 1)
@@ -176,8 +188,8 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     let (ctx', index) = match v with
       | None -> (ctx, None)
       | Some(v) -> ((v, BindVar)::ctx, Some(new_index ctx)) in
-    let (s2, e2') = compile_e ctx' shift current_fun  not_tail_call e2 in
-    let (s1, e1') = compile_e ctx' (shift + len e2') current_fun  is_tail_call e1 in
+    let (s2, e2') = compile_e ctx' shift current_fun not_tail_call e2 in
+    let (s1, e1') = compile_e ctx' (shift + len e2') current_fun is_tail_call e1 in
     ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
      Inter.Pruning(shift + len e1' + len e2' - 1,
                    index,
@@ -209,11 +221,11 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     let make_fun (i, index, acc) (_, bind) (ident, params, body) =
       match bind with
       | BindFun(label) ->
-        add_to_queue label ctx' params body;
+        add_to_queue {is_closure = false; label; ctx =  ctx'; params; body};
         (i, index, acc)
       | BindVar ->
         let label = new_label () in
-        add_to_queue label ctx' params body;
+        add_to_queue {is_closure = true; label; ctx =  ctx'; params; body};
         (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc)
       | _ -> assert false in
     let init = (shift + len body, new_index ctx, []) in
@@ -227,12 +239,12 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     (match ctx_find_exn ctx pos ident with
      | (_, BindPrim p) ->
        (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
-     | (_, BindFun c) when Int.equal c current_fun ->
+     | (_, BindFun c) when tail_call && Int.equal c current_fun ->
        (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
      | (_, BindFun c) ->
        (0, [Inter.Call(Inter.TFun(c), Array.of_list args')])
      | (i, BindVar) ->
-       (0, [Inter.Call(Inter.TClosure(i), Array.of_list args')])
+       (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
      | (i, BindSite(_)) ->
        raise Util.TODO
      | (_, BindCoeffect) ->
@@ -242,17 +254,24 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
   | EStop -> (0, [Inter.Stop])
   | ESite(_, _, _) -> raise Util.TODO
 
-let compile_fun ctx ident params body =
-  let params' = List.map params (fun n -> (n, BindVar)) in
-  let ctx' = params' @ ctx  in
-  let (size, f) = compile_e ctx' 0 ident true body in
-  (size + List.length params + ctx_vars ctx, f)
+let compile_fun {is_closure; label; ctx; params; body} =
+  let params' = List.rev_map params (fun n -> (n, BindVar)) in
+  let ctx' = if is_closure
+    then ctx
+    else List.filter ctx ~f:(function | (_, BindVar) -> false
+                                      | _ -> true) in
+  let ctx'' = params' @ ctx' in
+  let (size, f) = compile_e ctx'' 0 label true body in
+  (size + List.length params + ctx_vars ctx', f)
 
 let change_labels mapping code =
   let change = function
     | Inter.Closure((label, size)) ->
       let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
       Inter.Closure((addr, size))
+    | Inter.Label(label) ->
+      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
+      Inter.Label(addr)
     | Inter.Call(Inter.TFun(label), args) ->
       let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
       Inter.Call(Inter.TFun(addr), args)
@@ -266,13 +285,17 @@ let change_labels mapping code =
 let compile' e =
   compile_queue := [];
   label := 0;
-  add_to_queue !label (("Coeffect", BindCoeffect)::prims) [] e;
+  add_to_queue {is_closure = false;
+                label = !label;
+                ctx = (("Coeffect", BindCoeffect)::prims);
+                params = [];
+                body = e};
   let rec compile_loop acc =
     match !compile_queue with
     | [] -> acc
-    | (label, ctx, params, body)::xs ->
+    | ({label} as unit)::xs ->
       compile_queue := xs;
-      let f = compile_fun ctx label params body in
+      let f = compile_fun unit in
       compile_loop ((label, f)::acc) in
   let repository = compile_loop [] in
   let labels_mapping = List.mapi repository (fun addr (label, _) ->
