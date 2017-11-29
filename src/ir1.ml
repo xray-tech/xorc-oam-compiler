@@ -181,13 +181,19 @@ let rec translate' ((e, pos) as ast) =
           match p with
           | (Ast.PVar(v), _) -> DSL.(seq (ident binding) v acc)
           | _ -> assert false) in
-    let clause' vars strict else_ body =
+    let clause' vars strict else_ guard body =
       let stricted_values = make_fresh () in
       let pattern = Ast.PTuple (List.map strict (fun (x, _) -> x)) in
       let values = DSL.call "'MakeTuple" (List.map strict (fun (_, x) -> x)) in
       let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
+      let source' = match guard with
+        | Some(v) -> DSL.(let bind = make_fresh () in
+                  let guarded = deflate v (fun res ->
+                                         (seqw (call "'Ift" [res]) (ident bind))) in
+                          seq source bind (on_target bind (rebind_vars vars guarded)))
+        | None -> source in
       let body' = rebind_vars vars body in
-      let to_match = make_match source (fun bind -> on_target bind body') else_ in
+      let to_match = make_match source' (fun bind -> on_target bind body') else_ in
       DSL.(seq values stricted_values to_match) in
     let is_strict (p, _) = match p with
       | Ast.PVar(_) | Ast.PWildcard -> false
@@ -195,13 +201,13 @@ let rec translate' ((e, pos) as ast) =
     let is_var (p, _) = match p with
       | Ast.PVar(_) -> true
       | _ -> false in
-    let clause bindings else_ (_, params, _, body) =
+    let clause bindings else_ (_, params, guard, body) =
       let pairs = List.zip_exn params bindings in
       let vars = List.filter pairs (fun (p, _) -> is_var p) in
       let strict = List.filter pairs (fun (p, _) -> is_strict p) in
       let body' = translate' body in
-      if (List.length strict > 0)
-      then clause' vars strict else_ body'
+      if (List.length strict > 0) || Option.is_some guard
+      then clause' vars strict else_ guard body'
       else rebind_vars vars body' in
     let clauses bindings instances =
       List.fold instances ~init:DSL.stop ~f:(clause bindings) in

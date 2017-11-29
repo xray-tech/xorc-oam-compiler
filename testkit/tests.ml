@@ -202,7 +202,35 @@ let tests =
         Check (allof ["2"]));
 
        ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(1)",
-        Check (allof ["0"]))
+        Check (allof ["0"]));
+
+       ("def f(0) if (true) = 0
+         def f(x) = x+1 #
+         def g(x:xs) if (true) = x
+         f(0) | g([1,2])",
+        Check (allof ["0"; "1"]));
+
+       ("def fib(0) = 0
+        def fib(1) = 1
+        def fib(n) if (n :> 1) = fib(n-1) + fib(n-2)
+        fib(-1) ; fib(3)",
+        Check (allof ["2"]));
+
+       ("def fact(n) if (n :> 0) = n * fact(n-1)
+         def fact(0) = 1
+         fact(-1) ; fact(0) | fact(4)",
+        Check (allof ["1"; "24"]));
+
+       ("def f(x) if (stop) = x
+        def f(x) = x+1
+        f(0)",
+        Check (allof ["1"]));
+
+       ("def findCube(i, x) if (i*i*i <: x) = findCube(i+1, x)
+         def findCube(i, x) if (i*i*i = x) = i
+         def findCube(i, x) if (i*i*i :> x) = stop {- unneeded, but helps improve readability -}
+         # (63|64|65) >i> findCube(0,i)",
+       Check (allof ["4"]));
      ]);
    ("blocks", [
        ("Coeffect(1) >x> x + 2",
