@@ -11,19 +11,43 @@ let verbose_flag =
   let open Command.Param in
   flag "verbose" no_arg ~doc:"Verbose logging"
 
+let read_file_or_stdin = function
+  | None -> Reader.contents (Lazy.force Reader.stdin)
+  | Some(f) -> Reader.file_contents f
+
+let compile_input input =
+  read_file_or_stdin input >>| fun prog ->
+  Orcml_syntax.Syntax.from_string prog
+  |> Result.map ~f:(fun v ->
+      debug "Parsed:\n%s" (Orcml.Ast.sexp_of_e v |> Sexp.to_string_hum);
+      v)
+  |> Result.bind ~f:Orcml.Ir1.translate
+  |> Result.map ~f:(fun v ->
+      debug "Translated:\n%s" (Orcml.Ir1.sexp_of_e v |> Sexp.to_string_hum);
+      v)
+  |> Result.bind ~f:Orcml.Compiler.compile
+
 let compile =
   let open Command.Let_syntax in
   Command.basic'
     ~summary: "produce bytecode"
     [%map_open
-      let input = flag "-i" (optional file) ~doc:"Orc file to compile. By default reads from stdin"
+      let input = anon (maybe ("INPUT" %: file))
+      and bc = flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
       and verbose = verbose_flag in
+      let exec () =
+        compile_input input >>= fun res ->
+        (match res with
+         | Error(err) ->
+           error "Can't compile: %s" (Orcml.Errors.format err);
+           exit 1
+         | Ok(compiled) ->
+           Orcml.Serialize.serialize_bc compiled |> print_string;
+           exit 0) in
       fun () ->
-        print_endline "haha"]
-
-let read_file_or_stdin = function
-  | None -> Reader.contents (Lazy.force Reader.stdin)
-  | Some(f) -> Reader.file_contents f
+        set_logging verbose;
+        exec () |> ignore;
+        Scheduler.go () |> never_returns]
 
 let generate_result state_path (values, coeffects, _, s) =
   List.iter values (fun v ->
@@ -44,16 +68,7 @@ let exec =
       and state = flag "-state" (optional file) ~doc:"Path to store intermediate state if any"
       and verbose = verbose_flag in
       let exec () =
-        read_file_or_stdin input >>= fun prog ->
-        let res = Orcml_syntax.Syntax.from_string prog
-                  |> Result.map ~f:(fun v ->
-                      debug "Parsed:\n%s" (Orcml.Ast.sexp_of_e v |> Sexp.to_string_hum);
-                      v)
-                  |> Result.bind ~f:Orcml.Ir1.translate
-                  |> Result.map ~f:(fun v ->
-                      debug "Translated:\n%s" (Orcml.Ir1.sexp_of_e v |> Sexp.to_string_hum);
-                      v)
-                  |> Result.bind ~f:Orcml.Compiler.compile in
+        compile_input input >>= fun res ->
         (match res with
          | Error(err) ->
            error "Can't compile: %s" (Orcml.Errors.format err);
