@@ -230,7 +230,7 @@ let tests =
          def findCube(i, x) if (i*i*i = x) = i
          def findCube(i, x) if (i*i*i :> x) = stop {- unneeded, but helps improve readability -}
          # (63|64|65) >i> findCube(0,i)",
-       Check (allof ["4"]));
+        Check (allof ["4"]));
      ]);
    ("blocks", [
        ("Coeffect(1) >x> x + 2",
@@ -274,7 +274,7 @@ let tests =
         y",
         CheckAndResume
           { values = allof [];
-            unblock = (1, "(2, 4)");
+            unblock = (0, "(2, 4)");
             killed = [];
             next = CheckAndResume
                 { values = allof [];
@@ -340,5 +340,5 @@ let tests =
        ("def even(x) = if x = 0 then true else odd(x - 1)
          def odd(x) = if x = 0 then false else even(x - 1)
 
-         even(1001)", Check (allof ["false"]))]);
+         even(101)", Check (allof ["false"]))]);
   ]

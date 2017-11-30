@@ -156,7 +156,7 @@ let default_prims = [|
     | _ -> PrimUnsupported);
   (* Eq *)
   (function
-    | [| VConst(v1); VConst(v2) |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
+    | [| v1; v2 |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
     | _ -> PrimUnsupported);
   (* NotEq *)
   (function
@@ -166,18 +166,22 @@ let default_prims = [|
   (* GT *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x > y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x > y)))
     | _ -> PrimUnsupported);
   (* GTE *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x >= y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
     | _ -> PrimUnsupported);
   (* LT *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x < y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
     | _ -> PrimUnsupported);
   (* LTE *)
   (function
     | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x <= y)))
+    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
     | _ -> PrimUnsupported);
   (* And *)
   (function
@@ -213,7 +217,9 @@ let default_prims = [|
   (* FieldAccess *)
   (function
     | [| VRecord(pairs); VConst(Ast.String field) |] ->
-      PrimVal (List.Assoc.find_exn pairs ~equal:String.equal field)
+      (match List.Assoc.find pairs ~equal:String.equal field with
+      | Some(v) -> PrimVal v
+      | None -> PrimHalt)
     | _ -> PrimUnsupported);
   (* MakeTuple *)
   (fun vals ->
