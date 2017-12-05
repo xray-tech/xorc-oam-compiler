@@ -16,7 +16,7 @@
 %token <string> IDENT
 %token <string> STRING
 %token TRUE FALSE NULL SIGNAL STOP WILDCARD
-%token VAL TYPE IMPORT INCLUDE
+%token VAL TYPE IMPORT INCLUDE REFER
 %token LAMBDA AS DEF
 %token IF THEN ELSE
 %token LEFT_BRACE RIGHT_BRACE
@@ -53,10 +53,16 @@
 %nonassoc high
 
 %start <Ast.e option> prog
+%start <Ast.decl list> ns
 %%
 prog:
   | v = expr; EOF { Some v }
   | EOF           { None   } ;
+
+ns:
+  | l = decl*; EOF { l }
+  | EOF            { []   } ;
+
 
 expr:
   | LEFT_PAREN exp=expr RIGHT_PAREN { exp }
@@ -113,6 +119,9 @@ decl:
   | DEF name=IDENT ps=params guard=guard? EQ e=expr
     { (DDef(name, ps, guard, e),
        make_pos $startpos $endpos) }
+  | REFER ns=namespace LEFT_PAREN idents=separated_list(COMMA, IDENT) RIGHT_PAREN
+    { (DRefer(ns, idents),
+       make_pos $startpos $endpos) }
   | IMPORT t=IDENT n=IDENT EQ def=STRING
     { match import_decl t n def with
       | Some d -> (d,
@@ -136,6 +145,8 @@ constructor: n=IDENT LEFT_PAREN slots=separated_list(COMMA, WILDCARD) RIGHT_PARE
 
 params: LEFT_PAREN l=separated_list(COMMA, pattern) RIGHT_PAREN { l }
 args: LEFT_PAREN l=separated_list(COMMA, expr) RIGHT_PAREN { l }
+
+namespace: l=separated_nonempty_list(DOT, IDENT) { String.concat "." l }
 
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }

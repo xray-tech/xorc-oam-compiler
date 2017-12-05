@@ -341,4 +341,17 @@ let tests =
          def odd(x) = if x = 0 then false else even(x - 1)
 
          even(101)", Check (allof ["false"]))]);
+   ("benchs", [
+       ("def fact(n) = if (n :> 0) then n * fact(n-1) else 1
+
+fact(10)",
+        Check (allof ["3628800"]));
+       ("def fact(x) =
+  def step(n, acc) =
+    if (n :> 0) then step(n-1, n * acc) else acc
+  step(x, 1)
+
+fact(10)",
+        Check (allof ["3628800"]))
+     ])
   ]

@@ -2,27 +2,34 @@ open! Base
 module Lexer = Orcml_lexer
 module Errors = Orcml.Errors
 
-let parse_with_error lexbuf =
+let parse_with_error p lexbuf =
   let lexer () =
     let open Lexer in
     let ante_position = lexbuf.pos in
     let token = Lexer.token lexbuf in
     let post_position = lexbuf.pos
     in (token, ante_position, post_position) in
-  let parser = MenhirLib.Convert.Simplified.traditional2revised Orcml.Parser.prog in
+  let parser = MenhirLib.Convert.Simplified.traditional2revised p in
   Result.try_with (fun () -> parser lexer)
   |> Result.map_error ~f:(fun _ ->
       let pos = lexbuf.Lexer.pos in
-      Errors.SyntaxError { filename = pos.pos_fname;
-                           line = pos.pos_lnum;
-                           col = (pos.pos_cnum - pos.pos_bol + 1)})
+      Errors.create (Errors.SyntaxError { filename = pos.pos_fname;
+                                       line = pos.pos_lnum;
+                                       col = (pos.pos_cnum - pos.pos_bol + 1)}))
+
+let parse_prog lexbuf =
+  parse_with_error Orcml.Parser.prog lexbuf
   |> Result.bind ~f:(function
       | Some(v) -> Ok(v)
-      | None -> Error(Errors.NoInput))
+      | None -> Errors.err Errors.NoInput)
 
 let from_string s =
   Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
-  |> parse_with_error
+  |> parse_prog
+
+let ns_from_string s =
+  Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
+  |> parse_with_error Orcml.Parser.ns
 
 let rec value_from_ast (e, _) =
   let rec list acc = function
@@ -45,7 +52,7 @@ let rec value_from_ast (e, _) =
 
 let value s =
   Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
-  |> parse_with_error
+  |> parse_prog
   |> function
   | Error _ -> None
   | Ok(ast) -> value_from_ast ast

@@ -65,6 +65,7 @@ and decl' =
   | DSite of ident * string
   | DInclude of string
   | DData of string * constructor list
+  | DRefer of string * ident list
 and constructor = ident * int
 and decl = decl' * pos
 and e = e' * pos [@@deriving sexp_of]

@@ -61,6 +61,7 @@ let rec token lexbuf =
   | "stop" -> update lexbuf; STOP
   | "type" -> update lexbuf; TYPE
   | "val" -> update lexbuf; VAL
+  | "refer from" -> update lexbuf; REFER
   | "import" -> update lexbuf; IMPORT
   | "include" -> update lexbuf; INCLUDE
   | "lambda" -> update lexbuf; LAMBDA

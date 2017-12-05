@@ -5,20 +5,16 @@ type t =
                      line : int;
                      col : int }
   | UnboundVar of { var : string;
-                    pos : Ast.pos }
+                    pos : Ast.pos } [@@deriving sexp_of]
 
 exception Exn of t
 
+let create t = Error.create_s (sexp_of_t t)
+
+let err t = Error(create t)
+
 let try_with f =
   try Ok(f ()) with
-  | Exn t -> Error(t)
+  | Exn t -> err t
 
 let throw t = raise (Exn t)
-
-let format = function
-  | NoInput ->
-    "Empty test..."
-  | SyntaxError { filename; line; col } ->
-    Printf.sprintf "Syntax error in %s (%i:%i)" filename line col
-  | UnboundVar { var; pos } ->
-    Printf.sprintf "Unbound variable %s" var

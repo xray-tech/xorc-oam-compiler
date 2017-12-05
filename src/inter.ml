@@ -58,6 +58,7 @@ type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
 type prims = (v array -> prim_v) array
 
 type state = { code : code;
+               deps : code;
                instance : instance;
                mutable queue : token list;
                prims : prims;
@@ -218,8 +219,8 @@ let default_prims = [|
   (function
     | [| VRecord(pairs); VConst(Ast.String field) |] ->
       (match List.Assoc.find pairs ~equal:String.equal field with
-      | Some(v) -> PrimVal v
-      | None -> PrimHalt)
+       | Some(v) -> PrimVal v
+       | None -> PrimHalt)
     | _ -> PrimUnsupported);
   (* MakeTuple *)
   (fun vals ->
@@ -316,6 +317,12 @@ exception ToStop
  *     (sexp_of_t op |> Sexp.to_string_hum)
  *     (format_env env) *)
 
+let get_code state pc =
+  let size = Array.length state.code in
+  if pc >= size
+  then state.deps.(pc - size)
+  else state.code.(pc)
+
 let rec publish state stack env v =
   match stack with
   | [] -> assert false
@@ -391,7 +398,7 @@ and tick
           values.(i) <- v;
           step (i + 1) in
     step 0 in
-  let (_, proc) = code.(pc) in
+  let (_, proc) = get_code state pc in
   match proc.(c) with
   | Const v ->
     publish state stack env (VConst v);
@@ -439,14 +446,14 @@ and tick
         | PrimHalt -> halt state stack env
         | PrimUnsupported -> raise RuntimeError))
   | Call(TFun(pc'), args) ->
-    let (size, f_code) = code.(pc') in
+    let (size, f_code) = get_code state pc' in
     let env' = alloc_env size in
     let frame = FCall(env) in
     Array.iteri args ~f:(fun i arg ->
         env'.(i) <- env.(arg));
     tick state (pc', Array.length f_code - 1) (frame::stack) env'
   | TailCall(TFun(pc'), args) ->
-    let (_, f_code) = code.(pc') in
+    let (_, f_code) = get_code state pc' in
     Array.iteri args ~f:(fun i arg ->
         env.(i) <- env.(arg));
     let token = { pc = (pc', Array.length f_code - 1);
@@ -458,7 +465,7 @@ and tick
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
      | `Stopped -> raise Util.TODO
      | `Value(VClosure(pc', to_copy, closure_env)) ->
-       let (size, f_code) = code.(pc') in
+       let (size, f_code) = get_code state pc' in
        let env' = alloc_env size in
        for i = 0 to to_copy - 1 do
          env'.(i) <- closure_env.(i)
@@ -468,7 +475,7 @@ and tick
        let frame = FCall(env) in
        tick state (pc', Array.length f_code - 1) (frame::stack) env'
      | `Value(VLabel(pc')) ->
-       let (size, f_code) = code.(pc') in
+       let (size, f_code) = get_code state pc' in
        let env' = alloc_env size in
        Array.iteri args ~f:(fun i arg ->
            env'.(i) <- env.(arg));
@@ -512,7 +519,7 @@ let rec run_loop state =
     tick state pc stack env;
     run_loop state
 
-let run' code =
+let run' deps code =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
   let (values, clb) = values_clb () in
@@ -521,7 +528,7 @@ let run' code =
   let pc = (Array.length code - 1, Array.length e_code - 1) in
   let env = alloc_env init_env_size in
   let stack = [FResult] in
-  let state = { code; instance;
+  let state = { code; deps; instance;
                 prims = default_prims;
                 values = clb;
                 coeffects = c_clb;
@@ -530,13 +537,13 @@ let run' code =
   (* TODO killed coeffects *)
   (!values, !coeffects, [], instance)
 
-let run code =
-  Or_error.try_with ~backtrace:true (fun () -> run' code)
+let run deps code =
+  Or_error.try_with ~backtrace:true (fun () -> run' deps code)
 
-let unblock' code instance coeffect value =
+let unblock' deps code instance coeffect value =
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
-  let state = { code; instance;
+  let state = { deps; code; instance;
                 prims = default_prims;
                 values = clb;
                 coeffects = c_clb;
@@ -546,5 +553,5 @@ let unblock' code instance coeffect value =
   run_loop state;
   (!values, !coeffects, [], instance)
 
-let unblock code incstance coeffect value =
-  Or_error.try_with ~backtrace:true (fun () -> unblock' code incstance coeffect value)
+let unblock deps code incstance coeffect value =
+  Or_error.try_with ~backtrace:true (fun () -> unblock' deps code incstance coeffect value)

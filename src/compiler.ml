@@ -16,12 +16,14 @@ type binding =
   | BindVar
   | BindCoeffect
   | BindFun of int
+  | BindNs of (string * int)
   | BindSite of string
   | BindPrim of prim [@@deriving variants, sexp]
 
 type ctx = (string * binding) list [@@deriving sexp]
 
 type unit = { is_closure : bool;
+              ident : string;
               label : int;
               ctx : ctx;
               params : string list;
@@ -77,7 +79,7 @@ let ctx_vars ctx  =
   let rec find acc = function
     | [] -> acc
     | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs  | (_,BindSite(_))::xs | (_,BindCoeffect)::xs ->
+    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs  | (_,BindSite(_))::xs | (_,BindCoeffect)::xs | (_, BindNs(_))::xs ->
       find acc xs in
   find 0 ctx
 
@@ -114,6 +116,23 @@ let new_label () =
 
 let compile_queue = ref []
 
+let ns_labels = ref []
+
+let get_ns_label ns bind =
+  match List.find !ns_labels ~f:(fun (_, (ns', bind')) ->
+      String.equal ns' ns && String.equal bind' bind) with
+  | Some(lbl, _) -> lbl
+  | None ->
+    let lbl = new_label () in
+    ns_labels := (lbl, (ns, bind))::!ns_labels;
+    lbl
+
+let ns_label_pos ns bind =
+  match List.findi !ns_labels ~f:(fun _ (_, (ns', bind')) ->
+      String.equal ns' ns && String.equal bind' bind) with
+  | Some(pos, _) -> pos
+  | None -> assert false
+
 let add_to_queue unit =
   compile_queue := unit::!compile_queue
 
@@ -143,6 +162,9 @@ let free_vars init e =
       step ctx' e @ (List.concat_map funs (fun (_, params, e) ->
           let ctx'' = List.map params (fun p -> (p, BindVar)) @ ctx' in
           step ctx'' e))
+    | ERefer(ns, fs, e) ->
+      let ctx' = (List.map fs (fun n -> (n, BindVar))) @ ctx in
+      step ctx' e
     | ECall(target, params) ->
       (if_out_of_scope target) @ (List.concat_map params if_out_of_scope)
     | EConst _ | EStop-> [] in
@@ -164,6 +186,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     (match ctx_find_exn ctx pos x with
      | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
      | (_, BindFun i) -> (0, [Inter.Label(i)])
+     | (_, BindNs(_, i)) -> (0, [Inter.Label(i)])
      | (_, BindCoeffect) | (_, BindSite(_)) -> raise Util.TODO
      | (_, BindPrim prim)  ->
        (* translate to closure *)
@@ -221,11 +244,11 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     let make_fun (i, index, acc) (_, bind) (ident, params, body) =
       match bind with
       | BindFun(label) ->
-        add_to_queue {is_closure = false; label; ctx =  ctx'; params; body};
+        add_to_queue {ident; is_closure = false; label; ctx =  ctx'; params; body};
         (i, index, acc)
       | BindVar ->
         let label = new_label () in
-        add_to_queue {is_closure = true; label; ctx =  ctx'; params; body};
+        add_to_queue {ident; is_closure = true; label; ctx =  ctx'; params; body};
         (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc)
       | _ -> assert false in
     let init = (shift + len body, new_index ctx, []) in
@@ -241,8 +264,8 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
        (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
      | (_, BindFun c) when tail_call && Int.equal c current_fun ->
        (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
-     | (_, BindFun c) ->
-       (0, [Inter.Call(Inter.TFun(c), Array.of_list args')])
+     | (_, BindFun i) | (_, BindNs(_, i)) ->
+       (0, [Inter.Call(Inter.TFun(i), Array.of_list args')])
      | (i, BindVar) ->
        (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
      | (i, BindSite(_)) ->
@@ -251,6 +274,11 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
        (match args' with
         | [i] -> (0, [Inter.Coeffect i])
         | _ -> raise Util.TODO))
+  | ERefer(ns, fs, e) ->
+    let ctx' = (List.map fs (fun bind ->
+        let lbl = get_ns_label ns bind in
+        (bind, BindNs(ns, lbl)))) @ ctx in
+    compile_e ctx' shift current_fun is_tail_call e
   | EStop -> (0, [Inter.Stop])
   | ESite(_, _, _) -> raise Util.TODO
 
@@ -264,28 +292,32 @@ let compile_fun {is_closure; label; ctx; params; body} =
   let (size, f) = compile_e ctx'' 0 label true body in
   (size + List.length params + ctx_vars ctx', f)
 
-let change_labels mapping code =
+let change_labels mapping global_mapper code =
+  let find lbl =
+    match List.Assoc.find mapping ~equal:Int.equal lbl with
+    | Some(addr) -> addr
+    | None ->
+      let (ns, f) = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
+      global_mapper (List.length mapping) ns f in
   let change = function
     | Inter.Closure((label, size)) ->
-      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
-      Inter.Closure((addr, size))
+      Inter.Closure((find label, size))
     | Inter.Label(label) ->
-      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
-      Inter.Label(addr)
+      Inter.Label(find label)
     | Inter.Call(Inter.TFun(label), args) ->
-      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
-      Inter.Call(Inter.TFun(addr), args)
+      Inter.Call(Inter.TFun(find label), args)
     | Inter.TailCall(Inter.TFun(label), args) ->
-      let addr = List.Assoc.find_exn mapping ~equal:Int.equal label in
-      Inter.TailCall(Inter.TFun(addr), args)
+      Inter.TailCall(Inter.TFun(find label), args)
     | op -> op in
-  List.map code (fun (size, body) ->
-      (size, List.map body change))
+  List.map code (fun (ident, (size, body)) ->
+      (ident, size, List.map body change))
 
-let compile' e =
+let compile' global_mapper e =
   compile_queue := [];
   label := 0;
-  add_to_queue {is_closure = false;
+  ns_labels := [];
+  add_to_queue {ident = "'main";
+                is_closure = false;
                 label = !label;
                 ctx = (("Coeffect", BindCoeffect)::prims);
                 params = [];
@@ -293,17 +325,39 @@ let compile' e =
   let rec compile_loop acc =
     match !compile_queue with
     | [] -> acc
-    | ({label} as unit)::xs ->
+    | ({label; ident} as unit)::xs ->
       compile_queue := xs;
       let f = compile_fun unit in
-      compile_loop ((label, f)::acc) in
+      compile_loop ((label, ident, f)::acc) in
   let repository = compile_loop [] in
-  let labels_mapping = List.mapi repository (fun addr (label, _) ->
+  let labels_mapping = List.mapi repository (fun addr (label, _, _) ->
       (label, addr)) in
-  let code = (List.map repository (fun (_, f) -> f)) in
-  let code' = change_labels labels_mapping code in
-  Array.of_list_map code' ~f:(fun (s, f) ->
+  let code = (List.map repository (fun (_, ident, f) -> (ident, f))) in
+  change_labels labels_mapping global_mapper code
+
+let code_as_array code =
+  Array.of_list_map code ~f:(fun (ident, s, f) ->
       (s, Array.of_list_rev f))
 
 let compile e =
-  Errors.try_with (fun () -> compile' e)
+  let mapper size ns f =
+    size + ns_label_pos ns f in
+  Errors.try_with (fun () ->
+      let code = compile' mapper e in
+      let size = List.length code in
+      let mapping = List.mapi !ns_labels (fun i (_, (ns, f)) ->
+          (i + size, (ns, f))) in
+      (mapping, code_as_array code))
+
+let global_compile mapper e =
+  let mapper' size ns f = size + mapper ns f in
+  Errors.try_with (fun () -> compile' mapper' e |> code_as_array)
+
+let global_compile_namespace mapper e =
+  let mapper' size ns f = size + mapper ns f in
+  Errors.try_with (fun () ->
+      let code = compile' mapper' e in
+      (* Last function is a main function and it's just stub here *)
+      let code' = List.rev code |> List.tl_exn |> List.rev in
+      (List.map code' (fun (ident, s, f) -> ident),
+       code_as_array code'))

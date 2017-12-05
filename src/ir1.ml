@@ -13,9 +13,11 @@ type e' =
   | EStop
   | ESite of string * string * e
   | EFix of (string * string list * e) list * e
+  | ERefer of string * string list * e
 and e = e' * Ast.e sexp_opaque [@@deriving sexp_of]
 
 let fresh = ref 0
+let deps = ref []
 
 let make_fresh () =
   let i = !fresh in
@@ -188,8 +190,8 @@ let rec translate' ((e, pos) as ast) =
       let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
       let source' = match guard with
         | Some(v) -> DSL.(let bind = make_fresh () in
-                  let guarded = deflate v (fun res ->
-                                         (seqw (call "'Ift" [res]) (ident bind))) in
+                          let guarded = deflate v (fun res ->
+                              (seqw (call "'Ift" [res]) (ident bind))) in
                           seq source bind (on_target bind (rebind_vars vars guarded)))
         | None -> source in
       let body' = rebind_vars vars body in
@@ -294,6 +296,9 @@ let rec translate' ((e, pos) as ast) =
     deflate target (fun t ->
         deflate (A.EConst(A.String field), A.dummy) (fun f ->
             (ECall("'FieldAccess", [t; f]), ast)))
+  | A.EDecl((DRefer(ns, fs), _), e) ->
+    deps := ns::!deps;
+    (ERefer(ns, fs, translate' e), ast)
   | A.EDecl((DSite(ident, definition), _), e) ->
     raise Util.TODO
   | A.EDecl((DData(ident, constructors), _), e) ->
@@ -314,4 +319,17 @@ and deflate_many es k =
     | [] -> k (List.rev acc) in
   step [] es
 
-let translate e = Errors.try_with (fun () -> translate' e)
+let translate e =
+  deps := [];
+  Errors.try_with (fun () ->
+      let e' = translate' e in
+      (!deps, e'))
+
+
+exception UnexpectedDependency
+let translate_pure e =
+  deps := [];
+  Errors.try_with (fun () ->
+      let e' = translate' e in
+      if List.length !deps > 0 then raise UnexpectedDependency;
+      e')

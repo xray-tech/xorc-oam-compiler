@@ -19,6 +19,7 @@ let to_string token =
   | NULL -> "NULL"
   | STOP -> "STOP"
   | VAL -> "VAL"
+  | REFER -> "REFER"
   | IF -> "IF"
   | THEN -> "THEN"
   | ELSE -> "ELSE"

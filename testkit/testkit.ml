@@ -72,9 +72,11 @@ let run_loop p fail compiled checks =
 
 let run_test results p (e, checks) =
   debug "Run test: %s" e;
-  let res = Orcml_syntax.Syntax.from_string e
-            |> Result.bind ~f:Orcml.Ir1.translate
-            |> Result.bind ~f:Orcml.Compiler.compile in
+  let res =
+    let open Result.Let_syntax in
+    let%bind parsed = Orcml_syntax.Syntax.from_string e in
+    let%bind ir = Orcml.Ir1.translate_pure parsed in
+    Orcml.Compiler.global_compile (fun _ -> assert false) ir in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
@@ -85,7 +87,7 @@ let run_test results p (e, checks) =
         | `Fail reason ->
           fail reason)
   | Error(err) ->
-    fail (Orcml.Errors.format err); return ()
+    fail (Error.to_string_hum err); return ()
 
 let with_prog (prog, args) tests f =
   let tests' = List.concat_map tests (fun (_, l) -> l) in
@@ -105,7 +107,7 @@ let with_prog (prog, args) tests f =
     | Ok(()) ->
       Writer.close (Process.stdin p)
       >>= fun () ->
-      (* print_stderr p >>= fun () -> *)
+      print_stderr p >>= fun () ->
       Process.wait p
       >>= function
       | Ok(()) -> return ()
@@ -149,8 +151,8 @@ let exec =
 let bench_test n p (e, checks) =
   info "Bench program:\n%s" e;
   let res = Orcml_syntax.Syntax.from_string e
-            |> Result.bind ~f:Orcml.Ir1.translate
-            |> Result.bind ~f:Orcml.Compiler.compile in
+            |> Result.bind ~f:Orcml.Ir1.translate_pure
+            |> Result.bind ~f:(Orcml.Compiler.global_compile (fun _ -> assert false)) in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
@@ -169,7 +171,7 @@ let bench_test n p (e, checks) =
           error "Bad message %s" (Message_pack.sexp_of_t v |> Sexp.to_string_hum);
           print_stderr p >>= fun () -> exit 1)
   | Error(err) ->
-    fail (Orcml.Errors.format err); return ()
+    fail (Error.to_string_hum err); return ()
 
 let bench_tests prog n tests =
   with_prog prog tests (bench_test n) >>= fun () -> exit 0
