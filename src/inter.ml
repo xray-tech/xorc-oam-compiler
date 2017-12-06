@@ -15,10 +15,12 @@ type t =
   | Const of Ast.const
   | Closure of (int * int)
   | Label of int
+  | Prim of int
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
   | VLabel of int
+  | VPrim of int
   | VTuple of v list
   | VList of v list
   | VRecord of (string * v) list
@@ -279,6 +281,11 @@ let default_prims = [|
   (function
     | [| VTuple [] |] -> PrimVal(VConst(Ast.Signal))
     | _ -> PrimHalt);
+  (* Error *)
+  (function
+    | vals ->
+      Stdio.eprintf "%s\n" ([%sexp_of: v array] vals |> Sexp.to_string_hum);
+      PrimHalt)
 |]
 
 
@@ -398,6 +405,20 @@ and tick
           values.(i) <- v;
           step (i + 1) in
     step 0 in
+  let call_prim prim args =
+    match realized_multi args with
+     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+     | `Stopped -> halt state stack env
+     | `Values args' ->
+       let impl = prims.(prim) in
+       (* Stdio.eprintf "---CALL %i\n" prim;
+        * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
+       (match impl args' with
+        | PrimVal res ->
+          publish state stack env res;
+          halt state stack env
+        | PrimHalt -> halt state stack env
+        | PrimUnsupported -> raise RuntimeError) in
   let (_, proc) = get_code state pc in
   match proc.(c) with
   | Const v ->
@@ -405,6 +426,9 @@ and tick
     halt state stack env
   | Label i ->
     publish state stack env (VLabel i);
+    halt state stack env
+  | Prim i ->
+    publish state stack env (VPrim i);
     halt state stack env
   | Stop -> halt state stack env
   | Parallel(c1, c2) ->
@@ -432,19 +456,7 @@ and tick
     publish state stack env (VClosure(pc', to_copy, env));
     halt state stack env
   | Call(TPrim(prim), args) ->
-    (match realized_multi args with
-     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
-     | `Stopped -> halt state stack env
-     | `Values args' ->
-       let impl = prims.(prim) in
-       (* Stdio.eprintf "---CALL %i\n" prim;
-        * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
-       (match impl args' with
-        | PrimVal res ->
-          publish state stack env res;
-          halt state stack env
-        | PrimHalt -> halt state stack env
-        | PrimUnsupported -> raise RuntimeError))
+    call_prim prim args
   | Call(TFun(pc'), args) ->
     let (size, f_code) = get_code state pc' in
     let env' = alloc_env size in
@@ -489,6 +501,8 @@ and tick
           publish state stack env (List.nth_exn vs i);
           halt state stack env
         | `Value(_) -> raise Util.TODO)
+     | `Value(VPrim(prim)) ->
+       call_prim prim args
      | `Value(_) -> raise Util.TODO)
   | Coeffect arg ->
     (match realized arg with

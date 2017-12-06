@@ -218,6 +218,7 @@ let rec translate' ((e, pos) as ast) =
         | [(ident, params, None, body)] when is_no_stricts params ->
           let params' = List.map params (function
               | (PVar n, _) -> n
+              | (PWildcard,_) -> "_"
               | _ -> raise Util.TODO) in
           (ident, params', translate' body)
         | ((ident, params, _, _)::_ as instances) ->

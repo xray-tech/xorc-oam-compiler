@@ -222,8 +222,8 @@ let tests =
         Check (allof ["1"; "24"]));
 
        ("def f(x) if (stop) = x
-        def f(x) = x+1
-        f(0)",
+         def f(x) = x+1
+         f(0)",
         Check (allof ["1"]));
 
        ("def findCube(i, x) if (i*i*i <: x) = findCube(i+1, x)
@@ -231,6 +231,10 @@ let tests =
          def findCube(i, x) if (i*i*i :> x) = stop {- unneeded, but helps improve readability -}
          # (63|64|65) >i> findCube(0,i)",
         Check (allof ["4"]));
+       ("def foo(a, b) = a + b
+         def bar(f) = f(1,2)
+         bar(foo)",
+       Check (allof ["3"]));
      ]);
    ("blocks", [
        ("Coeffect(1) >x> x + 2",

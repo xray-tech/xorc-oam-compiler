@@ -10,6 +10,7 @@ type prim =
   | FieldAccess | MakeTuple | MakeList | MakeRecord
   | ArityCheck | ListSizeCheck | First | Rest
   | WrapSome | UnwrapSome | GetNone | IsNone
+  | Error
 [@@deriving compare, enumerate, sexp]
 
 type binding =
@@ -51,6 +52,7 @@ let prims_map = [("Let", Let);
                  ("floor", Floor);
                  ("ceil", Ceil);
                  ("sqrt", Sqrt);
+                 ("Error", Error);
                  ("'FieldAccess", FieldAccess);
                  ("'MakeTuple", MakeTuple);
                  ("'MakeList", MakeList);
@@ -180,6 +182,39 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
   let is_tail_call = tail_call && true in
   let not_tail_call = false in
   let open! Ir1 in
+  let compile_call ident args =
+    let args' = List.map args (fun arg ->
+        match ctx_find_exn ctx pos arg with
+        | (i, BindVar) -> i
+        | _ -> raise Util.TODO) in
+    (match ctx_find_exn ctx pos ident with
+     | (_, BindPrim p) ->
+       (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
+     | (_, BindFun c) when tail_call && Int.equal c current_fun ->
+       (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
+     | (_, BindFun i) | (_, BindNs(_, i)) ->
+       (0, [Inter.Call(Inter.TFun(i), Array.of_list args')])
+     | (i, BindVar) ->
+       (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
+     | (i, BindSite(_)) ->
+       raise Util.TODO
+     | (_, BindCoeffect) ->
+       (match args' with
+        | [i] -> (0, [Inter.Coeffect i])
+        | _ -> raise Util.TODO)) in
+  let preprocess_call ident args e_info =
+    let deflate arg k =
+      match ctx_find_exn ctx pos arg with
+      | (_, BindVar) -> k arg
+      | _ ->
+        let f = make_fresh () in
+        (EPruning(k f, Some f, (EIdent(arg), e_info)), e_info) in
+    let rec f acc = function
+      | arg::args ->
+        deflate arg (fun i ->
+            f (i::acc) args)
+      | [] -> (ECall(ident, (List.rev acc)), e_info) in
+    f [] args in
   match e with
   | EIdent x ->
     (* Stdio.eprintf "--LOOKUP %s: %s\n" x (sexp_of_ctx ctx |> Sexp.to_string_hum); *)
@@ -188,10 +223,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
      | (_, BindFun i) -> (0, [Inter.Label(i)])
      | (_, BindNs(_, i)) -> (0, [Inter.Label(i)])
      | (_, BindCoeffect) | (_, BindSite(_)) -> raise Util.TODO
-     | (_, BindPrim prim)  ->
-       (* translate to closure *)
-       raise Util.TODO
-    )
+     | (_, BindPrim prim)  -> (0, [Inter.Prim(prim_index prim)]))
   | EConst v -> (0, [Inter.Const v])
   | EParallel(e1, e2) ->
     let (s2, e2') = compile_e ctx shift current_fun is_tail_call e2 in
@@ -255,25 +287,15 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
     (s + (len closures / 2), closures @ body)
   | ECall(ident, args) ->
-    let args' = List.map args (fun arg ->
+    let to_preprocess = List.find args (fun arg ->
         match ctx_find_exn ctx pos arg with
-        | (i, BindVar) -> i
-        | _ -> raise Util.TODO )in
-    (match ctx_find_exn ctx pos ident with
-     | (_, BindPrim p) ->
-       (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
-     | (_, BindFun c) when tail_call && Int.equal c current_fun ->
-       (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
-     | (_, BindFun i) | (_, BindNs(_, i)) ->
-       (0, [Inter.Call(Inter.TFun(i), Array.of_list args')])
-     | (i, BindVar) ->
-       (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
-     | (i, BindSite(_)) ->
-       raise Util.TODO
-     | (_, BindCoeffect) ->
-       (match args' with
-        | [i] -> (0, [Inter.Coeffect i])
-        | _ -> raise Util.TODO))
+        | (_, BindPrim(_)) | (_, BindFun(_)) | (_, BindNs(_)) -> true
+        | (_, BindVar) -> false
+        | _ -> raise Util.TODO) in
+    (match to_preprocess with
+     | Some(_) ->
+       preprocess_call ident args (ast_e, pos) |> compile_e ctx shift current_fun tail_call
+     | None -> compile_call ident args)
   | ERefer(ns, fs, e) ->
     let ctx' = (List.map fs (fun bind ->
         let lbl = get_ns_label ns bind in
