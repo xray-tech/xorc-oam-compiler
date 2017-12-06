@@ -96,7 +96,7 @@ let ctx_find ctx ident =
 
 let ctx_find_exn ctx pos ident =
   match ctx_find ctx ident with
-  | None -> Errors.(throw (UnboundVar { var = ident; pos }))
+  | None -> Errors.(raise (UnboundVar { var = ident; pos }))
   | Some(v) -> v
 
 let new_index = ctx_vars
@@ -314,27 +314,21 @@ let compile_fun {is_closure; label; ctx; params; body} =
   let (size, f) = compile_e ctx'' 0 label true body in
   (size + List.length params + ctx_vars ctx', f)
 
-let change_labels mapping global_mapper code =
-  let find lbl =
-    match List.Assoc.find mapping ~equal:Int.equal lbl with
-    | Some(addr) -> addr
-    | None ->
-      let (ns, f) = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
-      global_mapper (List.length mapping) ns f in
+let change_pointers mapper code =
   let change = function
-    | Inter.Closure((label, size)) ->
-      Inter.Closure((find label, size))
-    | Inter.Label(label) ->
-      Inter.Label(find label)
-    | Inter.Call(Inter.TFun(label), args) ->
-      Inter.Call(Inter.TFun(find label), args)
-    | Inter.TailCall(Inter.TFun(label), args) ->
-      Inter.TailCall(Inter.TFun(find label), args)
+    | Inter.Closure((p, size)) ->
+      Inter.Closure((mapper p, size))
+    | Inter.Label(p) ->
+      Inter.Label(mapper p)
+    | Inter.Call(Inter.TFun(p), args) ->
+      Inter.Call(Inter.TFun(mapper p), args)
+    | Inter.TailCall(Inter.TFun(p), args) ->
+      Inter.TailCall(Inter.TFun(mapper p), args)
     | op -> op in
-  List.map code (fun (ident, (size, body)) ->
+  List.map code (fun (ident, size, body) ->
       (ident, size, List.map body change))
 
-let compile' global_mapper e =
+let compile' e =
   compile_queue := [];
   label := 0;
   ns_labels := [];
@@ -354,32 +348,50 @@ let compile' global_mapper e =
   let repository = compile_loop [] in
   let labels_mapping = List.mapi repository (fun addr (label, _, _) ->
       (label, addr)) in
-  let code = (List.map repository (fun (_, ident, f) -> (ident, f))) in
-  change_labels labels_mapping global_mapper code
+  let code = (List.map repository (fun (_, ident, (size, body)) -> (ident, size, body))) in
+  let mapper lbl =
+    match List.Assoc.find labels_mapping ~equal:Int.equal lbl with
+    | Some(addr) -> -addr - 1
+    | None ->
+      let (ns, f) = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
+      ns_label_pos ns f in
+  change_pointers mapper code
 
-let code_as_array code =
+(* mapping is a list of external functions which were used in code *)
+type mapping = (int * (string * string)) list
+type code = (string * int * Inter.t list) list [@@deriving sexp_of]
+
+let to_bytecode code =
   Array.of_list_map code ~f:(fun (ident, s, f) ->
       (s, Array.of_list_rev f))
 
-let compile e =
-  let mapper size ns f =
-    size + ns_label_pos ns f in
-  Errors.try_with (fun () ->
-      let code = compile' mapper e in
-      let size = List.length code in
-      let mapping = List.mapi !ns_labels (fun i (_, (ns, f)) ->
-          (i + size, (ns, f))) in
-      (mapping, code_as_array code))
+let make_mapping code =
+  List.mapi !ns_labels (fun i (_, (ns, f)) ->
+      (i, (ns, f)))
 
-let global_compile mapper e =
-  let mapper' size ns f = size + mapper ns f in
-  Errors.try_with (fun () -> compile' mapper' e |> code_as_array)
+module Program = struct
+  type t = {
+    mapping : mapping;
+    code: code}
+  let compile e =
+    Errors.try_with (fun () ->
+        let code = compile' e in
+        { mapping = make_mapping code;
+          code})
+end
 
-let global_compile_namespace mapper e =
-  let mapper' size ns f = size + mapper ns f in
-  Errors.try_with (fun () ->
-      let code = compile' mapper' e in
-      (* Last function is a main function and it's just stub here *)
-      let code' = List.rev code |> List.tl_exn |> List.rev in
-      (List.map code' (fun (ident, s, f) -> ident),
-       code_as_array code'))
+module Namespace = struct
+  type t = {
+    mapping : mapping;
+    funcs : string list;
+    code : code}
+
+  let compile e =
+    Errors.try_with (fun () ->
+        let code = compile' e in
+        (* Last function is a main function and it's just stub here *)
+        let code' = List.rev code |> List.tl_exn |> List.rev in
+        { mapping = make_mapping code';
+          funcs = List.map code' (fun (ident, s, f) -> ident);
+          code = code'})
+end

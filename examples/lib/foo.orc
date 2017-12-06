@@ -1,2 +1,3 @@
-def once(x) = x + 1
-def twice(x) = x + 2
+def once() = 1
+
+def twice() = once() + once()

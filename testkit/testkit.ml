@@ -76,13 +76,13 @@ let run_test results p (e, checks) =
     let open Result.Let_syntax in
     let%bind parsed = Orcml_syntax.Syntax.from_string e in
     let%bind ir = Orcml.Ir1.translate_pure parsed in
-    Orcml.Compiler.global_compile (fun _ -> assert false) ir in
+    Orcml.Compiler.Program.compile ir in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
-  | Ok(compiled) ->
-    run_loop p fail compiled checks >>| (function
+  | Ok({Orcml.Compiler.Program.code}) ->
+    run_loop p fail (Orcml.Compiler.to_bytecode code) checks >>| (function
         | `Ok -> results.success <- results.success + 1
         | `Fail reason ->
           fail reason)
@@ -152,14 +152,14 @@ let bench_test n p (e, checks) =
   info "Bench program:\n%s" e;
   let res = Orcml_syntax.Syntax.from_string e
             |> Result.bind ~f:Orcml.Ir1.translate_pure
-            |> Result.bind ~f:(Orcml.Compiler.global_compile (fun _ -> assert false)) in
+            |> Result.bind ~f:Orcml.Compiler.Program.compile in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
-  | Ok(compiled) ->
+  | Ok({Orcml.Compiler.Program.code}) ->
     let input = Process.stdin p in
     let output = Process.stdout p in
-    Protocol.write_bench input compiled n;
+    Protocol.write_bench input (Orcml.Compiler.to_bytecode code) n;
     Protocol.read_msg output >>= (function
         | None ->
           error "Engine stopped";

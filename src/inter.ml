@@ -325,10 +325,9 @@ exception ToStop
  *     (format_env env) *)
 
 let get_code state pc =
-  let size = Array.length state.code in
-  if pc >= size
-  then state.deps.(pc - size)
-  else state.code.(pc)
+  if pc < 0
+  then state.code.(Int.abs pc - 1)
+  else state.deps.(pc)
 
 let rec publish state stack env v =
   match stack with
@@ -539,7 +538,7 @@ let run' deps code =
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
   let (init_env_size, e_code) = code.(Array.length code - 1) in
-  let pc = (Array.length code - 1, Array.length e_code - 1) in
+  let pc = (-Array.length code, Array.length e_code - 1) in
   let env = alloc_env init_env_size in
   let stack = [FResult] in
   let state = { code; deps; instance;

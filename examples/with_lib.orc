@@ -1,3 +1,4 @@
 refer from foo (once, twice)
+refer from bar (double)
 
-once(1) + twice(1)
+double()

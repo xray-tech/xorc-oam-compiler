@@ -26,25 +26,46 @@ let list_position l ~f =
     | x::xs -> step (acc + 1) xs in
   step 0 l
 
+let global_map global_mapping (ns, f) =
+  let equal (a, b) (a', b') = String.(equal a a' && equal b b') in
+  (match List.Assoc.find global_mapping ~equal (ns, f) with
+   | Some(pointer) -> pointer
+   | None -> Error.raise Orcml.Errors.(create (UnboundDependency { ns; f})))
+
+let change_external global_mapping mapping code =
+  let mapper p = match List.Assoc.find mapping ~equal:Int.equal p with
+    | None -> p
+    | Some(x) ->
+      global_map global_mapping x in
+  Orcml.Compiler.change_pointers mapper code
+
+let link_namespaces compiled =
+  let module Namespace = Orcml.Compiler.Namespace in
+  let change_pointers shift global_mapping mapping bytecode =
+    let size = List.length bytecode in
+    let mapper p = match List.Assoc.find mapping ~equal:Int.equal p with
+      (* it's local fun, so we add shift to it and do not forget that result code is reversed *)
+      | None ->
+        shift + (size - (Int.abs p))
+      (* it's pointer to external fun, we should already have it *)
+      | Some(x) -> global_map global_mapping x in
+    Orcml.Compiler.change_pointers mapper bytecode in
+  let fold_compiled (global_mapping, all_code) (ns, {Namespace.mapping; funcs; code}) =
+    let shift = List.length all_code in
+    let code' = change_pointers shift global_mapping mapping code in
+    let m = List.mapi (List.rev funcs) (fun i f -> ((ns, f), shift + i)) in
+    (m @ global_mapping, code' @ all_code) in
+  let (global_mapping, code) =
+    List.fold (List.rev compiled) ~init:([], []) ~f:fold_compiled in
+  (Orcml.Compiler.to_bytecode (List.rev code), global_mapping)
+
 let compile_namespaces (module NSLoader : NSLoader) init_queue =
   let compiled = ref [] in
-  let mapper ns f =
-    let rec acc_rest = function
-      | [] -> 0
-      | (_, fs, _)::rest -> List.length fs + acc_rest rest in
-    let rec calculate = function
-      | [] -> raise Orcml.Util.TODO
-      | (ns', fs, _)::rest when String.equal ns' ns ->
-        let ns_pos = list_position fs ~f:(fun x -> String.equal f x)
-                     |> Option.value_exn ~error:(Error.of_exn Orcml.Util.TODO) in
-        ns_pos + (acc_rest rest)
-      | _::rest -> calculate rest in
-    calculate !compiled in
   let module A = Orcml.Ast in
   let fold_decls decl e =
     (A.EDecl(decl, e), A.dummy) in
   let is_already_compiled ns =
-    List.find !compiled (fun (ns',_,_) -> String.equal ns ns') |> Option.is_some in
+    List.find !compiled (fun (ns', _) -> String.equal ns ns') |> Option.is_some in
   let analyze code =
     let open Result.Let_syntax in
     let%bind parsed = Orcml_syntax.Syntax.ns_from_string code in
@@ -55,7 +76,7 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
     | [] ->
       Ok() |> return
     | ns::queue when is_already_compiled ns ->
-      Ok() |> return
+      compile_loop queue
     | ns::queue ->
       match%bind NSLoader.load ns with
       | None -> Error(`Loader ns) |> return
@@ -64,17 +85,15 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
         | Error(err) -> Error(`Compiler err) |> return
         | Ok((deps, e)) ->
           compile_loop deps >>=? fun () ->
-          match Orcml.Compiler.global_compile_namespace mapper e with
+          match Orcml.Compiler.Namespace.compile e with
           | Error(err) -> Error(`Compiler err) |> return
-          | Ok((fs, bc)) ->
-            compiled := (ns, fs, bc)::!compiled;
-            Ok() |> return in
-  compile_loop init_queue >>|? (fun () ->
-      let deps =
-        Sequence.of_list !compiled
-        |> Sequence.concat_map ~f:(fun (_, _, code) -> Array.to_sequence code)
-        |> Sequence.to_array in
-      (deps, mapper))
+          | Ok(res) ->
+            compiled := (ns, res)::!compiled;
+            compile_loop queue in
+  compile_loop init_queue >>=? (fun () ->
+      let linked = (Or_error.try_with (fun () -> link_namespaces !compiled))
+                   |> Result.map_error ~f:(fun err -> `Compiler err) in
+      return linked)
 
 let optional_file_contents path =
   Monitor.try_with (fun () -> Reader.file_contents path >>| Option.some )
@@ -100,12 +119,26 @@ let empty_loader =
     let load ns = return None
   end : NSLoader)
 
-let compile_input includes input =
+let implicit_prelude =
+  "refer from core (abs, signum, min, max)
+   refer from idioms (curry, curry3, uncurry, uncurry3, flip, constant, defer, defer2,
+     ignore, ignore2, compose, while, repeat, fork, forkMap, seq, seqMap, join,
+     joinMap, alt, altMap, por, pand)
+   refer from list (each, map, reverse, filter, head, tail, init, last, empty, index,
+     append, foldl, foldl1, foldr, foldr1, afold, zipWith, zip, unzip, concat,
+     length, take, drop, member, merge, mergeBy, sort, sortBy, mergeUnique,
+     mergeUniqueBy, sortUnique, sortUniqueBy, group, groupBy, rangeBy, range,
+     any, all, sum, product, and, or, minimum, maximum) "
+
+let compile_input prelude includes input =
   let loader = multiloader (List.map includes fs) in
   let%bind prog = read_file_or_stdin input in
+  let prog' = if prelude
+    then implicit_prelude ^ prog
+    else prog in
   let analyzed =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml_syntax.Syntax.from_string prog in
+    let%bind parsed = Orcml_syntax.Syntax.from_string prog' in
     debug "Parsed:\n%s" (Orcml.Ast.sexp_of_e parsed |> Sexp.to_string_hum);
     Orcml.Ir1.translate parsed in
   match analyzed with
@@ -113,11 +146,14 @@ let compile_input includes input =
   | Ok((deps, ir)) ->
     debug "Translated:\n%s" (Orcml.Ir1.sexp_of_e ir |> Sexp.to_string_hum);
     compile_namespaces loader deps |> Deferred.Result.map_error ~f:(fun err ->
-        Error.create_s ([%sexp_of: [> `Compiler of Base.Error.t | `Loader of Core.String.t ]] err))
-    >>=? fun (deps, mapper) ->
-    match Orcml.Compiler.global_compile mapper ir with
+        Error.create_s ([%sexp_of: [> `Compiler of Error.t | `Loader of string ]] err))
+    >>=? fun (deps, global_mapping) ->
+    match Orcml.Compiler.Program.compile ir with
     | Error(_) as err -> return err
-    | Ok(compiled) -> Ok (deps, compiled) |> return
+    | Ok({Orcml.Compiler.Program.code; mapping}) ->
+      let bytecode = change_external global_mapping mapping code
+                     |> Orcml.Compiler.to_bytecode in
+      Ok (deps, bytecode) |> return
 
 (* let compile =
  *   let open Command.Let_syntax in
@@ -157,11 +193,12 @@ let exec =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and bc = flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
+      and prelude = flag "-prelude" no_arg ~doc:"Implicity refer whole prelude"
       and state = flag "-state" (optional file) ~doc:"Path to store intermediate state if any"
       and includes = flag "-i" (listed file) ~doc:"Directories to include"
       and verbose = verbose_flag in
       let exec () =
-        compile_input includes input >>= fun res ->
+        compile_input prelude includes input >>= fun res ->
         (match res with
          | Error(err) ->
            error "Can't compile: %s" (Error.to_string_hum err);
