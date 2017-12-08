@@ -1,8 +1,13 @@
 (library
  ((name orcml)
-  (libraries (base menhirLib stdio js_of_ocaml js_of_ocaml.weak msgpck))
+  (libraries (base menhirLib sedlex stdio js_of_ocaml js_of_ocaml.weak msgpck))
   (preprocess (pps (ppx_jane)))
 ))
+
+(rule
+ ((targets (lexer.ml))
+  (deps    (lexer.sedlex.ml))
+  (action  (run ${lib:sedlex:ppx_sedlex} ${<} -o ${@}))))
 
 (menhir
  ((flags (--explain --dump))

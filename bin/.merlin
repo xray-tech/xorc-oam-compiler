@@ -1,7 +1,5 @@
 B ../_build/default/bin
-B ../_build/default/lexer
 B ../_build/default/src
-B ../_build/default/syntax
 B ../_build/default/testkit
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx'
 FLG -w -40
@@ -65,7 +63,5 @@ PKG typerep
 PKG uchar
 PKG unix
 PKG variantslib
-S ../lexer
 S ../src
-S ../syntax
 S ../testkit

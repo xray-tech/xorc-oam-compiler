@@ -1,7 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name orcml_lexer)
-  (libraries (base sedlex orcml))
-  (preprocess (pps (sedlex.ppx)))
-))

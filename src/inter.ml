@@ -1,292 +1,34 @@
 open Base
-type call_target = TPrim of int | TFun of int | TDynamic of int [@@deriving sexp, compare]
-
-type c = int [@@deriving sexp, compare]
-
-type t =
-  | Parallel of c * c
-  | Otherwise of c * c
-  | Pruning of c * int option * c
-  | Sequential of c * int option * c
-  | Call of call_target * int array
-  | TailCall of call_target * int array
-  | Coeffect of int
-  | Stop
-  | Const of Ast.const
-  | Closure of (int * int)
-  | Label of int
-  | Prim of int
-and v =
-  | VConst of Ast.const
-  | VClosure of int * int * env
-  | VLabel of int
-  | VPrim of int
-  | VTuple of v list
-  | VList of v list
-  | VRecord of (string * v) list
-and env_v =
-  | Value of v | Pending of pending
-and env = env_v array
-and pend_value = PendVal of v | PendStopped | Pend
-and pending = {
-  mutable pend_value : pend_value;
-  mutable pend_waiters : token list;
-}
-and frame =
-  | FPruning of { mutable instances : int;
-                  pending : pending }
-  | FOtherwise of { mutable first_value : bool;
-                    mutable instances : int;
-                    pc : (int * c) }
-  | FSequential of (int option * (int * c))
-  | FCall of env
-  | FResult
-and stack = frame list
-and token = {
-  pc : (int * c);
-  env : env;
-  stack : stack;
-} [@@deriving sexp, compare]
+include Inter0
 
 module Value = struct
   include (val Comparator.make ~compare:compare_v ~sexp_of_t:sexp_of_v)
 end
 
-type code = (int * t array) array [@@deriving sexp]
+type bc = (int * t array) array [@@deriving sexp, compare]
+
 type instance = { mutable current_coeffect : int;
                   mutable blocks : (int * token) list }
 
-type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
-type prims = (v array -> prim_v) array
-
-type state = { code : code;
-               deps : code;
+type state = { code : bc;
+               deps : bc;
                instance : instance;
                mutable queue : token list;
                prims : prims;
                values: (v -> unit);
                coeffects: ((int * v) -> unit)}
 
+type coeffect = int * v
+
+module Res = struct
+  type t = { values : v list;
+             coeffects : coeffect list;
+             killed : int list;
+             instance : instance}
+end
+
 exception TODO
 exception RuntimeError
-
-let default_prims = [|
-  (* Let *)
-  (function
-    | [| |] -> PrimVal(VConst Ast.Signal)
-    | [| v |] -> PrimVal v
-    | vals -> PrimVal(VTuple (Array.to_list vals)));
-  (* Add *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Int(x + y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x + y))))
-    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(of_int x + y))))
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x + of_int y))))
-    | [| VConst(Ast.String x); VConst(Ast.String y) |] -> PrimVal (VConst(Ast.String(String.concat [x;y])))
-    | [| VRecord(pairs1); VRecord(pairs2) |] ->
-      let merged = List.fold pairs2 ~init:pairs1 ~f:(fun acc (a, b) ->
-          List.Assoc.add acc ~equal:String.equal a b) in
-      PrimVal(VRecord merged)
-    | _ -> PrimUnsupported);
-  (* Sub *)
-  (function
-    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int(-x)))
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x - y)))
-    | [| VConst(Ast.Float x) |] ->
-      PrimVal (VConst(Ast.Float(Float.(-x))))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.sub x y)))
-    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(of_int x - y))))
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x - of_int y))))
-    | _ -> PrimUnsupported);
-  (* Ift *)
-  (function
-    | [| VConst(Ast.Bool true) |] -> PrimVal (VConst(Ast.Signal))
-    | [| VConst(Ast.Bool false) |] -> PrimHalt
-    | _ -> PrimUnsupported);
-  (* Iff *)
-  (function
-    | [| VConst(Ast.Bool false) |] -> PrimVal (VConst(Ast.Signal))
-    | [| VConst(Ast.Bool true) |] -> PrimHalt
-    | _ -> PrimUnsupported);
-  (* Mult *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Int(x * y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x * y))))
-    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(of_int x * y))))
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x * of_int y))))
-    | _ -> PrimUnsupported);
-  (* Div *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Int(x / y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x / y))))
-    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(of_int x / y))))
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.(x / of_int y))))
-    | _ -> PrimUnsupported);
-  (* Mod *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Int(x % y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.mod_float x y)))
-    | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
-      PrimVal (VConst(Ast.Float(Float.mod_float (Float.of_int x) y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.mod_float x (Float.of_int y))))
-    | _ -> PrimUnsupported);
-  (* Pow *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Int(Int.pow x y)))
-    (* TODO float pow *)
-    | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
-      PrimVal (VConst(Ast.Float(Float.int_pow x y)))
-
-    | _ -> PrimUnsupported);
-  (* Eq *)
-  (function
-    | [| v1; v2 |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
-    | _ -> PrimUnsupported);
-  (* NotEq *)
-  (function
-    | [| VConst(v1); VConst(v2) |] ->
-      PrimVal (VConst(Ast.Bool (not (Polymorphic_compare.equal v1 v2))))
-    | _ -> PrimUnsupported);
-  (* GT *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x > y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x > y)))
-    | _ -> PrimUnsupported);
-  (* GTE *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x >= y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
-    | _ -> PrimUnsupported);
-  (* LT *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x < y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
-    | _ -> PrimUnsupported);
-  (* LTE *)
-  (function
-    | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x <= y)))
-    | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
-    | _ -> PrimUnsupported);
-  (* And *)
-  (function
-    | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x && y)))
-    | _ -> PrimUnsupported);
-  (* Or *)
-  (function
-    | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x || y)))
-    | _ -> PrimUnsupported);
-  (* Not *)
-  (function
-    | [| VConst(Ast.Bool x) |] -> PrimVal (VConst(Ast.Bool(not x)))
-    | _ -> PrimUnsupported);
-  (* Floor *)
-  (function
-    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
-    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_down x |> Int.of_float)))
-    | _ -> PrimUnsupported);
-  (* Ceil *)
-  (function
-    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
-    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_up x |> Int.of_float)))
-    | _ -> PrimUnsupported);
-  (* Sqrt *)
-  (function
-    | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Float (Float.of_int x |> Float.sqrt)))
-    | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Float (Float.sqrt x)))
-    | _ -> PrimUnsupported);
-  (* Cons *)
-  (function
-    | [| x; VList(xs) |] -> PrimVal (VList(x::xs))
-    | _ -> PrimUnsupported);
-  (* FieldAccess *)
-  (function
-    | [| VRecord(pairs); VConst(Ast.String field) |] ->
-      (match List.Assoc.find pairs ~equal:String.equal field with
-       | Some(v) -> PrimVal v
-       | None -> PrimHalt)
-    | _ -> PrimUnsupported);
-  (* MakeTuple *)
-  (fun vals ->
-     PrimVal (VTuple(Array.to_list vals)));
-  (* MakeList *)
-  (fun vals ->
-     PrimVal (VList(Array.to_list vals)));
-  (* MakeRecord *)
-  (fun vals ->
-     let rec make acc = function
-       | [] -> PrimVal(VRecord acc)
-       | (VConst(Ast.String k))::v::xs -> make ((k, v)::acc) xs
-       | _ -> PrimUnsupported in
-     make [] (Array.to_list vals));
-  (* ArityCheck *)
-  (function
-    | [| VTuple(vs); VConst(Ast.Int size) |] ->
-      if (Int.equal (List.length vs) size)
-      then PrimVal (VConst(Ast.Signal))
-      else PrimHalt
-    | _ -> PrimUnsupported);
-  (* ListSizeCheck *)
-  (function
-    | [| VList(vs); VConst(Ast.Int size) |] ->
-      if (Int.equal (List.length vs) size)
-      then PrimVal (VConst(Ast.Signal))
-      else PrimHalt
-    | _ -> PrimUnsupported);
-  (* First *)
-  (function
-    | [| VList([]) |] ->
-      PrimHalt
-    | [| VList(x::_) |] ->
-      PrimVal (x)
-    | _ -> PrimUnsupported);
-  (* Rest *)
-  (function
-    | [| VList([]) |] ->
-      PrimHalt
-    | [| VList(_::xs) |] ->
-      PrimVal (VList(xs))
-    | _ -> PrimUnsupported);
-  (* WrapSome *)
-  (function
-    | [| v |] -> PrimVal(VTuple [v])
-    | _ -> PrimUnsupported);
-  (* UnwrapSome *)
-  (function
-    | [| VTuple [v] |] -> PrimVal(v)
-    | _ -> PrimHalt);
-  (* GetNone *)
-  (function
-    | [| |] -> PrimVal(VTuple [])
-    | _ -> PrimUnsupported);
-  (* IsNone *)
-  (function
-    | [| VTuple [] |] -> PrimVal(VConst(Ast.Signal))
-    | _ -> PrimHalt);
-  (* Error *)
-  (function
-    | vals ->
-      Stdio.eprintf "%s\n" ([%sexp_of: v array] vals |> Sexp.to_string_hum);
-      PrimHalt)
-|]
 
 
 let rec increment_instances = function
@@ -296,10 +38,6 @@ let rec increment_instances = function
   | x::xs -> increment_instances xs
 
 let alloc_env size = Array.create size (Value (VConst Ast.Null))
-
-(* TODO should be local exception  *)
-exception ToWait
-exception ToStop
 
 (* let rec format_value = function
  *   | Value v -> format_v v
@@ -406,18 +144,18 @@ and tick
     step 0 in
   let call_prim prim args =
     match realized_multi args with
-     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
-     | `Stopped -> halt state stack env
-     | `Values args' ->
-       let impl = prims.(prim) in
-       (* Stdio.eprintf "---CALL %i\n" prim;
-        * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
-       (match impl args' with
-        | PrimVal res ->
-          publish state stack env res;
-          halt state stack env
-        | PrimHalt -> halt state stack env
-        | PrimUnsupported -> raise RuntimeError) in
+    | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+    | `Stopped -> halt state stack env
+    | `Values args' ->
+      let impl = prims.(prim) in
+      (* Stdio.eprintf "---CALL %i\n" prim;
+       * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
+      (match impl args' with
+       | PrimVal res ->
+         publish state stack env res;
+         halt state stack env
+       | PrimHalt -> halt state stack env
+       | PrimUnsupported -> raise RuntimeError) in
   let (_, proc) = get_code state pc in
   match proc.(c) with
   | Const v ->
@@ -542,29 +280,35 @@ let run' deps code =
   let env = alloc_env init_env_size in
   let stack = [FResult] in
   let state = { code; deps; instance;
-                prims = default_prims;
+                prims = Prims.default;
                 values = clb;
                 coeffects = c_clb;
                 queue = [{pc; env; stack}]} in
   run_loop state;
   (* TODO killed coeffects *)
-  (!values, !coeffects, [], instance)
+  Res.{ values = !values;
+        coeffects = !coeffects;
+        killed = [];
+        instance}
 
-let run deps code =
-  Or_error.try_with ~backtrace:true (fun () -> run' deps code)
+let run ?(dependencies = [||]) code =
+  Or_error.try_with ~backtrace:true (fun () -> run' dependencies code)
 
 let unblock' deps code instance coeffect value =
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
   let state = { deps; code; instance;
-                prims = default_prims;
+                prims = Prims.default;
                 values = clb;
                 coeffects = c_clb;
                 queue = [] } in
   let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
   publish state token.stack token.env value;
   run_loop state;
-  (!values, !coeffects, [], instance)
+  Res.{ values = !values;
+        coeffects = !coeffects;
+        killed = [];
+        instance}
 
-let unblock deps code incstance coeffect value =
-  Or_error.try_with ~backtrace:true (fun () -> unblock' deps code incstance coeffect value)
+let unblock ?(dependencies = [||]) code instance coeffect value =
+  Or_error.try_with ~backtrace:true (fun () -> unblock' dependencies code instance coeffect value)

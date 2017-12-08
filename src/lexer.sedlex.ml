@@ -1,5 +1,5 @@
 open Base
-open Orcml.Parser
+open Parser
 
 type lexbuf = {
   stream : Sedlexing.lexbuf ;

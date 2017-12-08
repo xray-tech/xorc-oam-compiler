@@ -16,8 +16,4 @@ let create t = Error.create_s (sexp_of_t t)
 
 let err t = Error(create t)
 
-let try_with f =
-  try Ok(f ()) with
-  | Exn t -> err t
-
 let raise t = raise (Exn t)

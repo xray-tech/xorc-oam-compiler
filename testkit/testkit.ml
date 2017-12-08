@@ -9,19 +9,26 @@ type results = { mutable success : int;
                  mutable failed : int }
 
 let strings_to_values vs =
-  List.map vs Orcml_syntax.Syntax.value
-  |> List.map ~f:(fun v -> Option.value_exn v)
+  List.map vs Orcml.parse_value
+  |> List.map ~f:(fun v -> Or_error.ok_exn v)
 
-let values_to_set = Set.of_list ~comparator:Orcml.Inter.Value.comparator
+let values_to_set = Set.of_list ~comparator:Orcml.Value.comparator
 
-let print_stderr p =
-  Reader.contents (Process.stderr p)
-  >>| (fun v -> error "Engine stderr:\n%s\n\n" v)
+let rec print_stderr p =
+  Reader.read_line p >>= function
+  | `Eof -> return ()
+  | `Ok(l) ->
+    error "Engine stderr: %s" l;
+    print_stderr p
+
+module T = Orcml.Testkit
+module Serializer = T.Serializer
 
 let run_loop p fail compiled checks =
   let input = Process.stdin p in
   let output = Process.stdout p in
-  Protocol.write_code input compiled;
+
+  Serializer.dump_msg (T.Execute compiled) |> Protocol.write input;
 
   let check_values check actual =
     match check with
@@ -33,8 +40,8 @@ let run_loop p fail compiled checks =
         `Ok
       else
         `Fail (sprintf "expected: %s\nactual: %s"
-                 ([%sexp_of: Orcml.Inter.v list] expected' |> Sexp.to_string_hum)
-                 ([%sexp_of: Orcml.Inter.v list] actual |> Sexp.to_string_hum))
+                 ([%sexp_of: Orcml.Value.t list] expected' |> Sexp.to_string_hum)
+                 ([%sexp_of: Orcml.Value.t list] actual |> Sexp.to_string_hum))
     | OneOf expected ->
       let expected' = strings_to_values expected in
       let expected'' = values_to_set expected' in
@@ -44,45 +51,40 @@ let run_loop p fail compiled checks =
            `Ok
          else
            `Fail (sprintf "expected one of: %s\nactual: %s"
-                    ([%sexp_of: Orcml.Inter.v list] expected' |> Sexp.to_string_hum)
-                    ([%sexp_of: Orcml.Inter.v] v |> Sexp.to_string_hum))
+                    ([%sexp_of: Orcml.Value.t list] expected' |> Sexp.to_string_hum)
+                    ([%sexp_of: Orcml.Value.t] v |> Sexp.to_string_hum))
        | vals ->
          `Fail (sprintf "expected only one of %s\nactual: %s"
-                  ([%sexp_of: Orcml.Inter.v list] expected' |> Sexp.to_string_hum)
-                  ([%sexp_of: Orcml.Inter.v list] vals |> Sexp.to_string_hum))) in
+                  ([%sexp_of: Orcml.Value.t list] expected' |> Sexp.to_string_hum)
+                  ([%sexp_of: Orcml.Value.t list] vals |> Sexp.to_string_hum))) in
   let rec tick check =
-    Protocol.read_res output >>= function
-    | None ->
-      error "Engine stopped";
-      print_stderr p >>= fun () ->
-      exit 1
-    | Some((actual, killed)) ->
-      match check with
-      | Tests.Check expected ->
-        check_values expected actual |> return
-      | Tests.CheckAndResume { values; unblock = (id, v); next } ->
-        (match check_values values actual with
-         | `Ok ->
-           let v = Orcml_syntax.Syntax.value v |> Option.value_exn in
-           Protocol.write_unblock input id v;
-           tick next
-         | other -> return other)
+    let%bind {T.values = actual; killed} = Protocol.read_res output in
+    match check with
+    | Tests.Check expected ->
+      check_values expected actual |> return
+    | Tests.CheckAndResume { values; unblock = (id, v); next } ->
+      (match check_values values actual with
+       | `Ok ->
+         let v = Orcml.parse_value v |> Or_error.ok_exn in
+         T.Continue(id, v) |> Serializer.dump_msg |> Protocol.write input;
+         tick next
+       | other -> return other)
   in
   tick checks
 
 let run_test results p (e, checks) =
   debug "Run test: %s" e;
   let res =
-    let open Result.Let_syntax in
-    let%bind parsed = Orcml_syntax.Syntax.from_string e in
-    let%bind ir = Orcml.Ir1.translate_pure parsed in
-    Orcml.Compiler.Program.compile ir in
+    let open Or_error.Let_syntax in
+    let%bind parsed = Orcml.parse e in
+    let%bind ir = Orcml.translate_no_deps parsed in
+    Orcml.compile ir in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
-  | Ok({Orcml.Compiler.Program.code}) ->
-    run_loop p fail (Orcml.Compiler.to_bytecode code) checks >>| (function
+  | Ok((_, repo)) ->
+    run_loop p fail (Orcml.finalize repo) checks >>| (function
         | `Ok -> results.success <- results.success + 1
         | `Fail reason ->
           fail reason)
@@ -97,23 +99,21 @@ let with_prog (prog, args) tests f =
     error "Can't start engine: %s\n" (Error.to_string_hum err);
     Async.exit(1)
   | Ok(p) ->
+    print_stderr (Process.stderr p) |> don't_wait_for;
     Monitor.try_with_or_error (fun () -> Deferred.List.iter tests' (f p))
     >>= function
     | Error(err) ->
       error "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
       Signal.send Signal.term (`Pid (Process.pid p)) |> ignore;
-      print_stderr p >>= fun () ->
       exit 1
     | Ok(()) ->
       Writer.close (Process.stdin p)
       >>= fun () ->
-      print_stderr p >>= fun () ->
       Process.wait p
       >>= function
       | Ok(()) -> return ()
       | Error(`Exit_non_zero code) ->
         error "Exit code: %i\n" code;
-        print_stderr p >>= fun () ->
         exit code
       | _ -> exit 1
 
@@ -150,26 +150,28 @@ let exec =
 
 let bench_test n p (e, checks) =
   info "Bench program:\n%s" e;
-  let res = Orcml_syntax.Syntax.from_string e
-            |> Result.bind ~f:Orcml.Ir1.translate_pure
-            |> Result.bind ~f:Orcml.Compiler.Program.compile in
+  let res =
+    let open Or_error.Let_syntax in
+    let%bind parsed = Orcml.parse e in
+    let%bind ir = Orcml.translate_no_deps parsed in
+    Orcml.compile ir in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
-  | Ok({Orcml.Compiler.Program.code}) ->
+  | Ok((_, repo)) ->
     let input = Process.stdin p in
     let output = Process.stdout p in
-    Protocol.write_bench input (Orcml.Compiler.to_bytecode code) n;
+    T.Benchmark(Orcml.finalize repo, n) |> Serializer.dump_msg |> Protocol.write input;
     Protocol.read_msg output >>= (function
         | None ->
           error "Engine stopped";
-          print_stderr p >>= fun () -> exit 1
+          exit 1
         | Some(Msgpck.Float time) ->
           info "Execution time: %f ms" time;
           return ()
         | Some(v) ->
           error "Bad message %s" (Message_pack.sexp_of_t v |> Sexp.to_string_hum);
-          print_stderr p >>= fun () -> exit 1)
+          exit 1)
   | Error(err) ->
     fail (Error.to_string_hum err); return ()
 

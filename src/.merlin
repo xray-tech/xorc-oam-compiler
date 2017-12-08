@@ -1,5 +1,5 @@
 B ../_build/default/src
-FLG -open Orcml -w -40
+FLG -open Orcml__ -w -40
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml"'\'''
 PKG base
 PKG base.caml
@@ -9,6 +9,7 @@ PKG bin_prot
 PKG bin_prot.shape
 PKG bytes
 PKG fieldslib
+PKG gen
 PKG js_of_ocaml
 PKG js_of_ocaml-compiler.runtime.weak
 PKG js_of_ocaml.weak
@@ -24,6 +25,7 @@ PKG ppx_expect.config
 PKG ppx_hash.runtime-lib
 PKG ppx_inline_test.config
 PKG ppx_inline_test.runtime-lib
+PKG sedlex
 PKG sexplib
 PKG sexplib.0
 PKG stdio

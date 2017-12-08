@@ -1,6 +1,4 @@
-B ../_build/default/lexer
 B ../_build/default/src
-B ../_build/default/syntax
 B ../_build/default/testkit
 FLG -open Orcml_testkit -w -40 -w -40
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml_testkit"'\'''
@@ -64,6 +62,4 @@ PKG uchar
 PKG unix
 PKG variantslib
 S .
-S ../lexer
 S ../src
-S ../syntax

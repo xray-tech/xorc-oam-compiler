@@ -1,4 +1,4 @@
-open Base
+open Common
 
 type prim =
   | Let | Add | Sub | Ift | Iff
@@ -10,7 +10,7 @@ type prim =
   | FieldAccess | MakeTuple | MakeList | MakeRecord
   | ArityCheck | ListSizeCheck | First | Rest
   | WrapSome | UnwrapSome | GetNone | IsNone
-  | Error
+  | ErrorPrim
 [@@deriving compare, enumerate, sexp]
 
 type binding =
@@ -29,6 +29,15 @@ type unit = { is_closure : bool;
               ctx : ctx;
               params : string list;
               body : Ir1.e }
+
+module Fun = struct
+  type t = {
+    ns : string;
+    name : string;
+  } [@@deriving sexp_of, compare]
+
+  type impl = int * Inter.t list [@@deriving sexp_of, compare]
+end
 
 let prims_map = [("Let", Let);
                  ("Ift", Ift);
@@ -52,7 +61,7 @@ let prims_map = [("Let", Let);
                  ("floor", Floor);
                  ("ceil", Ceil);
                  ("sqrt", Sqrt);
-                 ("Error", Error);
+                 ("Error", ErrorPrim);
                  ("'FieldAccess", FieldAccess);
                  ("'MakeTuple", MakeTuple);
                  ("'MakeList", MakeList);
@@ -120,18 +129,18 @@ let compile_queue = ref []
 
 let ns_labels = ref []
 
-let get_ns_label ns bind =
-  match List.find !ns_labels ~f:(fun (_, (ns', bind')) ->
-      String.equal ns' ns && String.equal bind' bind) with
+let get_ns_label fun_ =
+  match List.find !ns_labels ~f:(fun (_, fun_') ->
+      Fun.compare fun_ fun_' |> Int.equal 0) with
   | Some(lbl, _) -> lbl
   | None ->
     let lbl = new_label () in
-    ns_labels := (lbl, (ns, bind))::!ns_labels;
+    ns_labels := (lbl, fun_)::!ns_labels;
     lbl
 
-let ns_label_pos ns bind =
-  match List.findi !ns_labels ~f:(fun _ (_, (ns', bind')) ->
-      String.equal ns' ns && String.equal bind' bind) with
+let ns_label_pos fun_ =
+  match List.findi !ns_labels ~f:(fun _ (_, fun_') ->
+      Fun.compare fun_ fun_' |> Int.equal 0) with
   | Some(pos, _) -> pos
   | None -> assert false
 
@@ -297,9 +306,9 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
        preprocess_call ident args (ast_e, pos) |> compile_e ctx shift current_fun tail_call
      | None -> compile_call ident args)
   | ERefer(ns, fs, e) ->
-    let ctx' = (List.map fs (fun bind ->
-        let lbl = get_ns_label ns bind in
-        (bind, BindNs(ns, lbl)))) @ ctx in
+    let ctx' = (List.map fs (fun name ->
+        let lbl = get_ns_label Fun.{ns; name} in
+        (name, BindNs(ns, lbl)))) @ ctx in
     compile_e ctx' shift current_fun is_tail_call e
   | EStop -> (0, [Inter.Stop])
   | ESite(_, _, _) -> raise Util.TODO
@@ -314,19 +323,29 @@ let compile_fun {is_closure; label; ctx; params; body} =
   let (size, f) = compile_e ctx'' 0 label true body in
   (size + List.length params + ctx_vars ctx', f)
 
-let change_pointers mapper code =
-  let change = function
-    | Inter.Closure((p, size)) ->
-      Inter.Closure((mapper p, size))
-    | Inter.Label(p) ->
-      Inter.Label(mapper p)
-    | Inter.Call(Inter.TFun(p), args) ->
-      Inter.Call(Inter.TFun(mapper p), args)
-    | Inter.TailCall(Inter.TFun(p), args) ->
-      Inter.TailCall(Inter.TFun(mapper p), args)
-    | op -> op in
-  List.map code (fun (ident, size, body) ->
-      (ident, size, List.map body change))
+type linker = int -> int Or_error.t
+
+let link repo linker =
+  with_return (fun r ->
+      let linker' p =
+        match linker p with
+        | Error(err) -> r.return(Error(err))
+        | Ok(v) -> v in
+      let change = function
+        | Inter.Closure((p, size)) ->
+          Inter.Closure((linker' p, size))
+        | Inter.Label(p) ->
+          Inter.Label(linker' p)
+        | Inter.Call(Inter.TFun(p), args) ->
+          Inter.Call(Inter.TFun(linker' p), args)
+        | Inter.TailCall(Inter.TFun(p), args) ->
+          Inter.TailCall(Inter.TFun(linker' p), args)
+        | op -> op in
+      Ok(List.map repo (fun (ident, (size, body)) ->
+          (ident, (size, List.map body change)))))
+
+type imports = (int * Fun.t) list
+type repo = (string * Fun.impl) list [@@deriving sexp_of, compare]
 
 let compile' e =
   compile_queue := [];
@@ -345,53 +364,36 @@ let compile' e =
       compile_queue := xs;
       let f = compile_fun unit in
       compile_loop ((label, ident, f)::acc) in
-  let repository = compile_loop [] in
-  let labels_mapping = List.mapi repository (fun addr (label, _, _) ->
+  let repo = compile_loop [] in
+  let labels_mapping = List.mapi repo (fun addr (label, _, _) ->
       (label, addr)) in
-  let code = (List.map repository (fun (_, ident, (size, body)) -> (ident, size, body))) in
-  let mapper lbl =
+  let repo' = List.map repo (fun (_, ident, (size, body)) -> (ident, (size, body))) in
+  let linker lbl =
     match List.Assoc.find labels_mapping ~equal:Int.equal lbl with
-    | Some(addr) -> -addr - 1
+    | Some(addr) -> Ok(-addr - 1)
     | None ->
-      let (ns, f) = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
-      ns_label_pos ns f in
-  change_pointers mapper code
+      let fun_ = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
+      Ok(ns_label_pos fun_) in
+  link repo' linker
 
-(* mapping is a list of external functions which were used in code *)
-type mapping = (int * (string * string)) list
-type code = (string * int * Inter.t list) list [@@deriving sexp_of]
-
-let to_bytecode code =
-  Array.of_list_map code ~f:(fun (ident, s, f) ->
+let finalize code =
+  Array.of_list_map code ~f:(fun (ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let make_mapping code =
-  List.mapi !ns_labels (fun i (_, (ns, f)) ->
-      (i, (ns, f)))
+let make_imports code =
+  List.mapi !ns_labels (fun i (_, fun_) ->
+      (i, fun_))
 
-module Program = struct
-  type t = {
-    mapping : mapping;
-    code: code}
-  let compile e =
-    Errors.try_with (fun () ->
-        let code = compile' e in
-        { mapping = make_mapping code;
-          code})
-end
+let compile e : (imports * repo) Or_error.t =
+  let res = Or_error.try_with (fun () ->
+      let open Or_error.Let_syntax in
+      let%map repo = compile' e in
+      (make_imports repo, repo)) in
+  Or_error.join res
 
-module Namespace = struct
-  type t = {
-    mapping : mapping;
-    funcs : string list;
-    code : code}
-
-  let compile e =
-    Errors.try_with (fun () ->
-        let code = compile' e in
-        (* Last function is a main function and it's just stub here *)
-        let code' = List.rev code |> List.tl_exn |> List.rev in
-        { mapping = make_mapping code';
-          funcs = List.map code' (fun (ident, s, f) -> ident);
-          code = code'})
-end
+let compile_ns e =
+  let open Result.Let_syntax in
+  let%map (imports, repo) = compile e in
+  (* Last function is a main function and it's just stub here *)
+  let repo' = List.rev repo |> List.tl_exn |> List.rev in
+  (imports, repo')

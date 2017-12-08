@@ -9,12 +9,19 @@ module Lexing = struct
           Atom pos_fname;
           Atom (Int.to_string (pos_lnum + 1));
           Atom (Int.to_string (pos_cnum - pos_bol))]
+
+  let compare_position a b =
+    let {pos_bol; pos_lnum; pos_fname; pos_cnum} = a in
+    let a' = (pos_fname, pos_bol, pos_lnum, pos_cnum) in
+    let {pos_bol; pos_lnum; pos_fname; pos_cnum} = b in
+    let b' = (pos_fname, pos_bol, pos_lnum, pos_cnum) in
+    [%compare: string * int * int * int] a' b'
 end
 
 type pos = {
   pstart : Lexing.position;
   pend : Lexing.position;
-} [@@deriving sexp_of]
+} [@@deriving sexp_of, compare]
 
 let dummy = let z = Lexing.{ pos_bol = 0;
                              pos_lnum = 0;
@@ -30,7 +37,7 @@ type const =
   | Null
   | Bool of bool [@@deriving sexp, compare]
 
-type ident = string [@@deriving sexp]
+type ident = string [@@deriving sexp, compare]
 
 type p' =
   | PVar of ident
@@ -41,7 +48,7 @@ type p' =
   | PCons of p * p
   | PRecord of (string * p) list
   | PAs of p * string
-and p = (p' * pos) [@@deriving sexp_of]
+and p = (p' * pos) [@@deriving sexp_of, compare]
 
 type e' =
   | EOtherwise of e * e
@@ -68,7 +75,7 @@ and decl' =
   | DRefer of string * ident list
 and constructor = ident * int
 and decl = decl' * pos
-and e = e' * pos [@@deriving sexp_of]
+and e = e' * pos [@@deriving sexp_of, compare]
 
 exception UnsupportedImportType of string
 
