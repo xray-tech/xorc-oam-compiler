@@ -270,6 +270,23 @@ let rec run_loop state =
     tick state pc stack env;
     run_loop state
 
+let rec is_alive = function
+  | [] -> true
+  | FPruning { pending = { pend_value = PendStopped } }::_
+  | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
+    false
+  | _::xs -> is_alive xs
+
+let check_killed just_unblocked instance =
+  let f (killed, acc) ((id, {stack}) as block) =
+    if Int.equal id just_unblocked
+    then (killed, acc)
+    else if is_alive stack
+    then (killed, block::acc)
+    else (id::killed, acc) in
+  let (killed, blocks) = List.fold instance.blocks ~init:([], []) ~f in
+  (killed, {instance with blocks})
+
 let run' deps code =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
@@ -305,10 +322,11 @@ let unblock' deps code instance coeffect value =
   let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
   publish state token.stack token.env value;
   run_loop state;
+  let (killed, instance') = check_killed coeffect instance in
   Res.{ values = !values;
         coeffects = !coeffects;
-        killed = [];
-        instance}
+        killed;
+        instance = instance'}
 
 let unblock ?(dependencies = [||]) code instance coeffect value =
   Or_error.try_with ~backtrace:true (fun () -> unblock' dependencies code instance coeffect value)

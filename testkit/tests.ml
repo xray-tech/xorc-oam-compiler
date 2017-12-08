@@ -234,39 +234,39 @@ let tests =
        ("def foo(a, b) = a + b
          def bar(f) = f(1,2)
          bar(foo)",
-       Check (allof ["3"]));
+        Check (allof ["3"]));
      ]);
    ("blocks", [
-       ("Coeffect(1) >x> x + 2",
-        CheckAndResume { values = allof [];
-                         unblock = (0, "1");
-                         killed = [];
-                         next = Check (allof ["3"])});
-
-       ("Coeffect(1) >x>
-        (val y = 3
-         x + y)",
-        CheckAndResume { values = allof [];
-                         unblock = (0, "4");
-                         killed = [];
-                         next = Check (allof ["7"])});
-
-       ("Coeffect(1) >(x, y)> x + y",
-        CheckAndResume { values = allof [];
-                         unblock = (0, "(1,2)");
-                         killed = [];
-                         next = Check (allof ["3"])});
-
-       ("Coeffect(1) >x> (Coeffect(2), x) >z> z",
-        CheckAndResume
-          { values = allof [];
-            unblock = (0, "\"a\"");
-            killed = [];
-            next = CheckAndResume
-                { values = allof [];
-                  unblock = (1, "\"b\"");
-                  killed = [];
-                  next = Check (allof ["(\"b\", \"a\")"])}});
+       (* ("Coeffect(1) >x> x + 2",
+        *  CheckAndResume { values = allof [];
+        *                   unblock = (0, "1");
+        *                   killed = [];
+        *                   next = Check (allof ["3"])});
+        *
+        * ("Coeffect(1) >x>
+        *  (val y = 3
+        *   x + y)",
+        *  CheckAndResume { values = allof [];
+        *                   unblock = (0, "4");
+        *                   killed = [];
+        *                   next = Check (allof ["7"])});
+        *
+        * ("Coeffect(1) >(x, y)> x + y",
+        *  CheckAndResume { values = allof [];
+        *                   unblock = (0, "(1,2)");
+        *                   killed = [];
+        *                   next = Check (allof ["3"])});
+        *
+        * ("Coeffect(1) >x> (Coeffect(2), x) >z> z",
+        *  CheckAndResume
+        *    { values = allof [];
+        *      unblock = (0, "\"a\"");
+        *      killed = [];
+        *      next = CheckAndResume
+        *          { values = allof [];
+        *            unblock = (1, "\"b\"");
+        *            killed = [];
+        *            next = Check (allof ["(\"b\", \"a\")"])}}); *)
 
        ("val x = Coeffect(1) | Coeffect(2) x",
         CheckAndResume { values = allof [];
@@ -285,33 +285,39 @@ let tests =
                   unblock = (1, "(1,3)");
                   killed = [];
                   next = Check (allof ["3"])}});
-       (* ("(val a = Coeffect(1) | Coeffect(2) a + 1 >> stop); 3",
-        *  CheckAndResume { values = allof [];
-        *                   unblock = (0, "0");
-        *                   killed = [1];
-        *                   next = Check (allof ["3"])}); *)
-       (* ("def foo(0) = 1
-        * def foo((1, x)) = x
-        * foo(Coeffect(1)) | foo(Coeffect(2)) | foo(Coeffect(3))",
-        *   CheckAndResume
-        *     { values = allof [];
-        *       unblock = (0, "0");
-        *       killed = [];
-        *       next = CheckAndResume
-        *           { values = allof ["1"];
-        *             unblock = (1, "(2, 2)");
-        *             killed = [];
-        *             next = CheckAndResume
-        *                 { values = allof [];
-        *                   unblock = (2, "(1, 3)");
-        *                   killed = [];
-        *                   next = Check (allof ["3"])}}}) *)
-
-
-     ]);
+       ("(val a = Coeffect(1) | Coeffect(2) a + 1 >> stop); 3",
+        CheckAndResume { values = allof [];
+                         unblock = (0, "0");
+                         killed = [1];
+                         next = Check (allof ["3"])});
+       ("def foo(0) = 1
+       def foo((1, x)) = x
+       foo(Coeffect(1)) | foo(Coeffect(2)) | foo(Coeffect(3))",
+        CheckAndResume
+          { values = allof [];
+            unblock = (0, "0");
+            killed = [];
+            next = CheckAndResume
+                { values = allof ["1"];
+                  unblock = (1, "(2, 2)");
+                  killed = [];
+                  next = CheckAndResume
+                      { values = allof [];
+                        unblock = (2, "(1, 3)");
+                        killed = [];
+                        next = Check (allof ["3"])}}})]);
    ("tailrec", [
-       (* ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(10000)",
-        *  Check (allof ["0"])); *)
+       ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(10000)",
+        Check (allof ["0"]));
+       ("def tailrec(0) = 0 def tailrec(x) = x - 1 >y> tailrec(y) tailrec(10000)",
+        Check (allof ["0"]));
+       ("def tailrec(0) = 0 def tailrec(x) = x - 1 >y> y >y> tailrec(y) tailrec(10000)",
+        Check (allof ["0"]));
+       ("def tailrec(0) = 0 def tailrec(x) = stop | tailrec(x - 1) tailrec(10000)",
+        Check (allof ["0"]));
+       ("def tailrec(0) = 0 def tailrec(x) = val y = x - 1 stop | tailrec(y) tailrec(10000)",
+        Check (allof ["0"]));
+
        ("def f(x)=if (x<:10000) then (stop|f(x+1)) else stop\n f(0)",
         Check (allof []))
      ]);
