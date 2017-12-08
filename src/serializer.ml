@@ -100,6 +100,8 @@ let load' packed =
       Inter.Closure(pc, to_copy)::(des_fun xs)
     | (M.Int 10)::(M.Int p)::xs ->
       Inter.Label(p)::(des_fun xs)
+    | (M.Int 11)::(M.Int p)::xs ->
+      Inter.Prim(p)::(des_fun xs)
     | _ -> raise BadFormat in
   match packed with
   | M.List xs -> Array.of_list (List.map xs (function
@@ -245,6 +247,8 @@ let rec load_value' on_env = function
     (VRecord(deserialize_pairs pairs), xs)
   | (M.Int 5)::(M.Int pc)::xs ->
     (VLabel(pc), xs)
+  | (M.Int 6)::(M.Int pc)::xs ->
+    (VPrim(pc), xs)
   | _ -> raise BadFormat
 
 and load_value on_env v =
