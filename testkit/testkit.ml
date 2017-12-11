@@ -2,7 +2,6 @@ open! Core
 open! Async
 open! Log.Global
 
-module Lexer = Orcml_lexer
 open Orcml_testkit
 
 type results = { mutable success : int;
@@ -12,7 +11,9 @@ let strings_to_values vs =
   List.map vs Orcml.parse_value
   |> List.map ~f:(fun v -> Or_error.ok_exn v)
 
-let values_to_set = Set.of_list ~comparator:Orcml.Value.comparator
+module Values = Set.Make(Orcml.Value)
+
+let values_to_set = Values.of_list
 
 let rec print_stderr p =
   Reader.read_line p >>= function
@@ -145,7 +146,7 @@ let filter_tests suits =
 
 let exec =
   let open Command.Let_syntax in
-  Command.basic'
+  Command.basic
     ~summary:"run tests"
     [%map_open
       let prog = anon ("PROG" %: string)
@@ -192,7 +193,7 @@ let bench_tests prog n tests =
 
 let benchmark =
   let open Command.Let_syntax in
-  Command.basic'
+  Command.basic
     ~summary:"benchmark orc programs"
     [%map_open
       let prog = anon ("PROG" %: string)

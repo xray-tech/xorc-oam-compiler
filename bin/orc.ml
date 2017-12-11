@@ -182,7 +182,7 @@ let generate_result state_path {Orcml.Res.values; coeffects; instance} =
 
 let exec =
   let open Command.Let_syntax in
-  Command.basic'
+  Command.basic
     ~summary: "executes orc"
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
@@ -242,7 +242,7 @@ let tests_server =
       error "Runtime error:\n%s" (Error.to_string_hum err);
       exit 1 in
   let open Command.Let_syntax in
-  Command.basic'
+  Command.basic
     ~summary: "tests-server. supports TestKit protocol"
     [%map_open
       let verbose = verbose_flag in

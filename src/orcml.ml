@@ -15,6 +15,7 @@ end
 module Value = struct
   type t = Inter.v
   let sexp_of_t = Inter.sexp_of_v
+  let t_of_sexp = Inter.v_of_sexp
   let compare = Inter.compare_v
 
   include Inter.Value

@@ -3,6 +3,7 @@ FLG -open Orcml__ -w -40
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx --cookie '\''library-name="orcml"'\'''
 PKG base
 PKG base.caml
+PKG base.md5
 PKG base.shadow_stdlib
 PKG bigarray
 PKG bin_prot
@@ -27,7 +28,6 @@ PKG ppx_inline_test.config
 PKG ppx_inline_test.runtime-lib
 PKG sedlex
 PKG sexplib
-PKG sexplib.0
 PKG stdio
 PKG typerep
 PKG uchar

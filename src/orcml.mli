@@ -9,7 +9,7 @@ module Const : sig
 end
 
 module Value : sig
-  type t [@@deriving sexp_of, compare]
+  type t [@@deriving sexp, compare]
 
   include Comparator.S with type t := t
 end
