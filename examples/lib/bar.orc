@@ -1,1 +1,1 @@
-def double() = 3
+def double(x) = x + x

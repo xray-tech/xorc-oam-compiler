@@ -32,12 +32,15 @@ let imports_linker imports_mapping fun_ =
    | Some(pointer) -> Ok(pointer)
    | None -> Or_error.error_s ([%sexp_of: string * Sexp.t] ("Unbound dependency", Orcml.Fun.sexp_of_t fun_)))
 
+let linker imports_mapping imports p =
+  match List.Assoc.find imports ~equal:Int.equal p with
+  | None ->
+    Ok(p)
+  | Some(x) ->
+    imports_linker imports_mapping x
+
 let link_imports imports_mapping imports repo =
-  let linker p = match List.Assoc.find imports ~equal:Int.equal p with
-    | None -> Ok(p)
-    | Some(x) ->
-      imports_linker imports_mapping x in
-  Orcml.link repo linker
+  Orcml.link repo (linker imports_mapping imports)
 
 let link_namespaces compiled =
   with_return (fun r ->
@@ -98,6 +101,10 @@ let optional_file_contents path =
   | Ok(v) -> v
   | Error(_) -> None
 
+let file_contents path =
+  let%map res = Monitor.try_with (fun () -> Reader.file_contents path ) in
+  Result.map_error res (fun e -> Error.of_exn e )
+
 let fs path =
   (module struct
     let load ns =
@@ -127,9 +134,7 @@ let implicit_prelude =
      mergeUniqueBy, sortUnique, sortUniqueBy, group, groupBy, rangeBy, range,
      any, all, sum, product, and, or, minimum, maximum) "
 
-let compile_input prelude includes input =
-  let loader = multiloader (List.map includes fs) in
-  let%bind prog = read_file_or_stdin input in
+let compile_source loader prelude prog =
   let prog' = if prelude
     then implicit_prelude ^ prog
     else prog in
@@ -151,27 +156,90 @@ let compile_input prelude includes input =
     | Error(err) -> Error err |> return
     | Ok(repo') -> Ok(deps, Orcml.finalize repo') |> return
 
-(* let compile =
- *   let open Command.Let_syntax in
- *   Command.basic'
- *     ~summary: "produce bytecode"
- *     [%map_open
- *       let input = anon (maybe ("INPUT" %: file))
- *       and bc = flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
- *       and verbose = verbose_flag in
- *       let exec () =
- *         compile_input includes input >>= fun res ->
- *         (match res with
- *          | Error(err) ->
- *            error "Can't compile: %s" (Error.to_string_hum err);
- *            exit 1
- *          | Ok(compiled) ->
- *            Orcml.Serialize.serialize_bc compiled |> print_string;
- *            exit 0) in
- *       fun () ->
- *         set_logging verbose;
- *         exec () |> ignore;
- *         Scheduler.go () |> never_returns] *)
+let imports_to_deps imports =
+  let rec f acc = function
+    | [] -> String.Set.to_list acc
+    | (_, {Orcml.Fun.ns})::xs -> f (String.Set.add acc ns) xs in
+  f String.Set.empty imports
+
+let compile_bc loader prog =
+  let (_, packed) = Msgpck.String.read prog in
+  match Orcml.Serializer.imports packed with
+  | Error(err) -> return(Error err)
+  | Ok(imports) ->
+    let deps = imports_to_deps imports in
+    compile_namespaces loader deps
+    >>=? fun (deps, imports_mapping) ->
+    let res =
+      Orcml.Serializer.load ~linker:(linker imports_mapping imports) packed
+      |> Result.map ~f:(fun bc -> (deps, bc)) in
+    return res
+
+let compile_input prelude includes is_byte_code input =
+  let loader = multiloader (List.map includes fs) in
+  let%bind prog = read_file_or_stdin input in
+  if is_byte_code
+  then compile_bc loader prog
+  else compile_source loader prelude prog
+
+let make_bytecode prelude ns input =
+  let%map prog = read_file_or_stdin input in
+  let prog' = if prelude
+    then implicit_prelude ^ prog
+    else prog in
+  let (parser, compiler) =
+    if ns
+    then (Orcml.parse_ns, Orcml.compile_ns)
+    else (Orcml.parse, Orcml.compile) in
+  let analyzed =
+    let open Result.Let_syntax in
+    let%bind parsed = parser prog' in
+    debug "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
+    Orcml.translate parsed in
+  match analyzed with
+  | Error(err) -> Error(err)
+  | Ok((deps, ir)) ->
+    debug "Translated:\n%s" (Orcml.sexp_of_ir1 ir |> Sexp.to_string_hum);
+    info "Dependencies: %s" ([%sexp_of: string list] deps |> Sexp.to_string_hum);
+    let open Result.Let_syntax in
+    let%map (imports, repo) = compiler ir in
+    Orcml.Serializer.dump ~imports (Orcml.finalize repo)
+
+let prelude_flag =
+  let open Command.Param in
+  flag "-prelude" no_arg ~doc:"Implicity refer whole prelude"
+
+let includes_flag =
+  let open Command.Param in
+  flag "-i" (listed file) ~doc:"Directories to include"
+
+let compile =
+  let open Command.Let_syntax in
+  Command.basic
+    ~summary: "produce bytecode"
+    [%map_open
+      let input = anon (maybe ("INPUT" %: file))
+      and output = flag "-output" (optional file) ~doc:"Output path"
+      and ns = flag "-ns" no_arg ~doc:"Compile namespace"
+      and prelude = prelude_flag
+      and verbose = verbose_flag in
+      let exec () =
+        make_bytecode prelude ns input >>= fun res ->
+        (match res with
+         | Error(err) ->
+           error "Can't compile: %s" (Error.to_string_hum err);
+           exit 1
+         | Ok(bc) ->
+           let bc' = Msgpck.String.to_string bc in
+           (match output with
+            | Some(path) -> Writer.save path bc'
+            | None ->
+              print_string bc'; Async.return ()) >>= fun () ->
+           exit 0) in
+      fun () ->
+        set_logging verbose;
+        exec () |> ignore;
+        Scheduler.go () |> never_returns]
 
 let generate_result state_path {Orcml.Res.values; coeffects; instance} =
   List.iter values (fun v ->
@@ -187,12 +255,12 @@ let exec =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and bc = flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
-      and prelude = flag "-prelude" no_arg ~doc:"Implicity refer whole prelude"
+      and prelude = prelude_flag
       and state = flag "-state" (optional file) ~doc:"Path to store intermediate state if any"
-      and includes = flag "-i" (listed file) ~doc:"Directories to include"
+      and includes = includes_flag
       and verbose = verbose_flag in
       let exec () =
-        compile_input prelude includes input >>= fun res ->
+        compile_input prelude includes bc input >>= fun res ->
         (match res with
          | Error(err) ->
            error "Can't compile: %s" (Error.to_string_hum err);
@@ -259,7 +327,7 @@ let tests_server =
 
 let () =
   Command.group ~summary:"Orc programming language compiler and VM"
-    [(* ("compile", compile); *)
-      ("exec", exec);
-      ("tests-server", tests_server)]
+    [("compile", compile);
+     ("exec", exec);
+     ("tests-server", tests_server)]
   |> Command.run

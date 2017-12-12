@@ -64,11 +64,13 @@ val run : ?dependencies:bc -> bc -> Res.t Or_error.t
 val unblock : ?dependencies:bc -> bc -> instance -> int -> Value.t -> Res.t Or_error.t
 
 module Serializer : sig
-  val dump : bc -> Msgpck.t
-  val load : Msgpck.t -> bc Or_error.t
+  val imports : Msgpck.t -> imports Or_error.t
 
-  val dump_instance : instance -> Msgpck.t
-  val load_instance : Msgpck.t -> instance Or_error.t
+  val dump : ?imports:imports -> bc -> Msgpck.t
+  val load : ?linker:linker -> Msgpck.t -> bc Or_error.t
+
+  val dump_instance : ?imports:imports -> instance -> Msgpck.t
+  val load_instance : ?linker:linker -> Msgpck.t -> instance Or_error.t
 end
 
 module Testkit : sig

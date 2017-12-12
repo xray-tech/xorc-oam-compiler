@@ -1,4 +1,4 @@
-open Base
+open Common
 
 module M = Msgpck
 
@@ -21,7 +21,7 @@ let deserialize_const = function
   | M.Bool x -> Ast.Bool x
   | _ -> raise BadFormat
 
-let dump code =
+let dump ?(imports = []) code =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
   let obj = array_to_list_map code (fun (i, ecode) ->
@@ -60,9 +60,15 @@ let dump code =
                    | Inter.Label(p) -> [M.Int 10; M.Int p]
                    | Inter.Prim(p) -> [M.Int 11; M.Int p]
                  ))))) in
-  M.List obj
+  let rec dump_imports = function
+    | [] -> []
+    | (i, {Compiler.Fun.ns; name})::xs ->
+      (M.Int i)::(M.String ns)::(M.String name)::(dump_imports xs) in
+  let imports' = M.List(dump_imports imports) in
+  M.List [imports'; M.List obj]
 
-let load' packed =
+let load' linker packed =
+  let linker' p = Or_error.ok_exn (linker p) in
   let rec des_fun = function
     | [] -> []
     | ((M.Int 0)::(M.Int c1)::(M.Int c2)::xs) ->
@@ -79,7 +85,7 @@ let load' packed =
     | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
       let target = match t with
         | 0 -> Inter.TPrim t_arg
-        | 1 -> Inter.TFun t_arg
+        | 1 -> Inter.TFun (linker' t_arg)
         | 2 -> Inter.TDynamic t_arg
         |_ -> raise BadFormat in
       let args' = List.map args (function
@@ -97,19 +103,33 @@ let load' packed =
     | ((M.Int 8)::v::xs) ->
       Inter.Const(deserialize_const v)::(des_fun xs)
     | ((M.Int 9)::(M.Int pc)::(M.Int to_copy)::xs) ->
-      Inter.Closure(pc, to_copy)::(des_fun xs)
+      Inter.Closure((linker' pc), to_copy)::(des_fun xs)
     | (M.Int 10)::(M.Int p)::xs ->
-      Inter.Label(p)::(des_fun xs)
+      Inter.Label(linker' p)::(des_fun xs)
     | (M.Int 11)::(M.Int p)::xs ->
       Inter.Prim(p)::(des_fun xs)
     | _ -> raise BadFormat in
   match packed with
-  | M.List xs -> Array.of_list (List.map xs (function
-      | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
-      | _ -> raise BadFormat))
+  | M.List[_; (M.List xs)] ->
+    Array.of_list (List.map xs (function
+        | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
+        | _ -> raise BadFormat))
   | _ -> raise BadFormat
 
-let load v = Or_error.try_with ~backtrace:true (fun () -> load' v)
+let imports packed =
+  let err = Or_error.of_exn BadFormat in
+  with_return (fun r ->
+      let rec f = function
+        | [] -> []
+        | (M.Int i)::(M.String ns)::(M.String name)::xs ->
+          (i, {Compiler.Fun.ns; name})::(f xs)
+        | _ -> r.return err in
+      match packed with
+      | M.List((M.List xs)::_) ->
+        Ok(f xs)
+      | _ -> r.return err)
+
+let load ?(linker=Or_error.return) v = Or_error.try_with ~backtrace:true (fun () -> load' linker v)
 
 open Inter
 
@@ -131,7 +151,7 @@ let rec dump_value on_env = function
     [M.Int 6; M.Int pc]
 
 
-let dump_instance { current_coeffect; blocks } =
+let dump_instance ?imports { current_coeffect; blocks } =
   let id = ref 0 in
   let make_id () = id := !id + 1; !id in
   let frames = ref [] in
@@ -363,4 +383,4 @@ let load_instance' packed =
     { current_coeffect; blocks = blocks' }
   | _ -> raise BadFormat
 
-let load_instance v = Or_error.try_with ~backtrace:true (fun () -> load_instance' v)
+let load_instance ?linker v = Or_error.try_with ~backtrace:true (fun () -> load_instance' v)
