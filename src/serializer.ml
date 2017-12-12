@@ -24,10 +24,10 @@ let deserialize_const = function
 let dump ?(imports = []) code =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
-  let obj = array_to_list_map code (fun (i, ecode) ->
+  let obj = array_to_list_map code ~f:(fun (i, ecode) ->
       M.List ((M.Int i)::
               (M.Int (Array.length ecode))::
-              (List.concat (array_to_list_map ecode (function
+              (List.concat (array_to_list_map ecode ~f:(function
                    | Inter.Parallel(c1,c2) -> [M.Int 0; M.Int c1; M.Int c2]
                    | Inter.Otherwise(c1,c2) -> [M.Int 1; M.Int c1; M.Int c2]
                    | Inter.Pruning(c1,arg,c2) -> [M.Int 2;
@@ -52,7 +52,7 @@ let dump ?(imports = []) code =
                       | Inter.TPrim i -> [M.Int 0; M.Int i]
                       | Inter.TFun i -> [M.Int 1; M.Int i]
                       | Inter.TDynamic i -> [M.Int 2; M.Int i]) @
-                     [(M.List (array_to_list_map args (fun i -> M.Int i)))]
+                     [(M.List (array_to_list_map args ~f:(fun i -> M.Int i)))]
                    | Inter.Coeffect(i) -> [M.Int 6; M.Int i]
                    | Inter.Stop -> [M.Int 7]
                    | Inter.Const(v) -> [M.Int 8; serialize_const v]
@@ -88,7 +88,7 @@ let load' linker packed =
         | 1 -> Inter.TFun (linker' t_arg)
         | 2 -> Inter.TDynamic t_arg
         |_ -> raise BadFormat in
-      let args' = List.map args (function
+      let args' = List.map args ~f:(function
           | M.Int x -> x
           | _ -> raise BadFormat)
                   |> Array.of_list in
@@ -111,7 +111,7 @@ let load' linker packed =
     | _ -> raise BadFormat in
   match packed with
   | M.List[_; (M.List xs)] ->
-    Array.of_list (List.map xs (function
+    Array.of_list (List.map xs ~f:(function
         | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
         | _ -> raise BadFormat))
   | _ -> raise BadFormat
@@ -139,11 +139,11 @@ let rec dump_value on_env = function
   | VClosure(pc, to_copy, env) ->
     [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
   | VTuple vs ->
-    [M.Int 2; M.List (List.concat_map vs (dump_value on_env))]
+    [M.Int 2; M.List (List.concat_map vs ~f:(dump_value on_env))]
   | VList vs ->
-    [M.Int 3; M.List (List.concat_map vs (dump_value on_env))]
+    [M.Int 3; M.List (List.concat_map vs ~f:(dump_value on_env))]
   | VRecord pairs ->
-    [M.Int 4; M.List (List.concat_map pairs (fun (k, v) ->
+    [M.Int 4; M.List (List.concat_map pairs ~f:(fun (k, v) ->
          (M.String k)::(dump_value on_env v)))]
   | VLabel pc ->
     [M.Int 5; M.Int pc]
@@ -152,6 +152,7 @@ let rec dump_value on_env = function
 
 
 let dump_instance ?imports { current_coeffect; blocks } =
+  let _imports = imports in
   let id = ref 0 in
   let make_id () = id := !id + 1; !id in
   let frames = ref [] in
@@ -189,7 +190,7 @@ let dump_instance ?imports { current_coeffect; blocks } =
       | FResult -> [M.Int 4] in
     (M.Int id)::f in
   let rec serialize_pending (id, { pend_value; pend_waiters }) =
-    let tokens = List.map pend_waiters serialize_token in
+    let tokens = List.map pend_waiters ~f:serialize_token in
     let v = match pend_value with
       | Pend -> [M.Int 0; M.List tokens]
       | PendVal v -> (M.Int 1)::(dump_value (dedup envs) v)
@@ -203,7 +204,7 @@ let dump_instance ?imports { current_coeffect; blocks } =
   and serialize_token { pc = (pc, c); stack; env } =
     M.List [M.Int pc;
             M.Int c;
-            M.List (List.map stack (dedup frames));
+            M.List (List.map stack ~f:(dedup frames));
             dedup envs env] in
   let serialize_block (i, token) =
     [M.Int i; serialize_token token] in
@@ -215,13 +216,13 @@ let dump_instance ?imports { current_coeffect; blocks } =
         (match pend_value with
          | PendVal v -> walk_v v
          | _ -> ());
-        List.iter pend_waiters walk_token)
+        List.iter pend_waiters ~f:walk_token)
   and walk_v = function
     | VClosure(_,_,env) -> walk_env env
     | _ -> ()
   and walk_env env =
     on_new envs env (fun () ->
-        Array.iter env (function
+        Array.iter env ~f:(function
             | Value v -> walk_v v
             | Pending p -> walk_pending p))
   and walk_frame frame =
@@ -231,22 +232,22 @@ let dump_instance ?imports { current_coeffect; blocks } =
         | FCall(env) -> walk_env env
         | _ -> ())
   and walk_stack = List.iter ~f: walk_frame in
-  List.iter blocks (fun (i, token) -> walk_token token);
+  List.iter blocks ~f:(fun (_id, token) -> walk_token token);
   M.List [(M.Int current_coeffect);
-          M.List (List.concat_map !frames serialize_frame);
-          M.List (List.concat_map !pendings serialize_pending);
-          M.List (List.concat_map !envs serialize_env);
-          M.List (List.concat_map blocks serialize_block)]
+          M.List (List.concat_map !frames ~f:serialize_frame);
+          M.List (List.concat_map !pendings ~f:serialize_pending);
+          M.List (List.concat_map !envs ~f:serialize_env);
+          M.List (List.concat_map blocks ~f:serialize_block)]
 
 let serialize_result {Inter.Res.coeffects; killed; values} =
   let serialize_value = (dump_value (fun _ -> assert false)) in
-  let values' = (List.concat_map values serialize_value) in
+  let values' = (List.concat_map values ~f:serialize_value) in
   let serialize_coeffect (id, v) =
     M.List ((M.Int id)::(serialize_value v)) in
   M.List
     [M.List values';
-     M.List (List.map coeffects serialize_coeffect);
-     M.List (List.map killed (fun i -> M.Int i))]
+     M.List (List.map coeffects ~f:serialize_coeffect);
+     M.List (List.map killed ~f:(fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
 let rec load_value' on_env = function
@@ -293,7 +294,7 @@ let load_instance' packed =
     | None -> let p = dummy_pending () in
       add_repo pendings_repo id p;
       p in
-  let dummy_env size = Array.create size (Value (VConst (Ast.Null))) in
+  let dummy_env len = Array.create ~len (Value (VConst (Ast.Null))) in
   match packed with
   | M.List [M.Int current_coeffect;
             M.List frames;
@@ -334,7 +335,7 @@ let load_instance' packed =
       | _ -> raise BadFormat in
     let deserialize_token = function
       | M.List [M.Int pc; M.Int c; M.List frames; M.Int env] ->
-        let stack = List.map frames (function
+        let stack = List.map frames ~f:(function
             | M.Int id -> repo_find frames_repo id |> Option.value_exn
             | _ -> raise BadFormat) in
         { pc = (pc, c); stack; env = repo_or_dummy_env env}
@@ -349,7 +350,7 @@ let load_instance' packed =
           | (M.Int 1)::xs' ->
             let (v, xs'') = load_value' repo_or_dummy_env xs' in
             (PendVal v, [], xs'')
-          | (M.Int 2)::xs' -> (PendStopped, [], xs)
+          | (M.Int 2)::_ -> (PendStopped, [], xs)
           | _ -> raise BadFormat in
         let p = repo_or_dummy_pending id in
         p.pend_value <- v;
@@ -367,7 +368,7 @@ let load_instance' packed =
       | [] -> ()
       | (M.Int id)::(M.List vals)::xs ->
         let e = repo_or_dummy_env id in
-        List.iteri vals (fun i v ->
+        List.iteri vals ~f:(fun i v ->
             e.(i) <- deserialize_env_value v);
         deserialize_envs xs
       | _ -> raise BadFormat in
@@ -383,4 +384,6 @@ let load_instance' packed =
     { current_coeffect; blocks = blocks' }
   | _ -> raise BadFormat
 
-let load_instance ?linker v = Or_error.try_with ~backtrace:true (fun () -> load_instance' v)
+let load_instance ?linker v =
+  let _linker = linker in
+  Or_error.try_with ~backtrace:true (fun () -> load_instance' v)

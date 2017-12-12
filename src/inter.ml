@@ -34,9 +34,9 @@ let rec increment_instances = function
   | [] -> ()
   | FOtherwise(r)::_ -> r.instances <- r.instances + 1
   | FPruning(r)::_ -> r.instances <- r.instances + 1
-  | x::xs -> increment_instances xs
+  | _::xs -> increment_instances xs
 
-let alloc_env size = Array.create size (Value (VConst Ast.Null))
+let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
 
 (* let rec format_value = function
  *   | Value v -> format_v v
@@ -118,7 +118,7 @@ and halt state stack env =
       | _ -> in_stack stack' in
   in_stack stack
 and tick
-    ({ code; prims; instance } as state)
+    ({ prims; instance } as state)
     (pc, c) stack env =
   (* print_debug state (pc, c) env; *)
   let realized arg =
@@ -130,7 +130,7 @@ and tick
      | Pending { pend_value = PendVal(v) }
      | Value(v) -> `Value v) in
   let realized_multi args =
-    let values = (Array.create (Array.length args) (VConst (Ast.Null))) in
+    let values = (Array.create ~len:(Array.length args) (VConst (Ast.Null))) in
     let rec step = function
       | i when Int.equal (Array.length args) i -> `Values values
       | i ->

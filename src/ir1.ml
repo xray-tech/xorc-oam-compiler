@@ -24,12 +24,12 @@ let make_fresh () =
   fresh := i + 1;
   "'fresh" ^ (Int.to_string i)
 
-let rec collect_defs e =
+let collect_defs e =
   let acc = Hashtbl.create (module String) () in
   let rec collect_clauses = function
     | (Ast.EDecl((DDef(ident, params, guard, body), _), e), _) ->
       let clauses = Hashtbl.find_or_add acc ident ~default:(fun () -> []) in
-      Hashtbl.set acc ident ((ident, params, guard, body)::clauses);
+      Hashtbl.set acc ~key:ident ~data:((ident, params, guard, body)::clauses);
       collect_clauses e
     | e -> (Hashtbl.data acc, e) in
   collect_clauses e
@@ -52,7 +52,7 @@ let rec translate' ((e, pos) as ast) =
     let seq left bind right =
       (ESequential(left, Some(bind), right), ast)
 
-    let prunew left right = (EPruning(left, None, right), ast)
+    (* let prunew left right = (EPruning(left, None, right), ast) *)
 
     let prune left bind right =
       (EPruning(left, Some(bind), right), ast)
@@ -71,7 +71,7 @@ let rec translate' ((e, pos) as ast) =
     let deflate' e k =
       match e with
       | EIdent(v), _ -> k v
-      | ast -> let f = make_fresh () in
+      | _ -> let f = make_fresh () in
         prune (k f) f e
 
     let deflate e k = deflate' (translate' e) k end in
@@ -79,7 +79,7 @@ let rec translate' ((e, pos) as ast) =
   let rec translate_pattern p source =
     let module A = Ast in
     let bindings = ref [] in
-    let rec unravel (p, pos) focus expr =
+    let rec unravel (p, _) focus expr =
       match p with
       | A.PAs(p, alias) ->
         bindings := (focus, alias)::!bindings;
@@ -145,7 +145,7 @@ let rec translate' ((e, pos) as ast) =
             seq (call focus [i']) bind (unravel p bind (fun () ->
                 unravel_tuple ps' (i + 1) focus expr)))) in
     let on_source () = if List.length !bindings > 0
-      then DSL.call "'MakeTuple" (List.map !bindings (fun (b, _) -> b))
+      then DSL.call "'MakeTuple" (List.map !bindings ~f:(fun (b, _) -> b))
       else DSL.const A.Signal in
     let on_target bridge target =
       if List.length !bindings > 0
@@ -185,8 +185,8 @@ let rec translate' ((e, pos) as ast) =
           | _ -> assert false) in
     let clause' vars strict else_ guard body =
       let stricted_values = make_fresh () in
-      let pattern = Ast.PTuple (List.map strict (fun (x, _) -> x)) in
-      let values = DSL.call "'MakeTuple" (List.map strict (fun (_, x) -> x)) in
+      let pattern = Ast.PTuple (List.map strict ~f:(fun (x, _) -> x)) in
+      let values = DSL.call "'MakeTuple" (List.map strict ~f:(fun (_, x) -> x)) in
       let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
       let source' = match guard with
         | Some(v) -> DSL.(let bind = make_fresh () in
@@ -205,25 +205,25 @@ let rec translate' ((e, pos) as ast) =
       | _ -> false in
     let clause bindings else_ (_, params, guard, body) =
       let pairs = List.zip_exn params bindings in
-      let vars = List.filter pairs (fun (p, _) -> is_var p) in
-      let strict = List.filter pairs (fun (p, _) -> is_strict p) in
+      let vars = List.filter pairs ~f:(fun (p, _) -> is_var p) in
+      let strict = List.filter pairs ~f:(fun (p, _) -> is_strict p) in
       let body' = translate' body in
       if (List.length strict > 0) || Option.is_some guard
       then clause' vars strict else_ guard body'
       else rebind_vars vars body' in
     let clauses bindings instances =
       List.fold instances ~init:DSL.stop ~f:(clause bindings) in
-    let is_no_stricts params = List.find params is_strict |> Option.is_none in
-    List.map defs (function
+    let is_no_stricts params = List.find params ~f:is_strict |> Option.is_none in
+    List.map defs ~f:(function
         | [(ident, params, None, body)] when is_no_stricts params ->
-          let params' = List.map params (function
+          let params' = List.map params ~f:(function
               | (PVar n, _) -> n
               | (PWildcard,_) -> "_"
               | _ -> raise Util.TODO) in
           (ident, params', translate' body)
         | ((ident, params, _, _)::_ as instances) ->
           let arity = List.length params in
-          let bindings = List.init arity (fun _ -> make_fresh ()) in
+          let bindings = List.init arity ~f:(fun _ -> make_fresh ()) in
           (ident, bindings, clauses bindings instances)
         | [] -> assert false) in
   (* Sexp.to_string_hum (Ast.sexp_of_e' e ) |> Stdio.print_endline; *)
@@ -265,7 +265,7 @@ let rec translate' ((e, pos) as ast) =
         (ECall("'MakeTuple", es'), ast))
   | A.ERecord(pairs) ->
     let (keys, vals) = List.unzip pairs in
-    let key_consts = (List.map keys (fun k ->
+    let key_consts = (List.map keys ~f:(fun k ->
         (A.EConst(A.String k), A.dummy))) in
     deflate_many key_consts (fun keys' ->
         deflate_many vals (fun vals' ->
@@ -300,11 +300,11 @@ let rec translate' ((e, pos) as ast) =
   | A.EDecl((DRefer(ns, fs), _), e) ->
     deps := ns::!deps;
     (ERefer(ns, fs, translate' e), ast)
-  | A.EDecl((DSite(ident, definition), _), e) ->
+  | A.EDecl((DSite(_ident, _definition), _), _e) ->
     raise Util.TODO
-  | A.EDecl((DData(ident, constructors), _), e) ->
+  | A.EDecl((DData(_ident, _constructors), _), _e) ->
     raise Util.TODO
-  | A.EDecl((DInclude(_), _), e) ->
+  | A.EDecl((DInclude(_), _), _e) ->
     assert false
 
 and deflate e k =

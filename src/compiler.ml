@@ -77,12 +77,12 @@ let prims_map = [("Let", Let);
                  ("'IsNone", IsNone);
                  ("'GetNone", GetNone)]
 
-let prims = List.map prims_map (fun ((s, p)) -> (s, bindprim p))
+let prims = List.map prims_map ~f:(fun ((s, p)) -> (s, bindprim p))
 
 let list_index l v ~f =
   let rec index acc = function
     | [] -> None
-    | x::xs when f v x = 0 -> Some(acc)
+    | x::_ when f v x = 0 -> Some(acc)
     | _::xs -> index (acc + 1) xs in
   index 0 l
 
@@ -97,7 +97,7 @@ let ctx_vars ctx  =
 let ctx_find ctx ident =
   let rec find acc = function
     | [] -> None
-    | (ident', bind)::xs when String.equal ident ident' ->
+    | (ident', bind)::_ when String.equal ident ident' ->
       Some(ctx_vars ctx - 1 - acc, bind)
     | (_, BindVar)::xs -> find (acc + 1) xs
     | _::xs -> find acc xs in
@@ -111,7 +111,7 @@ let ctx_find_exn ctx pos ident =
 let new_index = ctx_vars
 
 let prim_index p =
-  match list_index all_of_prim p compare_prim with
+  match list_index all_of_prim p ~f:compare_prim with
   | Some i -> i
   | None -> assert false
 
@@ -148,7 +148,7 @@ let add_to_queue unit =
   compile_queue := unit::!compile_queue
 
 let free_vars init e =
-  let rec step ctx (e, (ast_e, pos)) =
+  let rec step ctx (e, (_ast_e, _pos)) =
     let open! Ir1 in
     let if_out_of_scope x =
       match ctx_find ctx x with
@@ -169,20 +169,20 @@ let free_vars init e =
       let ctx' = (bind, BindSite(def))::ctx in
       step ctx' e
     | EFix(funs, e) ->
-      let ctx' = (List.map funs (fun (bind, _, _) -> (bind, BindVar))) @ ctx in
-      step ctx' e @ (List.concat_map funs (fun (_, params, e) ->
-          let ctx'' = List.map params (fun p -> (p, BindVar)) @ ctx' in
+      let ctx' = (List.map funs ~f:(fun (bind, _, _) -> (bind, BindVar))) @ ctx in
+      step ctx' e @ (List.concat_map funs ~f:(fun (_, params, e) ->
+          let ctx'' = List.map params ~f:(fun p -> (p, BindVar)) @ ctx' in
           step ctx'' e))
-    | ERefer(ns, fs, e) ->
-      let ctx' = (List.map fs (fun n -> (n, BindVar))) @ ctx in
+    | ERefer(_ns, fs, e) ->
+      let ctx' = (List.map fs ~f:(fun n -> (n, BindVar))) @ ctx in
       step ctx' e
     | ECall(target, params) ->
-      (if_out_of_scope target) @ (List.concat_map params if_out_of_scope)
+      (if_out_of_scope target) @ (List.concat_map params ~f:if_out_of_scope)
     | EConst _ | EStop-> [] in
-  step (List.map init (fun ident -> (ident, BindVar))) e
+  step (List.map init ~f:(fun ident -> (ident, BindVar))) e
 
 let closure_vars ctx pos vars =
-  List.filter vars (fun v ->
+  List.filter vars ~f:(fun v ->
       match ctx_find_exn ctx pos v with
       | (_, BindVar) -> true
       | _ -> false)
@@ -192,7 +192,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
   let not_tail_call = false in
   let open! Ir1 in
   let compile_call ident args =
-    let args' = List.map args (fun arg ->
+    let args' = List.map args ~f:(fun arg ->
         match ctx_find_exn ctx pos arg with
         | (i, BindVar) -> i
         | _ -> raise Util.TODO) in
@@ -205,7 +205,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
        (0, [Inter.Call(Inter.TFun(i), Array.of_list args')])
      | (i, BindVar) ->
        (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
-     | (i, BindSite(_)) ->
+     | (_, BindSite(_)) ->
        raise Util.TODO
      | (_, BindCoeffect) ->
        (match args' with
@@ -271,14 +271,14 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
                       shift + len e2' - 1)
      ::(e1' @ e2'))
   | EFix(fs, e) ->
-    let vars = List.map fs (fun (ident, _, _) -> ident) in
-    let closure_vars = List.map fs (fun (_, params, e) ->
+    let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
+    let closure_vars = List.map fs ~f:(fun (_, params, e) ->
         let all = free_vars (vars @ params) e in
         closure_vars ctx pos all) in
-    let binds = List.map2_exn vars closure_vars (fun ident vars ->
+    let binds = List.map2_exn vars closure_vars ~f:(fun ident vars ->
         match vars with
         | [] -> (ident, bindfun (new_label ()))
-        | vars -> (ident, BindVar)) in
+        | _ -> (ident, BindVar)) in
     let ctx' = binds @ ctx in
     let (s, body) = compile_e ctx' shift current_fun is_tail_call e in
     let closure_size = ctx_vars ctx' in
@@ -296,7 +296,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
     let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
     (s + (len closures / 2), closures @ body)
   | ECall(ident, args) ->
-    let to_preprocess = List.find args (fun arg ->
+    let to_preprocess = List.find args ~f:(fun arg ->
         match ctx_find_exn ctx pos arg with
         | (_, BindPrim(_)) | (_, BindFun(_)) | (_, BindNs(_)) -> true
         | (_, BindVar) -> false
@@ -306,7 +306,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
        preprocess_call ident args (ast_e, pos) |> compile_e ctx shift current_fun tail_call
      | None -> compile_call ident args)
   | ERefer(ns, fs, e) ->
-    let ctx' = (List.map fs (fun name ->
+    let ctx' = (List.map fs ~f:(fun name ->
         let lbl = get_ns_label Fun.{ns; name} in
         (name, BindNs(ns, lbl)))) @ ctx in
     compile_e ctx' shift current_fun is_tail_call e
@@ -314,7 +314,7 @@ let rec compile_e ctx shift current_fun tail_call (e, (ast_e, pos)) =
   | ESite(_, _, _) -> raise Util.TODO
 
 let compile_fun {is_closure; label; ctx; params; body} =
-  let params' = List.rev_map params (fun n -> (n, BindVar)) in
+  let params' = List.rev_map params ~f:(fun n -> (n, BindVar)) in
   let ctx' = if is_closure
     then ctx
     else List.filter ctx ~f:(function | (_, BindVar) -> false
@@ -341,8 +341,8 @@ let link repo linker =
         | Inter.TailCall(Inter.TFun(p), args) ->
           Inter.TailCall(Inter.TFun(linker' p), args)
         | op -> op in
-      Ok(List.map repo (fun (ident, (size, body)) ->
-          (ident, (size, List.map body change)))))
+      Ok(List.map repo ~f:(fun (ident, (size, body)) ->
+          (ident, (size, List.map body ~f:change)))))
 
 type imports = (int * Fun.t) list
 type repo = (string * Fun.impl) list [@@deriving sexp_of, compare]
@@ -365,9 +365,9 @@ let compile' e =
       let f = compile_fun unit in
       compile_loop ((label, ident, f)::acc) in
   let repo = compile_loop [] in
-  let labels_mapping = List.mapi repo (fun addr (label, _, _) ->
+  let labels_mapping = List.mapi repo ~f:(fun addr (label, _, _) ->
       (label, addr)) in
-  let repo' = List.map repo (fun (_, ident, (size, body)) -> (ident, (size, body))) in
+  let repo' = List.map repo ~f:(fun (_, ident, (size, body)) -> (ident, (size, body))) in
   let linker lbl =
     match List.Assoc.find labels_mapping ~equal:Int.equal lbl with
     | Some(addr) -> Ok(-addr - 1)
@@ -377,18 +377,18 @@ let compile' e =
   link repo' linker
 
 let finalize code =
-  Array.of_list_map code ~f:(fun (ident, (s, f)) ->
+  Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let make_imports code =
-  List.mapi !ns_labels (fun i (_, fun_) ->
+let make_imports () =
+  List.mapi !ns_labels ~f:(fun i (_, fun_) ->
       (i, fun_))
 
 let compile e : (imports * repo) Or_error.t =
   let res = Or_error.try_with (fun () ->
       let open Or_error.Let_syntax in
       let%map repo = compile' e in
-      (make_imports repo, repo)) in
+      (make_imports (), repo)) in
   Or_error.join res
 
 let compile_ns e =

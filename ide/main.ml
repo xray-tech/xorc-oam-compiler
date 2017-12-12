@@ -46,7 +46,7 @@ let apply_action action model _state =
           debug (sprintf "Runtime error:%s" (Error.to_string_hum err));
           model
         | Ok(res) ->
-          let values' = List.map res.Orcml.Res.values (fun v ->
+          let values' = List.map res.Orcml.Res.values ~f:(fun v ->
               Orcml.Value.sexp_of_t v |> Sexp.to_string_hum) in
           Model.{model with values = values'}))
   | ProgramChanged(p) ->
@@ -64,6 +64,29 @@ let view (m : Model.t Incr.t) ~inject =
   let open Vdom in
   let on_change = Attr.on_change (fun _ t -> inject (Action.ProgramChanged t)) in
   let on_run = Attr.on_click (fun _ -> inject Action.Run) in
+  let on_drop = Attr.on "drop" (fun e ->
+      let files = e##.dataTransfer##.files in
+      (if files##.length > 0
+       then
+         let reader = new%js File.fileReader in
+         reader##.onloadend := Dom.handler (fun _ ->
+             let content = reader##.result
+                           |> File.CoerceTo.arrayBuffer
+                           |> Js.Opt.to_option
+                           |> Option.value_exn
+                           |> Typed_array.String.of_arrayBuffer in
+             let (_, packed) = Msgpck.String.read content in
+             match Orcml.Serializer.load packed with
+             | Error(err) ->
+               debug (sprintf "Can't load bytecode, error: %s" (Error.to_string_hum err));
+               Js._false
+             | Ok(bc) ->
+               debug (Orcml.sexp_of_bc bc |> Sexp.to_string_hum);
+
+               Js._false);
+         reader##readAsArrayBuffer(files##item(0)));
+      Event.Many [Event.Prevent_default; Event.Stop_propagation];
+    ) in
   let%map m = m in
   let editor = Node.div [] [
       Node.textarea [on_change;
@@ -71,7 +94,11 @@ let view (m : Model.t Incr.t) ~inject =
                      Attr.string_property "rows" "10"]
         [Node.text m.Model.program];
       Node.button [on_run] [Node.text "Run"]] in
-  let values = Node.ul [] (List.map m.Model.values (fun v ->
+  let values = Node.ul [] (List.map m.Model.values ~f:(fun v ->
       Node.li [] [(Node.text v)])) in
-let body = Node.div [] [editor; values] in
-Node.body [] [body]
+
+  let body = Node.div
+      [Attr.class_ "container";
+       on_drop]
+      [editor; values] in
+  Node.body [] [body]

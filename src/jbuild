@@ -2,6 +2,7 @@
  ((name orcml)
   (libraries (base menhirLib sedlex stdio js_of_ocaml js_of_ocaml.weak msgpck))
   (preprocess (pps (ppx_jane)))
+  (flags (:standard -w -9))
 ))
 
 (rule

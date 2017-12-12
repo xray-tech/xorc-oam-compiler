@@ -22,8 +22,8 @@ end
 let list_position l ~f =
   let rec step acc = function
     | [] -> None
-    | x::xs when f x -> Some(acc)
-    | x::xs -> step (acc + 1) xs in
+    | x::_ when f x -> Some(acc)
+    | _::xs -> step (acc + 1) xs in
   step 0 l
 
 let imports_linker imports_mapping fun_ =
@@ -59,7 +59,7 @@ let link_namespaces compiled =
         match change_pointers shift imports_mapping imports repo with
         | Error(err) -> r.return (Error err)
         | Ok(repo') ->
-          let m = List.mapi (List.rev repo) (fun i (name, _) -> (Orcml.Fun.{ns; name}, shift + i)) in
+          let m = List.mapi (List.rev repo) ~f:(fun i (name, _) -> (Orcml.Fun.{ns; name}, shift + i)) in
           (m @ imports_mapping, repo' @ all_code) in
       let (global_mapping, code) =
         List.fold (List.rev compiled) ~init:([], []) ~f:fold_compiled in
@@ -68,7 +68,7 @@ let link_namespaces compiled =
 let compile_namespaces (module NSLoader : NSLoader) init_queue =
   let compiled = ref [] in
   let is_already_compiled ns =
-    List.find !compiled (fun (ns', _) -> String.equal ns ns') |> Option.is_some in
+    List.find !compiled ~f:(fun (ns', _) -> String.equal ns ns') |> Option.is_some in
   let analyze code =
     let open Result.Let_syntax in
     let%bind parsed = Orcml.parse_ns code in
@@ -103,7 +103,7 @@ let optional_file_contents path =
 
 let file_contents path =
   let%map res = Monitor.try_with (fun () -> Reader.file_contents path ) in
-  Result.map_error res (fun e -> Error.of_exn e )
+  Result.map_error res ~f:(fun e -> Error.of_exn e )
 
 let fs path =
   (module struct
@@ -114,13 +114,13 @@ let fs path =
 
 let multiloader loaders =
   (module struct
-    let load ns = Deferred.List.find_map loaders (fun (module Loader : NSLoader) ->
+    let load ns = Deferred.List.find_map loaders ~f:(fun (module Loader : NSLoader) ->
         Loader.load ns)
   end : NSLoader)
 
 let empty_loader =
   (module struct
-    let load ns = return None
+    let load _ns = return None
   end : NSLoader)
 
 let implicit_prelude =
@@ -176,7 +176,7 @@ let compile_bc loader prog =
     return res
 
 let compile_input prelude includes is_byte_code input =
-  let loader = multiloader (List.map includes fs) in
+  let loader = multiloader (List.map includes ~f:fs) in
   let%bind prog = read_file_or_stdin input in
   if is_byte_code
   then compile_bc loader prog
@@ -232,7 +232,7 @@ let compile =
          | Ok(bc) ->
            let bc' = Msgpck.String.to_string bc in
            (match output with
-            | Some(path) -> Writer.save path bc'
+            | Some(path) -> Writer.save path ~contents:bc'
             | None ->
               print_string bc'; Async.return ()) >>= fun () ->
            exit 0) in
@@ -241,10 +241,10 @@ let compile =
         exec () |> ignore;
         Scheduler.go () |> never_returns]
 
-let generate_result state_path {Orcml.Res.values; coeffects; instance} =
-  List.iter values (fun v ->
+let generate_result _state_path {Orcml.Res.values; coeffects} =
+  List.iter values ~f:(fun v ->
       info "Value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
-  List.iter coeffects (fun (id, v) ->
+  List.iter coeffects ~f:(fun (id, v) ->
       info "Coeffect: %i -> %s" id (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
   exit 0
 

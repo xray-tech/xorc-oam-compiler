@@ -5,9 +5,6 @@
   | Some x -> x
   | None -> (PWildcard, dummy)
 
-  let optional_list = function
-  | Some l -> l
-  | None -> []
 %}
 
 %token EOF

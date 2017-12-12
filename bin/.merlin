@@ -2,7 +2,7 @@ B ../_build/default/bin
 B ../_build/default/src
 B ../_build/default/testkit
 FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/ppx_jane/ppx.exe --as-ppx'
-FLG -w -40
+FLG -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs -w -9
 PKG async
 PKG async_extended
 PKG async_extra

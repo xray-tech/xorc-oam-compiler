@@ -2,12 +2,14 @@
  ((names (testkit))
   (libraries (orcml_testkit))
   (modules (testkit))
-  (preprocess (pps (ppx_jane)))))
+  (preprocess (pps (ppx_jane)))
+  (flags (:standard -w -9))))
 
 (library
  ((name orcml_testkit)
   (libraries (orcml async async_extended))
   (modules (:standard \ testkit))
-  (preprocess (pps (ppx_jane)))))
+  (preprocess (pps (ppx_jane)))
+  (flags (:standard -w -9))))
 
 (jbuild_version 1)

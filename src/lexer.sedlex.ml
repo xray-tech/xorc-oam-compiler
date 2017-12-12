@@ -26,7 +26,7 @@ let new_line lexbuf =
      pos_bol = lcp.pos_cnum;
     }
 
-let lexeme { stream } = Sedlexing.Utf8.lexeme stream
+let lexeme { stream; _ } = Sedlexing.Utf8.lexeme stream
 
 exception SyntaxError of string
 

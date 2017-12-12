@@ -35,7 +35,7 @@ let parse_ns s =
                 |> parse_with_error Parser.ns in
   List.fold_right res ~init:(Ast.EStop, Ast.dummy) ~f:fold_decls
 
-let rec value_from_ast e =
+let value_from_ast e =
   with_return (fun r ->
       let rec f (e, _) =
         match e with

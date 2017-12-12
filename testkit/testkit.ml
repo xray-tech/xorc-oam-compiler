@@ -8,7 +8,7 @@ type results = { mutable success : int;
                  mutable failed : int }
 
 let strings_to_values vs =
-  List.map vs Orcml.parse_value
+  List.map vs ~f:Orcml.parse_value
   |> List.map ~f:(fun v -> Or_error.ok_exn v)
 
 module Values = Set.Make(Orcml.Value)
@@ -25,7 +25,7 @@ let rec print_stderr p =
 module T = Orcml.Testkit
 module Serializer = T.Serializer
 
-let run_loop p fail compiled checks =
+let run_loop p compiled checks =
   let input = Process.stdin p in
   let output = Process.stdout p in
 
@@ -97,7 +97,7 @@ let run_test results p (e, checks) =
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
   | Ok((_, repo)) ->
-    run_loop p fail (Orcml.finalize repo) checks >>| (function
+    run_loop p (Orcml.finalize repo) checks >>| (function
         | `Ok -> results.success <- results.success + 1
         | `Fail reason ->
           fail reason)
@@ -105,15 +105,15 @@ let run_test results p (e, checks) =
     fail (Error.to_string_hum err); return ()
 
 let with_prog (prog, args) tests f =
-  let tests' = List.concat_map tests (fun (_, l) -> l) in
+  let tests' = List.concat_map tests ~f:(fun (_, l) -> l) in
   let open Async.Let_syntax in
-  match%bind Process.create prog args () with
+  match%bind Process.create ~prog ~args () with
   | Error(err) ->
     error "Can't start engine: %s\n" (Error.to_string_hum err);
     Async.exit(1)
   | Ok(p) ->
     print_stderr (Process.stderr p) |> don't_wait_for;
-    Monitor.try_with_or_error (fun () -> Deferred.List.iter tests' (f p))
+    Monitor.try_with_or_error (fun () -> Deferred.List.iter tests' ~f:(f p))
     >>= function
     | Error(err) ->
       error "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
@@ -140,7 +140,7 @@ let exec_tests prog tests =
 
 let filter_tests suits =
   if (List.length suits > 0)
-  then List.filter Tests.tests (fun (suite, _) ->
+  then List.filter Tests.tests ~f:(fun (suite, _) ->
       List.mem suits ~equal:String.equal suite)
   else Tests.tests
 
@@ -161,7 +161,7 @@ let exec =
         exec_tests (prog, Option.value args ~default:[]) tests' |> ignore;
         Scheduler.go () |> never_returns]
 
-let bench_test n p (e, checks) =
+let bench_test n p (e, _checks) =
   info "Bench program:\n%s" e;
   let res =
     let open Or_error.Let_syntax in

@@ -1,5 +1,3 @@
-open Base
-
 type ast = Ast.e
 let sexp_of_ast = Ast.sexp_of_e
 let compare_ast = Ast.compare_e
