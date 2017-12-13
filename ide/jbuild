@@ -3,4 +3,5 @@
 (executables
  ((names        (ide))
   (libraries (orcml incr_dom js_of_ocaml js_of_ocaml.weak))
-  (preprocess (pps (js_of_ocaml-ppx ppx_jane -ite-check ppx_driver.runner)))))
+  (preprocess (pps (js_of_ocaml-ppx ppx_jane -ite-check ppx_driver.runner)))
+  (flags (:standard -w -8-9))))
