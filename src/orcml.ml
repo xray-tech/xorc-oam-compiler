@@ -59,6 +59,7 @@ module Res = Inter.Res
 
 let run = Inter.run
 let unblock = Inter.unblock
+let is_running = Inter.is_running
 
 module Serializer = Serializer
 

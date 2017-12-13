@@ -1,0 +1,1 @@
+def adder(x) = lambda(y) = x + y

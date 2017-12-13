@@ -329,3 +329,6 @@ let unblock' deps code instance coeffect value =
 
 let unblock ?(dependencies = [||]) code instance coeffect value =
   Or_error.try_with ~backtrace:true (fun () -> unblock' dependencies code instance coeffect value)
+
+let is_running { blocks } =
+  not (List.is_empty blocks)

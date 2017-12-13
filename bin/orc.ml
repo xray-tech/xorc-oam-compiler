@@ -39,8 +39,6 @@ let linker imports_mapping imports p =
   | Some(x) ->
     imports_linker imports_mapping x
 
-let link_imports imports_mapping imports repo =
-  Orcml.link repo (linker imports_mapping imports)
 
 let link_namespaces compiled =
   with_return (fun r ->
@@ -149,12 +147,15 @@ let compile_source loader prelude prog =
     debug "Translated:\n%s" (Orcml.sexp_of_ir1 ir |> Sexp.to_string_hum);
     compile_namespaces loader deps
     >>=? fun (deps, imports_mapping) ->
-    match Result.(
-        Orcml.compile ir >>= (fun (imports, repo) ->
-            debug "Before linking:\n%s" (Orcml.sexp_of_repo repo |> Sexp.to_string_hum);
-            link_imports imports_mapping imports repo)) with
+    match Result.Let_syntax.(
+        let%bind (imports, repo) = Orcml.compile ir in
+        debug "Before linking:\n%s" (Orcml.sexp_of_repo repo |> Sexp.to_string_hum);
+        let linker = linker imports_mapping imports in
+        let%map repo' = Orcml.link repo linker in
+        repo') with
     | Error(err) -> Error err |> return
-    | Ok(repo') -> Ok(deps, Orcml.finalize repo') |> return
+    | Ok(repo') ->
+      Ok(imports_mapping, deps, Orcml.finalize repo') |> return
 
 let imports_to_deps imports =
   let rec f acc = function
@@ -170,9 +171,10 @@ let compile_bc loader prog =
     let deps = imports_to_deps imports in
     compile_namespaces loader deps
     >>=? fun (deps, imports_mapping) ->
+    let linker = linker imports_mapping imports in
     let res =
-      Orcml.Serializer.load ~linker:(linker imports_mapping imports) packed
-      |> Result.map ~f:(fun bc -> (deps, bc)) in
+      Orcml.Serializer.load ~linker packed
+      |> Result.map ~f:(fun bc -> (imports_mapping, deps, bc)) in
     return res
 
 let compile_input prelude includes is_byte_code input =
@@ -213,6 +215,14 @@ let includes_flag =
   let open Command.Param in
   flag "-i" (listed file) ~doc:"Directories to include"
 
+let bc_flag =
+  let open Command.Param in
+  flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
+
+let dump_flag =
+  let open Command.Param in
+  flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
+
 let compile =
   let open Command.Let_syntax in
   Command.basic
@@ -241,12 +251,29 @@ let compile =
         exec () |> ignore;
         Scheduler.go () |> never_returns]
 
-let generate_result _state_path {Orcml.Res.values; coeffects} =
+let generate_result mapping state_path {Orcml.Res.values; coeffects; instance} =
   List.iter values ~f:(fun v ->
       info "Value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
   List.iter coeffects ~f:(fun (id, v) ->
       info "Coeffect: %i -> %s" id (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
-  exit 0
+  (match (Orcml.is_running instance, state_path) with
+   | (true, Some(state_path)) ->
+     let msgpck = Orcml.Serializer.dump_instance ~mapping instance in
+     Writer.save state_path ~contents:(Msgpck.String.to_string msgpck)
+   | _ -> return ())
+  >>= fun () -> exit 0
+
+let compile_input_and_deps prelude includes bc input  =
+  compile_input prelude includes bc input >>= fun res ->
+  (match res with
+   | Error(err) ->
+     error "Can't compile: %s" (Error.to_string_hum err);
+     exit 1
+   | Ok((imports_mapping, dependencies, compiled)) ->
+     debug "Compiled:\n%s\nDeps:\n%s"
+       (Orcml.sexp_of_bc compiled |> Sexp.to_string_hum)
+       (Orcml.sexp_of_bc dependencies |> Sexp.to_string_hum);
+     return (imports_mapping, dependencies, compiled))
 
 let exec =
   let open Command.Let_syntax in
@@ -254,26 +281,79 @@ let exec =
     ~summary: "executes orc"
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
-      and bc = flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
+      and bc = bc_flag
       and prelude = prelude_flag
-      and state = flag "-state" (optional file) ~doc:"Path to store intermediate state if any"
+      and dump = dump_flag
       and includes = includes_flag
       and verbose = verbose_flag in
       let exec () =
-        compile_input prelude includes bc input >>= fun res ->
-        (match res with
-         | Error(err) ->
-           error "Can't compile: %s" (Error.to_string_hum err);
-           exit 1
-         | Ok((dependencies, compiled)) ->
-           debug "Compiled:\n%s\nDeps:\n%s"
-             (Orcml.sexp_of_bc compiled |> Sexp.to_string_hum)
-             (Orcml.sexp_of_bc dependencies |> Sexp.to_string_hum);
-           (match Orcml.run ~dependencies compiled with
-            | Ok(v) -> generate_result state v
-            | Error(err) ->
-              error "Runtime error:\n%s" (Error.to_string_hum err);
-              exit 1)) in
+        compile_input_and_deps prelude includes bc input
+        >>= fun (imports_mapping, dependencies, compiled) ->
+        match Orcml.run ~dependencies compiled with
+        | Ok(v) -> generate_result imports_mapping dump v
+        | Error(err) ->
+          error "Runtime error:\n%s" (Error.to_string_hum err);
+          exit 1 in
+      fun () ->
+        set_logging verbose;
+        exec () |> ignore;
+        Scheduler.go () |> never_returns
+    ]
+
+let load_instance imports_mapping path =
+  match%bind file_contents path with
+  | Error(err) ->
+    error "Can't read state file:%s" (Error.to_string_hum err);
+    exit 1
+  | Ok(bc_raw) ->
+    let (_, packed) = Msgpck.String.read bc_raw in
+    match Orcml.Serializer.imports packed with
+    | Error(err) ->
+      error "Can't parse state file:%s" (Error.to_string_hum err);
+      exit 1;
+    | Ok(imports) ->
+      let linker p =
+        match List.Assoc.find imports ~equal:Int.equal p with
+        | None -> Ok(p)
+        | Some(fun_) ->
+          imports_linker imports_mapping fun_ in
+      match Orcml.Serializer.load_instance ~linker packed with
+      | Error(err) ->
+        error "Can't parse state file:%s" (Error.to_string_hum err);
+        exit 1;
+      | Ok(instance) -> return instance
+
+let parse_value v =
+  match Orcml.parse_value v with
+  | Ok(v') -> return v'
+  | Error(err) ->
+    error "Can't parse value:%s" (Error.to_string_hum err);
+    exit 1
+
+let unblock =
+  let open Command.Let_syntax in
+  Command.basic
+    ~summary: "continue execution of serialized orc program"
+    [%map_open
+      let input = anon (maybe ("INPUT" %: file))
+      and bc = bc_flag
+      and prelude = prelude_flag
+      and dump = dump_flag
+      and load = flag "-load" (required file) ~doc:"Serialized state"
+      and id = flag "-id" (required int)  ~doc:"Coeffect's id"
+      and value = flag "-value" (required string) ~doc:"Coeffect's value"
+      and includes = includes_flag
+      and verbose = verbose_flag in
+      let exec () =
+        compile_input_and_deps prelude includes bc input
+        >>= fun (imports_mapping, dependencies, compiled) ->
+        load_instance imports_mapping load >>= fun instance ->
+        parse_value value >>= fun value' ->
+        match Orcml.unblock ~dependencies compiled instance id value' with
+        | Ok(v) -> generate_result imports_mapping dump v
+        | Error(err) ->
+          error "Runtime error:\n%s" (Error.to_string_hum err);
+          exit 1 in
       fun () ->
         set_logging verbose;
         exec () |> ignore;
@@ -329,5 +409,6 @@ let () =
   Command.group ~summary:"Orc programming language compiler and VM"
     [("compile", compile);
      ("exec", exec);
+     ("unblock", unblock);
      ("tests-server", tests_server)]
   |> Command.run

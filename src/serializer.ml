@@ -21,6 +21,11 @@ let deserialize_const = function
   | M.Bool x -> Ast.Bool x
   | _ -> raise BadFormat
 
+let rec dump_imports = function
+  | [] -> []
+  | (i, {Compiler.Fun.ns; name})::xs ->
+    (M.Int i)::(M.String ns)::(M.String name)::(dump_imports xs)
+
 let dump ?(imports = []) code =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
@@ -60,10 +65,6 @@ let dump ?(imports = []) code =
                    | Inter.Label(p) -> [M.Int 10; M.Int p]
                    | Inter.Prim(p) -> [M.Int 11; M.Int p]
                  ))))) in
-  let rec dump_imports = function
-    | [] -> []
-    | (i, {Compiler.Fun.ns; name})::xs ->
-      (M.Int i)::(M.String ns)::(M.String name)::(dump_imports xs) in
   let imports' = M.List(dump_imports imports) in
   M.List [imports'; M.List obj]
 
@@ -129,15 +130,22 @@ let imports packed =
         Ok(f xs)
       | _ -> r.return err)
 
-let load ?(linker=Or_error.return) v = Or_error.try_with ~backtrace:true (fun () -> load' linker v)
+let load ?(linker=Or_error.return) v =
+  Or_error.try_with ~backtrace:true (fun () -> load' linker v)
 
 open Inter
 
-let rec dump_value on_env = function
+let try_on_pc f pc =
+  match f with
+  | Some(f) ->
+    f pc
+  | None -> pc
+
+let rec dump_value ?on_pc on_env = function
   | VConst x ->
     [M.Int 0; serialize_const x]
   | VClosure(pc, to_copy, env) ->
-    [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
+    [M.Int 1; M.Int (try_on_pc on_pc pc); M.Int to_copy; on_env env]
   | VTuple vs ->
     [M.Int 2; M.List (List.concat_map vs ~f:(dump_value on_env))]
   | VList vs ->
@@ -146,18 +154,27 @@ let rec dump_value on_env = function
     [M.Int 4; M.List (List.concat_map pairs ~f:(fun (k, v) ->
          (M.String k)::(dump_value on_env v)))]
   | VLabel pc ->
-    [M.Int 5; M.Int pc]
+    [M.Int 5; M.Int (try_on_pc on_pc pc)]
   | VPrim pc ->
     [M.Int 6; M.Int pc]
 
 
-let dump_instance ?imports { current_coeffect; blocks } =
+let dump_instance ?mapping { current_coeffect; blocks } =
   let _imports = imports in
   let id = ref 0 in
   let make_id () = id := !id + 1; !id in
   let frames = ref [] in
   let envs = ref [] in
   let pendings = ref [] in
+  let imports = ref [] in
+  let on_pc pc = match mapping with
+    | Some(m) ->
+      (match List.find m ~f:(fun (_, pc') -> Int.equal pc pc') with
+       | Some((fun_, _)) ->
+         imports := List.Assoc.add !imports ~equal:Int.equal pc fun_;
+         pc
+       | None -> pc)
+    | None -> pc in
   let in_cache cache obj =
     match List.find_map !cache ~f:(function
         | (id, obj') when phys_equal obj obj' -> Some(id)
@@ -193,11 +210,11 @@ let dump_instance ?imports { current_coeffect; blocks } =
     let tokens = List.map pend_waiters ~f:serialize_token in
     let v = match pend_value with
       | Pend -> [M.Int 0; M.List tokens]
-      | PendVal v -> (M.Int 1)::(dump_value (dedup envs) v)
+      | PendVal v -> (M.Int 1)::(dump_value ~on_pc (dedup envs) v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
   and serialize_env_v = function
-    | Value x -> M.List ((M.Int 0)::(dump_value (dedup envs) x))
+    | Value x -> M.List ((M.Int 0)::(dump_value ~on_pc (dedup envs) x))
     | Pending x -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
@@ -233,11 +250,13 @@ let dump_instance ?imports { current_coeffect; blocks } =
         | _ -> ())
   and walk_stack = List.iter ~f: walk_frame in
   List.iter blocks ~f:(fun (_id, token) -> walk_token token);
-  M.List [(M.Int current_coeffect);
-          M.List (List.concat_map !frames ~f:serialize_frame);
-          M.List (List.concat_map !pendings ~f:serialize_pending);
-          M.List (List.concat_map !envs ~f:serialize_env);
-          M.List (List.concat_map blocks ~f:serialize_block)]
+  M.List [
+    M.List (dump_imports !imports);
+    M.List [(M.Int current_coeffect);
+            M.List (List.concat_map !frames ~f:serialize_frame);
+            M.List (List.concat_map !pendings ~f:serialize_pending);
+            M.List (List.concat_map !envs ~f:serialize_env);
+            M.List (List.concat_map blocks ~f:serialize_block)]]
 
 let serialize_result {Inter.Res.coeffects; killed; values} =
   let serialize_value = (dump_value (fun _ -> assert false)) in
@@ -250,37 +269,38 @@ let serialize_result {Inter.Res.coeffects; killed; values} =
      M.List (List.map killed ~f:(fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
-let rec load_value' on_env = function
+let rec load_value' on_pc on_env = function
   | (M.Int 0)::v::xs -> (VConst(deserialize_const v), xs)
   | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
-    (VClosure(pc, to_copy, on_env env), xs)
+    (VClosure((on_pc pc), to_copy, on_env env), xs)
   | (M.Int 2)::(M.List vs)::xs ->
-    (VTuple(load_values on_env vs), xs)
+    (VTuple(load_values on_pc on_env vs), xs)
   | (M.Int 3)::(M.List vs)::xs ->
-    (VList(load_values on_env vs), xs)
+    (VList(load_values on_pc on_env vs), xs)
   | (M.Int 4)::(M.List pairs)::xs ->
     let rec deserialize_pairs = function
       | [] -> []
       | (M.String f)::xs ->
-        let (v, xs') = load_value' on_env xs in
+        let (v, xs') = load_value' on_pc on_env xs in
         (f, v)::(deserialize_pairs xs')
       | _ -> raise BadFormat in
     (VRecord(deserialize_pairs pairs), xs)
   | (M.Int 5)::(M.Int pc)::xs ->
-    (VLabel(pc), xs)
+    (VLabel(on_pc pc), xs)
   | (M.Int 6)::(M.Int pc)::xs ->
     (VPrim(pc), xs)
   | _ -> raise BadFormat
 
-and load_value on_env v =
-  Or_error.try_with ~backtrace:true (fun () -> load_value' on_env v)
+and load_value ?(on_pc = (fun v -> v)) on_env v =
+  Or_error.try_with ~backtrace:true (fun () -> load_value' on_pc on_env v)
 
-and load_values on_env = function
+and load_values on_pc on_env = function
   | [] -> []
-  | xs -> let (v, xs') = load_value' on_env xs in
-    v::(load_values on_env xs')
+  | xs -> let (v, xs') = load_value' on_pc on_env xs in
+    v::(load_values on_pc on_env xs')
 
-let load_instance' packed =
+let load_instance' linker packed =
+  let linker' p = Or_error.ok_exn (linker p) in
   let frames_repo = ref [] in
   let envs_repo = ref [] in
   let pendings_repo = ref [] in
@@ -296,11 +316,12 @@ let load_instance' packed =
       p in
   let dummy_env len = Array.create ~len (Value (VConst (Ast.Null))) in
   match packed with
-  | M.List [M.Int current_coeffect;
-            M.List frames;
-            M.List pendings;
-            M.List envs;
-            M.List blocks] ->
+  | M.List [_imports;
+            M.List [M.Int current_coeffect;
+                    M.List frames;
+                    M.List pendings;
+                    M.List envs;
+                    M.List blocks]] ->
     let env_size id =
       let rec step = function
         | [] -> raise BadFormat
@@ -348,7 +369,7 @@ let load_instance' packed =
           | (M.Int 0)::(M.List tokens)::xs' ->
             (Pend, deserialize_tokens tokens, xs')
           | (M.Int 1)::xs' ->
-            let (v, xs'') = load_value' repo_or_dummy_env xs' in
+            let (v, xs'') = load_value' linker' repo_or_dummy_env xs' in
             (PendVal v, [], xs'')
           | (M.Int 2)::_ -> (PendStopped, [], xs)
           | _ -> raise BadFormat in
@@ -359,7 +380,7 @@ let load_instance' packed =
       | _ -> raise BadFormat in
     let deserialize_env_value = function
       | M.List ((M.Int 0)::xs) ->
-        let (v, _) = load_value' repo_or_dummy_env xs in
+        let (v, _) = load_value' linker' repo_or_dummy_env xs in
         Value v
       | M.List [M.Int 1; M.Int pending] ->
         Pending (repo_or_dummy_pending pending)
@@ -384,6 +405,5 @@ let load_instance' packed =
     { current_coeffect; blocks = blocks' }
   | _ -> raise BadFormat
 
-let load_instance ?linker v =
-  let _linker = linker in
-  Or_error.try_with ~backtrace:true (fun () -> load_instance' v)
+let load_instance ?(linker=Or_error.return) v =
+  Or_error.try_with ~backtrace:true (fun () -> load_instance' linker v)
