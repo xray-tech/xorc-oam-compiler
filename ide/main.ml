@@ -64,6 +64,7 @@ module Action = struct
     | RealizeCoeffect of int * string
     | CoeffectValueChanged of int * string
     | CoeffectToggle of int
+    | Download
   [@@deriving sexp]
 
   let should_log _ = true
@@ -162,24 +163,47 @@ let realize_coeffect (model : Model.t) id v =
       let%bind v' = Orcml.parse_value v in
       Orcml.unblock bc instance id v' in
     (match res with
-     | Ok({Orcml.Res.instance; coeffects = new_coeffects; values = new_values; killed}) ->
+     | Ok({Orcml.Res.instance;
+           coeffects = new_coeffects;
+           values = new_values;
+           killed}) ->
        let coef = List.Assoc.find_exn coeffects ~equal:Int.equal id in
        let coeffects'' = List.fold killed ~init:coeffects' ~f:(fun res id ->
            List.Assoc.remove res ~equal:Int.equal id) in
        let values' = values @ (map_values new_values) in
        let realized_coef = (coef.definition, v) in
        let realized' = realized_coef::realized in
-       if List.is_empty coeffects''
-       then (Model.Finished { values = values';
-                              program;
-                              realized = realized'})
-       else (Running { r with values = values';
+       if Orcml.is_running instance
+       then (Model.Running { r with values = values';
                               realized = realized';
                               coeffects = coeffects'' @ (map_coeffects new_coeffects);
                               instance})
+       else (Finished { values = values';
+                              program;
+                              realized = realized'})
      | Error(err) -> with_error (Error.to_string_hum err) model)
   | other -> other
 
+let download_string s =
+  let data = B64.encode s in
+  let el = Dom_html.document##createElement (Js.string "a") in
+  el##setAttribute (Js.string "href") (Js.string ("data:application/octet-stream;base64," ^ data));
+  el##setAttribute (Js.string "download") (Js.string ("state.orcs"));
+  el##.style##.display := (Js.string "none");
+  let body = Dom_html.document##.body in
+  body##appendChild (el :> Dom.node Js.t) |> ignore;
+  el##click;
+  body##removeChild (el :> Dom.node Js.t) |> ignore;
+  ()
+
+let download (model : Model.t) =
+  match model with
+  | Running { instance } ->
+    (Orcml.Serializer.dump_instance instance
+     |> Msgpck.String.to_string
+     |> download_string);
+    model
+  | _ -> model
 
 let apply_action action model _state =
   match (action:Action.t) with
@@ -189,6 +213,7 @@ let apply_action action model _state =
   | CoeffectValueChanged((id, v)) -> coeffect_value_changed model id v
   | CoeffectToggle(id) -> coeffect_toggle model id
   | RealizeCoeffect((id, v)) -> realize_coeffect model id v
+  | Download -> download model
 
 let update_visibility m = m
 
@@ -219,7 +244,7 @@ module View = struct
       then
         (div [classes ["row"; "a-coeffect"]]
            [div [class_ "col"]
-              [create "pre" [] [text definition]];
+              [create "pre" [] [text (sprintf "%i: %s" id definition)]];
             div [class_ "col"]
               [button [on_toggle] [text "Realize"]]])
       else
@@ -239,9 +264,10 @@ module View = struct
                     [button [on_realize] [text "Unblock"];
                      button [on_toggle] [text "Cancel"]]]]]) in
 
-    let editor_row program coeffects _is_running =
+    let editor_row program coeffects is_running =
       let on_change = on_change (fun _ t -> inject (Action.ProgramChanged t)) in
       let on_run = on_click (fun _ -> inject Action.Run) in
+      let on_download = on_click (fun _ -> inject Action.Download) in
 
       [div [classes ["row"]]
          [div [classes ["col"; "a-editor"]]
@@ -252,8 +278,12 @@ module View = struct
                [text program]];
           div [classes ["col"; "a-editor-side"]]
             ([div [classes ["row"; "a-buttons"]]
-                [div [class_ "col"]
-                   [button [on_run] [text "Run"]]]]
+                ([div [class_ "col"]
+                    [button [on_run] [text "Run"]]]
+                 @ (if is_running
+                    then [div [class_ "col"]
+                            [button [on_download] [text "Download"]]]
+                    else []))]
              @ if List.is_empty coeffects
              then []
              else
