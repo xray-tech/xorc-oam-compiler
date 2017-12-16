@@ -41,7 +41,8 @@
 %nonassoc GT LT GTE LTE
 %right COLON
 %left ADD SUB
-%left MULT DIV MOD POW
+%left MULT DIV MOD
+%right POW
 
 %left DOT
 %left LEFT_PAREN
@@ -156,7 +157,7 @@ pattern:
   | LEFT_BRACK ps=separated_list(COMMA, pattern) RIGHT_BRACK
     { (PList(ps), make_pos $startpos $endpos) }
   | LEFT_BRACE
-      pairs=separated_nonempty_list(COMMA, k=IDENT EQ p=pattern { (k, p) })
+      pairs=separated_list(COMMA, k=IDENT EQ p=pattern { (k, p) })
     RIGHT_BRACE
     { (PRecord(pairs), make_pos $startpos $endpos) }
   | head=pattern COLON tail=pattern
