@@ -49,6 +49,14 @@ type p' =
   | PRecord of (string * p) list
   | PAs of p * string
 and p = (p' * pos) [@@deriving sexp_of, compare]
+and ty' =
+    | TyVar of string
+  | TyApp of string * ty list
+  | TyRecord of (string * ty) list
+  | TyTuple of ty list
+  | TyFun of tyfun
+and tyfun = string list * ty list * ty
+and ty = (ty' * pos)
 
 type e' =
   | EOtherwise of e * e
@@ -66,9 +74,12 @@ type e' =
   | EDecl of decl * e
   | ECond of e * e * e
   | ELambda of p list * e
+  | EHasType of e * ty
+  | EOverrideType of e * ty
 and decl' =
   | DVal of p * e
   | DDef of ident * p list * e option  * e
+  | DSig of ident * tyfun
   | DSite of ident * string
   | DInclude of string
   | DData of string * constructor list

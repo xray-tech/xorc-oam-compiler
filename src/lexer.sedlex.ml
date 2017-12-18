@@ -67,6 +67,7 @@ let rec token lexbuf =
   | "lambda" -> update lexbuf; LAMBDA
   | "as" -> update lexbuf; AS
   | "def" -> update lexbuf; DEF
+  | "sig" -> update lexbuf; SIG
   | "if" -> update lexbuf; IF
   | "then" -> update lexbuf; THEN
   | "else" -> update lexbuf; ELSE
@@ -77,6 +78,8 @@ let rec token lexbuf =
   | ".}" -> update lexbuf; RIGHT_BRACE
   | "{-" -> update lexbuf; read_comment 0 lexbuf
   | "--" -> update lexbuf; read_comment_line lexbuf
+  | "::" -> update lexbuf; DOUBLE_COLON
+  | ":!:" -> update lexbuf; TOVERRIDE
   | '[' -> update lexbuf; LEFT_BRACK
   | ']' -> update lexbuf; RIGHT_BRACK
   | '(' -> update lexbuf; LEFT_PAREN

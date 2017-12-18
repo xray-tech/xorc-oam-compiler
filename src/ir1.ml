@@ -306,6 +306,8 @@ let rec translate' ((e, pos) as ast) =
     raise Util.TODO
   | A.EDecl((DInclude(_), _), _e) ->
     assert false
+  | EDecl((DSig(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
+    translate' e
 
 and deflate e k =
   match e with

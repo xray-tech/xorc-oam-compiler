@@ -5,7 +5,11 @@
   | Some x -> x
   | None -> (PWildcard, dummy)
 
+  let optional_list = function
+  | Some l -> l
+  | None -> []
 %}
+
 
 %token EOF
 %token <int> INT
@@ -23,9 +27,13 @@
 %token COMMA DOT
 %token LESS MORE
 %token BAR SEMICOLON
+%token SIG DOUBLE_COLON TOVERRIDE
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR NOT COLON DEREFERENCE
 
 %nonassoc low
+
+%left TOVERRIDE
+%left DOUBLE_COLON
 
 %left AS
 %nonassoc IDENT
@@ -45,7 +53,7 @@
 %right POW
 
 %left DOT
-%left LEFT_PAREN
+%left LEFT_PAREN LEFT_BRACK
 
 %nonassoc DEREFERENCE
 %nonassoc high
@@ -58,9 +66,7 @@ prog:
   | EOF           { None   } ;
 
 ns:
-  | l = decl*; EOF { l }
-  | EOF            { []   } ;
-
+  | l = decl*; EOF { l };
 
 expr:
   | LEFT_PAREN exp=expr RIGHT_PAREN { exp }
@@ -107,6 +113,8 @@ expr:
   | IF p=expr THEN t=expr ELSE e=expr
     { (ECond(p, t, e),
        make_pos $startpos $endpos) } %prec low
+  | e=expr DOUBLE_COLON ty=ty { (EHasType(e, ty), make_pos $startpos $endpos) }
+  | e=expr TOVERRIDE ty=ty { (EOverrideType(e, ty), make_pos $startpos $endpos) }
   | LAMBDA ps=params EQ e=expr
     { (ELambda(ps, e),
        make_pos $startpos $endpos) }
@@ -116,6 +124,9 @@ decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
   | DEF name=IDENT ps=params guard=guard? EQ e=expr
     { (DDef(name, ps, guard, e),
+       make_pos $startpos $endpos) }
+  | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
+    { (DSig(name, ((optional_list t_ps), args, ret)),
        make_pos $startpos $endpos) }
   | REFER ns=namespace LEFT_PAREN idents=separated_list(COMMA, IDENT) RIGHT_PAREN
     { (DRefer(ns, idents),
@@ -139,10 +150,16 @@ constructors:
   | BAR c=constructor { [c] }
   | cs=constructors c=constructor { c::cs }
 
-constructor: n=IDENT LEFT_PAREN slots=separated_list(COMMA, WILDCARD) RIGHT_PAREN { (n, List.length slots) }
+constructor: n=IDENT LEFT_PAREN slots=separated_list(COMMA, slot) RIGHT_PAREN { (n, List.length slots) }
+slot:
+  | WILDCARD { None }
+  | ty=ty { Some(ty) }
 
 params: LEFT_PAREN l=separated_list(COMMA, pattern) RIGHT_PAREN { l }
 args: LEFT_PAREN l=separated_list(COMMA, expr) RIGHT_PAREN { l }
+arg_types: LEFT_PAREN l=separated_list(COMMA, ty) RIGHT_PAREN { l }
+type_args: LEFT_BRACK l=separated_nonempty_list(COMMA, ty) RIGHT_BRACK { l }
+type_params: LEFT_BRACK l=separated_nonempty_list(COMMA, IDENT) RIGHT_BRACK { l }
 
 namespace: l=separated_nonempty_list(DOT, IDENT) { String.concat "." l }
 
@@ -167,6 +184,20 @@ pattern:
   | LEFT_PAREN p=pattern RIGHT_PAREN
     { p }
 
+ty:
+  | name=IDENT { (TyVar(name), make_pos $startpos $endpos) }
+  | name=IDENT args=type_args { (TyApp(name, args), make_pos $startpos $endpos) }
+  | LEFT_BRACE
+      pairs=separated_nonempty_list(COMMA, k=IDENT EQ t=ty { (k, t) })
+    RIGHT_BRACE
+    { (TyRecord(pairs), make_pos $startpos $endpos) }
+  | LEFT_PAREN
+      l=separated_nonempty_list(COMMA, ty)
+    RIGHT_PAREN
+    { (TyTuple(l), make_pos $startpos $endpos) }
+  | LAMBDA ty_ps=type_params? args=arg_types DOUBLE_COLON return=ty
+    { (TyFun((optional_list ty_ps, args, return)),
+       make_pos $startpos $endpos) }
 
 const:
   | i=INT { Int i }
