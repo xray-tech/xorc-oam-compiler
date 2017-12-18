@@ -154,7 +154,9 @@ and tick
          publish state stack env res;
          halt state stack env
        | PrimHalt -> halt state stack env
-       | PrimUnsupported -> raise RuntimeError) in
+       | PrimUnsupported ->
+         (* TODO warning? *)
+         halt state stack env) in
   let (_, proc) = get_code state pc in
   match proc.(c) with
   | Const v ->
