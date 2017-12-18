@@ -48,6 +48,7 @@ type p' =
   | PCons of p * p
   | PRecord of (string * p) list
   | PAs of p * string
+  | PTyped of p * ty
 and p = (p' * pos) [@@deriving sexp_of, compare]
 and ty' =
     | TyVar of string
@@ -66,23 +67,24 @@ type e' =
   | EConst of const
   | EIdent of ident
   | EFieldAccess of e * string
-  | ECall of e * e list
+  | ECall of e * ty list * e list
   | EStop
   | EList of e list
   | ETuple of e list
   | ERecord of (string * e) list
   | EDecl of decl * e
   | ECond of e * e * e
-  | ELambda of p list * e
+  | ELambda of string list * p list * ty option * e
   | EHasType of e * ty
   | EOverrideType of e * ty
 and decl' =
   | DVal of p * e
-  | DDef of ident * p list * e option  * e
+  | DDef of ident * string list * p list * ty option * e option  * e
   | DSig of ident * tyfun
   | DSite of ident * string
   | DInclude of string
-  | DData of string * constructor list
+  | DData of string * string list * constructor list
+  | DAlias of ident * string list * ty
   | DRefer of string * ident list
 and constructor = ident * int
 and decl = decl' * pos

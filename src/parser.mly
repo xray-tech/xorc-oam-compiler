@@ -83,20 +83,23 @@ expr:
   | t=expr DOT f=IDENT { (EFieldAccess(t, f), make_pos $startpos $endpos)}
   | t=expr op=DEREFERENCE
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [t]),
+        (ECall(ident, [], [t]),
          make_pos $startpos $endpos) }
   | op=unop e=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [e]),
+        (ECall(ident, [], [e]),
          make_pos $startpos $endpos) } %prec high
   | t1=expr op=binop t2=expr
     { let ident = (EIdent(op), make_pos $startpos(op) $endpos(op)) in
-        (ECall(ident, [t1; t2]),
+        (ECall(ident, [], [t1; t2]),
          make_pos $startpos $endpos) }
   | c=const { (EConst c, make_pos $startpos $endpos) }
   | name=IDENT { (EIdent(name), make_pos $startpos $endpos) }
   | target=expr ar=args
-   { (ECall(target, ar),
+   { (ECall(target, [], ar),
+      make_pos $startpos $endpos) }
+  | target=expr t_args=type_args ar=args 
+   { (ECall(target, t_args, ar),
       make_pos $startpos $endpos) }
   | e1=expr BAR e2=expr
     { (EParallel(e1, e2),
@@ -115,15 +118,16 @@ expr:
        make_pos $startpos $endpos) } %prec low
   | e=expr DOUBLE_COLON ty=ty { (EHasType(e, ty), make_pos $startpos $endpos) }
   | e=expr TOVERRIDE ty=ty { (EOverrideType(e, ty), make_pos $startpos $endpos) }
-  | LAMBDA ps=params EQ e=expr
-    { (ELambda(ps, e),
+  | LAMBDA ty_ps=type_params? ps=params return=ty? EQ e=expr
+    { (ELambda(optional_list ty_ps, ps, return, e),
        make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
 
+return_type: DOUBLE_COLON ret=ty { ret }
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
-  | DEF name=IDENT ps=params guard=guard? EQ e=expr
-    { (DDef(name, ps, guard, e),
+  | DEF name=IDENT t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
+    { (DDef(name, (optional_list t_ps), ps, ret, guard, e),
        make_pos $startpos $endpos) }
   | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
     { (DSig(name, ((optional_list t_ps), args, ret)),
@@ -139,8 +143,11 @@ decl:
   | INCLUDE p=STRING
     { (DInclude(p),
        make_pos $startpos $endpos) }
-  | TYPE i=IDENT EQ cs=constructors
-    { (DData(i, cs),
+  | TYPE i=IDENT t_ps=type_params? EQ ty=ty
+    { (DAlias(i, optional_list t_ps, ty),
+       make_pos $startpos $endpos) }
+  | TYPE i=IDENT t_ps=type_params? EQ cs=constructors
+    { (DData(i, optional_list t_ps, cs),
        make_pos $startpos $endpos) }
 
 guard: IF LEFT_PAREN e=expr RIGHT_PAREN { e }
@@ -183,6 +190,8 @@ pattern:
     { (PAs(p, n), make_pos $startpos $endpos) }
   | LEFT_PAREN p=pattern RIGHT_PAREN
     { p }
+  | p=pattern DOUBLE_COLON ty=ty
+    { (PTyped(p, ty), make_pos $startpos $endpos) }
 
 ty:
   | name=IDENT { (TyVar(name), make_pos $startpos $endpos) }

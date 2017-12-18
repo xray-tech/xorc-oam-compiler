@@ -27,7 +27,7 @@ let make_fresh () =
 let collect_defs e =
   let acc = Hashtbl.create (module String) () in
   let rec collect_clauses = function
-    | (Ast.EDecl((DDef(ident, params, guard, body), _), e), _) ->
+    | (Ast.EDecl((DDef(ident, _, params, _, guard, body), _), e), _) ->
       let clauses = Hashtbl.find_or_add acc ident ~default:(fun () -> []) in
       Hashtbl.set acc ~key:ident ~data:((ident, params, guard, body)::clauses);
       collect_clauses e
@@ -113,6 +113,8 @@ let rec translate' ((e, pos) as ast) =
               (unravel_list ps focus expr)))
       | A.PRecord(pairs) ->
         unravel_record pairs focus expr
+      | A.PTyped(p, _) ->
+        unravel p focus expr
     and unravel_record pairs focus expr =
       match pairs with
       | [] -> expr ()
@@ -279,17 +281,17 @@ let rec translate' ((e, pos) as ast) =
             (seqw (call "'Ift" [pred']) (translate' then_))
             (seqw (call "'Iff" [pred']) (translate' else_))))
   | A.EConst c -> (EConst(c), ast)
-  | A.ECall(e, args) ->
+  | A.ECall(e, _, args) ->
     deflate e (fun e' ->
         deflate_many args (fun args' ->
             (ECall(e', args'), ast)))
   | A.EStop -> (EStop, ast)
-  | A.ELambda(params, body) ->
+  | A.ELambda(_, params, _, body) ->
     let n = make_fresh () in
-    let e' = A.EDecl((DDef(n, params, None, body), A.dummy),
+    let e' = A.EDecl((DDef(n, [], params, None, None, body), A.dummy),
                      (A.EIdent n, A.dummy)) in
     translate'((e', A.dummy))
-  | A.EDecl((DDef(_, _, _, _), _), _) ->
+  | A.EDecl((DDef _, _), _) ->
     translate_defs (e, pos)
   | A.EDecl((DVal(p, val_e), _), e) ->
     translate' ((EPruning(e, p, val_e)), pos)
@@ -302,11 +304,12 @@ let rec translate' ((e, pos) as ast) =
     (ERefer(ns, fs, translate' e), ast)
   | A.EDecl((DSite(_ident, _definition), _), _e) ->
     raise Util.TODO
-  | A.EDecl((DData(_ident, _constructors), _), _e) ->
+  | A.EDecl((DData(_ident, _, _constructors), _), _e) ->
     raise Util.TODO
+
   | A.EDecl((DInclude(_), _), _e) ->
     assert false
-  | EDecl((DSig(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
+  | EDecl((DSig(_), _), e) | EDecl((DAlias(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
     translate' e
 
 and deflate e k =
