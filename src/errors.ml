@@ -1,19 +1,41 @@
 open Base
-type t =
-  | NoInput
-  | SyntaxError of { filename : string;
-                     line : int;
-                     col : int }
-  | UnboundVar of { var : string;
-                    pos : Ast.pos }
-  | UnboundDependency of { ns : string;
-                           f : string }
+
+type parse_error =
+  [ `NoInput
+  | `SyntaxError of string * int * int]
 [@@deriving sexp_of]
 
-exception Exn of t
+type parse_value_error =
+  [ parse_error
+  | `UnsupportedValueAST ]
 
-let create t = Error.create_s (sexp_of_t t)
+type 'a link_error =
+  [ `LinkerError of 'a]
+[@@deriving sexp_of]
 
-let err t = Error(create t)
+type no_deps_error =
+  [ `UnexpectedDependencies of string list ]
+[@@deriving sexp_of]
 
-let raise t = raise (Exn t)
+type compile_error =
+  [ `UnboundVar of string * Ast.pos ]
+[@@deriving sexp_of]
+
+let to_string_hum = function
+  | `NoInput -> "No input to parse"
+  | `SyntaxError(file, line, col) -> Printf.sprintf "Syntax error in file %s at line %i column %i" file line col
+  | `UnsupportedValueAST -> "Can't parse it as value"
+  | `UnexpectedDependencies d -> Printf.sprintf "External dependencies are not supported here (%s)" (String.concat ~sep:", " d)
+  | `UnboundVar(bind, {Ast.pstart}) ->
+    Printf.sprintf "Unbound variable %s in file %s at line %i column %i" bind pstart.pos_fname pstart.pos_lnum (pstart.pos_cnum - pstart.pos_bol + 1)
+  | `BadFormat -> "Binary message is bad formatted"
+
+
+let foo () = Error(`Foo)
+
+let bar () : (string, [> `Bar]) Result.t = Error(`Bar)
+
+let foobar () =
+  let open Result.Let_syntax in
+  let%bind () = foo () in
+  bar ()

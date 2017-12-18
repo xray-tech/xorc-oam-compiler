@@ -1,8 +1,10 @@
 open Common
 
-module M = Msgpck
+type 'a load_error =
+  [ | 'a Errors.link_error
+    | `BadFormat ]
 
-exception BadFormat
+module M = Msgpck
 
 let serialize_const = function
   | Ast.Int x -> M.Int x
@@ -13,13 +15,13 @@ let serialize_const = function
   | Bool x -> M.Bool x
 
 let deserialize_const = function
-  | M.Int x -> Ast.Int x
-  | M.Float x -> Ast.Float x
-  | M.String x -> Ast.String x
-  | M.Ext(1,_) -> Ast.Signal
-  | M.Nil -> Ast.Null
-  | M.Bool x -> Ast.Bool x
-  | _ -> raise BadFormat
+  | M.Int x -> Ok(Ast.Int x)
+  | M.Float x -> Ok(Ast.Float x)
+  | M.String x -> Ok(Ast.String x)
+  | M.Ext(1,_) -> Ok(Ast.Signal)
+  | M.Nil -> Ok(Ast.Null)
+  | M.Bool x -> Ok(Ast.Bool x)
+  | _ -> Error(`BadFormat)
 
 let rec dump_imports = function
   | [] -> []
@@ -68,57 +70,64 @@ let dump ?(imports = []) code =
   let imports' = M.List(dump_imports imports) in
   M.List [imports'; M.List obj]
 
-let load' linker packed =
-  let linker' p = Or_error.ok_exn (linker p) in
-  let rec des_fun = function
-    | [] -> []
-    | ((M.Int 0)::(M.Int c1)::(M.Int c2)::xs) ->
-      Inter.Parallel(c1, c2)::(des_fun xs)
-    | ((M.Int 1)::(M.Int c1)::(M.Int c2)::xs) ->
-      Inter.Otherwise(c1, c2)::(des_fun xs)
-    | ((M.Int 2)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-      let arg' = (match arg with -1 -> None | x -> Some(x)) in
-      Inter.Pruning(c1, arg', c2)::(des_fun xs)
-    | ((M.Int 3)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-      let arg' = (match arg with -1 -> None | x -> Some(x)) in
-      Inter.Sequential(c1, arg', c2)::(des_fun xs)
-    | ((M.Int (4 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs)
-    | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
-      let target = match t with
-        | 0 -> Inter.TPrim t_arg
-        | 1 -> Inter.TFun (linker' t_arg)
-        | 2 -> Inter.TDynamic t_arg
-        |_ -> raise BadFormat in
-      let args' = List.map args ~f:(function
-          | M.Int x -> x
-          | _ -> raise BadFormat)
-                  |> Array.of_list in
-      (match i with
-       | 4 -> Inter.Call(target, args')
-       | 5 -> Inter.TailCall(target, args')
-       | _ -> raise BadFormat)::(des_fun xs)
-    | ((M.Int 6)::(M.Int i)::xs) ->
-      Inter.Coeffect(i)::(des_fun xs)
-    | ((M.Int 7)::xs) ->
-      Inter.Stop::(des_fun xs)
-    | ((M.Int 8)::v::xs) ->
-      Inter.Const(deserialize_const v)::(des_fun xs)
-    | ((M.Int 9)::(M.Int pc)::(M.Int to_copy)::xs) ->
-      Inter.Closure((linker' pc), to_copy)::(des_fun xs)
-    | (M.Int 10)::(M.Int p)::xs ->
-      Inter.Label(linker' p)::(des_fun xs)
-    | (M.Int 11)::(M.Int p)::xs ->
-      Inter.Prim(p)::(des_fun xs)
-    | _ -> raise BadFormat in
-  match packed with
-  | M.List[_; (M.List xs)] ->
-    Array.of_list (List.map xs ~f:(function
-        | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
-        | _ -> raise BadFormat))
-  | _ -> raise BadFormat
+let load ?(linker=Result.return) packed =
+  with_return (fun r ->
+      let bad_format () = r.return (Error `BadFormat) in
+      let linker' p = match linker p with
+        | Ok(v) -> v
+        | Error(err) -> r.return (Error (`LinkerError err)) in
+      let rec des_fun = function
+        | [] -> []
+        | ((M.Int 0)::(M.Int c1)::(M.Int c2)::xs) ->
+          Inter.Parallel(c1, c2)::(des_fun xs)
+        | ((M.Int 1)::(M.Int c1)::(M.Int c2)::xs) ->
+          Inter.Otherwise(c1, c2)::(des_fun xs)
+        | ((M.Int 2)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
+          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          Inter.Pruning(c1, arg', c2)::(des_fun xs)
+        | ((M.Int 3)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
+          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          Inter.Sequential(c1, arg', c2)::(des_fun xs)
+        | ((M.Int (4 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs)
+        | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
+          let target = match t with
+            | 0 -> Inter.TPrim t_arg
+            | 1 -> Inter.TFun (linker' t_arg)
+            | 2 -> Inter.TDynamic t_arg
+            |_ -> bad_format () in
+          let args' = List.map args ~f:(function
+              | M.Int x -> x
+              | _ -> bad_format ())
+                      |> Array.of_list in
+          (match i with
+           | 4 -> Inter.Call(target, args')
+           | 5 -> Inter.TailCall(target, args')
+           | _ -> bad_format ())::(des_fun xs)
+        | ((M.Int 6)::(M.Int i)::xs) ->
+          Inter.Coeffect(i)::(des_fun xs)
+        | ((M.Int 7)::xs) ->
+          Inter.Stop::(des_fun xs)
+        | ((M.Int 8)::v::xs) ->
+          (match (deserialize_const v) with
+           | Error(_) as err -> r.return err
+           | Ok(c) ->
+             Inter.Const(c)::(des_fun xs))
+        | ((M.Int 9)::(M.Int pc)::(M.Int to_copy)::xs) ->
+          Inter.Closure((linker' pc), to_copy)::(des_fun xs)
+        | (M.Int 10)::(M.Int p)::xs ->
+          Inter.Label(linker' p)::(des_fun xs)
+        | (M.Int 11)::(M.Int p)::xs ->
+          Inter.Prim(p)::(des_fun xs)
+        | _ -> bad_format () in
+      match packed with
+      | M.List[_; (M.List xs)] ->
+        Ok(Array.of_list (List.map xs ~f:(function
+            | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
+            | _ -> bad_format ())))
+      | _ -> bad_format ())
 
 let imports packed =
-  let err = Or_error.of_exn BadFormat in
+  let err = Error `BadFormat in
   with_return (fun r ->
       let rec f = function
         | [] -> []
@@ -129,9 +138,6 @@ let imports packed =
       | M.List((M.List xs)::_) ->
         Ok(f xs)
       | _ -> r.return err)
-
-let load ?(linker=Or_error.return) v =
-  Or_error.try_with ~backtrace:true (fun () -> load' linker v)
 
 open Inter
 
@@ -269,141 +275,155 @@ let serialize_result {Inter.Res.coeffects; killed; values} =
      M.List (List.map killed ~f:(fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
-let rec load_value' on_pc on_env = function
-  | (M.Int 0)::v::xs -> (VConst(deserialize_const v), xs)
-  | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
-    (VClosure((on_pc pc), to_copy, on_env env), xs)
-  | (M.Int 2)::(M.List vs)::xs ->
-    (VTuple(load_values on_pc on_env vs), xs)
-  | (M.Int 3)::(M.List vs)::xs ->
-    (VList(load_values on_pc on_env vs), xs)
-  | (M.Int 4)::(M.List pairs)::xs ->
-    let rec deserialize_pairs = function
-      | [] -> []
-      | (M.String f)::xs ->
-        let (v, xs') = load_value' on_pc on_env xs in
-        (f, v)::(deserialize_pairs xs')
-      | _ -> raise BadFormat in
-    (VRecord(deserialize_pairs pairs), xs)
-  | (M.Int 5)::(M.Int pc)::xs ->
-    (VLabel(on_pc pc), xs)
-  | (M.Int 6)::(M.Int pc)::xs ->
-    (VPrim(pc), xs)
-  | _ -> raise BadFormat
+let load_value ?(on_pc = (fun v -> v)) on_env v =
+  with_return (fun r ->
+      let rec f = function
+        | (M.Int 0)::v::xs ->
+          (match deserialize_const v with
+           | Ok(c) -> (VConst(c), xs)
+           | Error(_) as err -> r.return err)
+        | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
+          (VClosure((on_pc pc), to_copy, on_env env), xs)
+        | (M.Int 2)::(M.List vs)::xs ->
+          (VTuple(multiple vs), xs)
+        | (M.Int 3)::(M.List vs)::xs ->
+          (VList(multiple vs), xs)
+        | (M.Int 4)::(M.List pairs)::xs ->
+          let rec deserialize_pairs = function
+            | [] -> []
+            | (M.String field)::xs ->
+              let (v, xs') = f xs in
+              (field, v)::(deserialize_pairs xs')
+            | _ -> r.return (Error `BadFormat) in
+          (VRecord(deserialize_pairs pairs), xs)
+        | (M.Int 5)::(M.Int pc)::xs ->
+          (VLabel(on_pc pc), xs)
+        | (M.Int 6)::(M.Int pc)::xs ->
+          (VPrim(pc), xs)
+        | _ -> r.return (Error `BadFormat)
+      and multiple = function
+        | [] -> []
+        | xs -> let (v, xs') = f xs in
+          v::(multiple xs') in
+      Ok(f v))
 
-and load_value ?(on_pc = (fun v -> v)) on_env v =
-  Or_error.try_with ~backtrace:true (fun () -> load_value' on_pc on_env v)
+let load_instance ?(linker=Result.return) packed =
+  with_return (fun r ->
+      let linker' p = match linker p with
+        | Ok(v) -> v
+        | Error(err) -> r.return (Error (`LinkerError err)) in
+      let bad_format () = r.return (Error `BadFormat) in
+      let frames_repo = ref [] in
+      let envs_repo = ref [] in
+      let pendings_repo = ref [] in
+      let repo_find repo id =
+        List.Assoc.find !repo ~equal:Int.equal id in
+      let add_repo repo id v = repo := (id, v)::!repo in
+      let dummy_pending () = { pend_value = Pend; pend_waiters = [] } in
+      let repo_or_dummy_pending id =
+        match repo_find pendings_repo id with
+        | Some(v) -> v
+        | None -> let p = dummy_pending () in
+          add_repo pendings_repo id p;
+          p in
+      let dummy_env len = Array.create ~len (Value (VConst (Ast.Null))) in
+      match packed with
+      | M.List [_imports;
+                M.List [M.Int current_coeffect;
+                        M.List frames;
+                        M.List pendings;
+                        M.List envs;
+                        M.List blocks]] ->
+        let env_size id =
+          let rec step = function
+            | [] -> bad_format ()
+            | (M.Int id')::(M.List l)::xs ->
+              if Int.equal id id' then (List.length l) else step xs
+            | _ -> bad_format () in
+          step envs in
+        let repo_or_dummy_env id =
+          match repo_find envs_repo id with
+          | Some(v) -> v
+          | None -> let e = dummy_env (env_size id) in
+            add_repo envs_repo id e;
+            e in
+        let rec deserialize_frames = function
+          | [] -> ()
+          | (M.Int id)::(M.Int 0)::(M.Int instances)::(M.Int pending)::xs ->
+            add_repo frames_repo id (FPruning { instances; pending = repo_or_dummy_pending pending});
+            deserialize_frames xs
+          | (M.Int id)::(M.Int 1)::(M.Bool first_value)::(M.Int instances)::(M.Int pc)::(M.Int c)::xs ->
+            add_repo frames_repo id (FOtherwise { first_value; instances; pc = (pc, c) });
+            deserialize_frames xs
+          | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
+            let i' = if Int.equal (-1) i then None else Some(i) in
+            add_repo frames_repo id (FSequential(i', (pc, c)));
+            deserialize_frames xs
+          | (M.Int id)::(M.Int 3)::(M.Int env)::xs ->
+            add_repo frames_repo id (FCall(repo_or_dummy_env env));
+            deserialize_frames xs
+          | (M.Int id)::(M.Int 4)::xs ->
+            add_repo frames_repo id FResult;
+            deserialize_frames xs
+          | _ -> bad_format () in
+        let deserialize_token = function
+          | M.List [M.Int pc; M.Int c; M.List frames; M.Int env] ->
+            let stack = List.map frames ~f:(function
+                | M.Int id -> repo_find frames_repo id |> Option.value_exn
+                | _ -> bad_format ()) in
+            { pc = (pc, c); stack; env = repo_or_dummy_env env}
+          | _ -> bad_format () in
+        let deserialize_tokens = List.map ~f:deserialize_token in
+        let rec deserialize_pendings = function
+          | [] -> ()
+          | (M.Int id)::xs ->
+            let (v, tokens, xs') = match xs with
+              | (M.Int 0)::(M.List tokens)::xs' ->
+                (Pend, deserialize_tokens tokens, xs')
+              | (M.Int 1)::xs' ->
+                (match load_value ~on_pc:linker' repo_or_dummy_env xs' with
+                 | Error(_) as err -> r.return err
+                 | Ok((v, xs'')) ->
+                   (PendVal v, [], xs''))
+              | (M.Int 2)::_ -> (PendStopped, [], xs)
+              | _ -> bad_format () in
+            let p = repo_or_dummy_pending id in
+            p.pend_value <- v;
+            p.pend_waiters <- tokens;
+            deserialize_pendings xs'
+          | _ -> bad_format () in
+        let deserialize_env_value = function
+          | M.List ((M.Int 0)::xs) ->
+            (match load_value ~on_pc:linker' repo_or_dummy_env xs with
+             | Error(_) as err -> r.return err
+             | Ok((v, _)) ->
+               Value v)
+          | M.List [M.Int 1; M.Int pending] ->
+            Pending (repo_or_dummy_pending pending)
+          | _ -> bad_format () in
+        let rec deserialize_envs = function
+          | [] -> ()
+          | (M.Int id)::(M.List vals)::xs ->
+            let e = repo_or_dummy_env id in
+            List.iteri vals ~f:(fun i v ->
+                e.(i) <- deserialize_env_value v);
+            deserialize_envs xs
+          | _ -> bad_format () in
+        let rec deserialize_blocks = function
+          | [] -> []
+          | (M.Int id)::t::xs ->
+            (id, deserialize_token t)::(deserialize_blocks xs)
+          | _ -> bad_format () in
+        deserialize_frames frames;
+        deserialize_pendings pendings;
+        deserialize_envs envs;
+        let blocks' = deserialize_blocks blocks in
+        Ok({ current_coeffect; blocks = blocks' })
+      | _ -> bad_format ()
+    )
 
-and load_values on_pc on_env = function
-  | [] -> []
-  | xs -> let (v, xs') = load_value' on_pc on_env xs in
-    v::(load_values on_pc on_env xs')
-
-let load_instance' linker packed =
-  let linker' p = Or_error.ok_exn (linker p) in
-  let frames_repo = ref [] in
-  let envs_repo = ref [] in
-  let pendings_repo = ref [] in
-  let repo_find repo id =
-    List.Assoc.find !repo ~equal:Int.equal id in
-  let add_repo repo id v = repo := (id, v)::!repo in
-  let dummy_pending () = { pend_value = Pend; pend_waiters = [] } in
-  let repo_or_dummy_pending id =
-    match repo_find pendings_repo id with
-    | Some(v) -> v
-    | None -> let p = dummy_pending () in
-      add_repo pendings_repo id p;
-      p in
-  let dummy_env len = Array.create ~len (Value (VConst (Ast.Null))) in
-  match packed with
-  | M.List [_imports;
-            M.List [M.Int current_coeffect;
-                    M.List frames;
-                    M.List pendings;
-                    M.List envs;
-                    M.List blocks]] ->
-    let env_size id =
-      let rec step = function
-        | [] -> raise BadFormat
-        | (M.Int id')::(M.List l)::xs ->
-          if Int.equal id id' then (List.length l) else step xs
-        | _ -> raise BadFormat in
-      step envs in
-    let repo_or_dummy_env id =
-      match repo_find envs_repo id with
-      | Some(v) -> v
-      | None -> let e = dummy_env (env_size id) in
-        add_repo envs_repo id e;
-        e in
-    let rec deserialize_frames = function
-      | [] -> ()
-      | (M.Int id)::(M.Int 0)::(M.Int instances)::(M.Int pending)::xs ->
-        add_repo frames_repo id (FPruning { instances; pending = repo_or_dummy_pending pending});
-        deserialize_frames xs
-      | (M.Int id)::(M.Int 1)::(M.Bool first_value)::(M.Int instances)::(M.Int pc)::(M.Int c)::xs ->
-        add_repo frames_repo id (FOtherwise { first_value; instances; pc = (pc, c) });
-        deserialize_frames xs
-      | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
-        let i' = if Int.equal (-1) i then None else Some(i) in
-        add_repo frames_repo id (FSequential(i', (pc, c)));
-        deserialize_frames xs
-      | (M.Int id)::(M.Int 3)::(M.Int env)::xs ->
-        add_repo frames_repo id (FCall(repo_or_dummy_env env));
-        deserialize_frames xs
-      | (M.Int id)::(M.Int 4)::xs ->
-        add_repo frames_repo id FResult;
-        deserialize_frames xs
-      | _ -> raise BadFormat in
-    let deserialize_token = function
-      | M.List [M.Int pc; M.Int c; M.List frames; M.Int env] ->
-        let stack = List.map frames ~f:(function
-            | M.Int id -> repo_find frames_repo id |> Option.value_exn
-            | _ -> raise BadFormat) in
-        { pc = (pc, c); stack; env = repo_or_dummy_env env}
-      | _ -> raise BadFormat in
-    let deserialize_tokens = List.map ~f:deserialize_token in
-    let rec deserialize_pendings = function
-      | [] -> ()
-      | (M.Int id)::xs ->
-        let (v, tokens, xs') = match xs with
-          | (M.Int 0)::(M.List tokens)::xs' ->
-            (Pend, deserialize_tokens tokens, xs')
-          | (M.Int 1)::xs' ->
-            let (v, xs'') = load_value' linker' repo_or_dummy_env xs' in
-            (PendVal v, [], xs'')
-          | (M.Int 2)::_ -> (PendStopped, [], xs)
-          | _ -> raise BadFormat in
-        let p = repo_or_dummy_pending id in
-        p.pend_value <- v;
-        p.pend_waiters <- tokens;
-        deserialize_pendings xs'
-      | _ -> raise BadFormat in
-    let deserialize_env_value = function
-      | M.List ((M.Int 0)::xs) ->
-        let (v, _) = load_value' linker' repo_or_dummy_env xs in
-        Value v
-      | M.List [M.Int 1; M.Int pending] ->
-        Pending (repo_or_dummy_pending pending)
-      | _ -> raise BadFormat in
-    let rec deserialize_envs = function
-      | [] -> ()
-      | (M.Int id)::(M.List vals)::xs ->
-        let e = repo_or_dummy_env id in
-        List.iteri vals ~f:(fun i v ->
-            e.(i) <- deserialize_env_value v);
-        deserialize_envs xs
-      | _ -> raise BadFormat in
-    let rec deserialize_blocks = function
-      | [] -> []
-      | (M.Int id)::t::xs ->
-        (id, deserialize_token t)::(deserialize_blocks xs)
-      | _ -> raise BadFormat in
-    deserialize_frames frames;
-    deserialize_pendings pendings;
-    deserialize_envs envs;
-    let blocks' = deserialize_blocks blocks in
-    { current_coeffect; blocks = blocks' }
-  | _ -> raise BadFormat
-
-let load_instance ?(linker=Or_error.return) v =
-  Or_error.try_with ~backtrace:true (fun () -> load_instance' linker v)
+let load_no_linker v =
+  match load v with
+  | Ok(_) as ok -> ok
+  | Error(`BadFormat) as err -> err
+  | Error(`LinkerError _) -> assert false

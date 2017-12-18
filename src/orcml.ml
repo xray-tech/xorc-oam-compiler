@@ -1,3 +1,15 @@
+type parse_error = Errors.parse_error
+
+type parse_value_error = Errors.parse_value_error
+
+type 'a link_error = 'a Errors.link_error
+
+type no_deps_error = Errors.no_deps_error
+
+type compile_error = Errors.compile_error
+
+let error_to_string_hum = Errors.to_string_hum
+
 type ast = Ast.e
 let sexp_of_ast = Ast.sexp_of_e
 let compare_ast = Ast.compare_e
@@ -39,7 +51,7 @@ let sexp_of_repo = Compiler.sexp_of_repo
 let compare_repo = Compiler.compare_repo
 
 type imports = Compiler.imports
-type linker = Compiler.linker
+type 'a linker = 'a Compiler.linker
 
 let link = Compiler.link
 

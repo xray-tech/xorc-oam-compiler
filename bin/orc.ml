@@ -30,7 +30,8 @@ let imports_linker imports_mapping fun_ =
   let equal a b = Int.equal 0 (Orcml.Fun.compare a b) in
   (match List.Assoc.find imports_mapping ~equal fun_  with
    | Some(pointer) -> Ok(pointer)
-   | None -> Or_error.error_s ([%sexp_of: string * Sexp.t] ("Unbound dependency", Orcml.Fun.sexp_of_t fun_)))
+   | None ->
+     Error(fun_))
 
 let linker imports_mapping imports p =
   match List.Assoc.find imports ~equal:Int.equal p with
@@ -38,7 +39,6 @@ let linker imports_mapping imports p =
     Ok(p)
   | Some(x) ->
     imports_linker imports_mapping x
-
 
 let link_namespaces compiled =
   with_return (fun r ->
@@ -69,7 +69,7 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
     List.find !compiled ~f:(fun (ns', _) -> String.equal ns ns') |> Option.is_some in
   let analyze code =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml.parse_ns code in
+    let%map parsed = Orcml.parse_ns code in
     debug "Parsed NS:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
     Orcml.translate parsed in
   let rec compile_loop = function
@@ -79,7 +79,7 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
       compile_loop queue
     | ns::queue ->
       match%bind NSLoader.load ns with
-      | None -> Error(Error.createf "Can't load %s" ns) |> return
+      | None -> Error(`CantLoadNS ns) |> return
       | Some(code) ->
         analyze code |> function
         | Error(err) -> Error(err) |> return
@@ -138,7 +138,7 @@ let compile_source loader prelude prog =
     else prog in
   let analyzed =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml.parse prog' in
+    let%map parsed = Orcml.parse prog' in
     debug "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
     Orcml.translate parsed in
   match analyzed with
@@ -195,7 +195,7 @@ let make_bytecode prelude ns input =
     else (Orcml.parse, Orcml.compile) in
   let analyzed =
     let open Result.Let_syntax in
-    let%bind parsed = parser prog' in
+    let%map parsed = parser prog' in
     debug "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
     Orcml.translate parsed in
   match analyzed with
@@ -237,7 +237,7 @@ let compile =
         make_bytecode prelude ns input >>= fun res ->
         (match res with
          | Error(err) ->
-           error "Can't compile: %s" (Error.to_string_hum err);
+           error "Can't compile: %s" (Orcml.error_to_string_hum err);
            exit 1
          | Ok(bc) ->
            let bc' = Msgpck.String.to_string bc in
@@ -263,11 +263,18 @@ let generate_result mapping state_path {Orcml.Res.values; coeffects; instance} =
    | _ -> return ())
   >>= fun () -> exit 0
 
+let error_to_string_hum = function
+  | `CantLoadNS ns -> (sprintf "Can't load namespace %s" ns)
+  | `LinkerError ({Orcml.Fun.ns; name}) ->
+    (sprintf "Error while linking ns: %s; func: %s" ns name)
+  | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST) as other ->
+    Orcml.error_to_string_hum other
+
 let compile_input_and_deps prelude includes bc input  =
   compile_input prelude includes bc input >>= fun res ->
   (match res with
    | Error(err) ->
-     error "Can't compile: %s" (Error.to_string_hum err);
+     error "Can't compile: %s" (error_to_string_hum err);
      exit 1
    | Ok((imports_mapping, dependencies, compiled)) ->
      debug "Compiled:\n%s\nDeps:\n%s"
@@ -309,7 +316,7 @@ let load_instance imports_mapping path =
     let (_, packed) = Msgpck.String.read bc_raw in
     match Orcml.Serializer.imports packed with
     | Error(err) ->
-      error "Can't parse state file:%s" (Error.to_string_hum err);
+      error "Can't parse state file:%s" (error_to_string_hum err);
       exit 1;
     | Ok(imports) ->
       let linker p =
@@ -319,7 +326,7 @@ let load_instance imports_mapping path =
           imports_linker imports_mapping fun_ in
       match Orcml.Serializer.load_instance ~linker packed with
       | Error(err) ->
-        error "Can't parse state file:%s" (Error.to_string_hum err);
+        error "Can't parse state file:%s" (error_to_string_hum err);
         exit 1;
       | Ok(instance) -> return instance
 
@@ -327,7 +334,7 @@ let parse_value v =
   match Orcml.parse_value v with
   | Ok(v') -> return v'
   | Error(err) ->
-    error "Can't parse value:%s" (Error.to_string_hum err);
+    error "Can't parse value:%s" (error_to_string_hum err);
     exit 1
 
 let unblock =
@@ -369,7 +376,9 @@ let tests_server =
   let rec server code state =
     let input = (Lazy.force Reader.stdin) in
     Protocol.read_msg_or_exit ~code:0 input >>= fun msg ->
-    match Serializer.load_msg msg |> Or_error.ok_exn with
+    match Serializer.load_msg msg
+          |> Result.map_error ~f:(fun _ -> "Protocol error")
+          |> Result.ok_or_failwith with
     | Execute(bc) ->
       handle_res (Some bc) (Orcml.run bc)
     | Continue(id, v) ->

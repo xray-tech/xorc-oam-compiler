@@ -36,7 +36,7 @@ let read_res r =
     match Orcml.Testkit.Serializer.load_res msg with
     | Ok(v) -> return v
     | Error(err) ->
-      error "Protocol error: %s" (Error.to_string_hum err);
+      error "Protocol error: %s" (Orcml.error_to_string_hum err);
       exit 1
 
 module M = Msgpck

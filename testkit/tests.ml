@@ -21,6 +21,7 @@ let tests =
        ("(7 >= 2 + 4)", Check (allof ["true"]));
        ("15 % 4", Check (allof ["3"]));
        ("2**8", Check (allof ["256"]));
+       ("2 ** 3 ** 2", Check (allof ["512"]));
 
      ]);
    ("prelude", [
@@ -130,6 +131,7 @@ let tests =
 
        ("{. a = 1, b = [2,3], c = {. d =  4 .} .} > {. a = a, b = b:_, c = {. d = d .} .} > (a,b,d)",
         Check (allof ["(1,2,4)"]));
+
      ]);
    ("stop-semantic", [
        ("((1 | stop) | stop); 3", Check (allof ["1"]));

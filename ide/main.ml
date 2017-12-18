@@ -115,21 +115,28 @@ let run_code (model : Model.t) =
   let code = get_code model in
   let compiled =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml.parse code in
+    let with_common_error =
+      Result.map_error ~f:(fun err -> (err :> [ Orcml.parse_error
+                                              | Orcml.no_deps_error
+                                              | Orcml.compile_error])) in
+    let%bind parsed = Orcml.parse code
+                      |> with_common_error in
     debug (sprintf "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum));
-    let%bind ir1 = Orcml.translate_no_deps parsed in
-    Orcml.compile ir1 in
+    let%bind ir1 = Orcml.translate_no_deps parsed
+                   |> with_common_error in
+    Orcml.compile ir1
+    |> with_common_error in
   (match compiled with
    | Error(err) ->
-     with_error (Error.to_string_hum err) model
+     with_error (Orcml.error_to_string_hum err) model
    | Ok((_, repo)) ->
      run code model (Orcml.finalize repo))
 
 let run_bc (model : Model.t) bc =
   let (_, packed) = Msgpck.String.read bc in
   match Orcml.Serializer.load packed with
-  | Error(err) ->
-    with_error (sprintf "Can't load bytecode, error: %s" (Error.to_string_hum err)) model
+  | Error(`BadFormat) ->
+    with_error (sprintf "Can't load bytecode, bad format") model
   | Ok(bc) ->
     run "" model bc
 
@@ -159,8 +166,9 @@ let realize_coeffect (model : Model.t) id v =
   match model with
   | Running({coeffects; values; realized; instance; bc; program} as r) ->
     let coeffects' = List.Assoc.remove coeffects ~equal:Int.equal id in
-    let res = let open Or_error.Let_syntax in
-      let%bind v' = Orcml.parse_value v in
+    let res = let open Result.Let_syntax in
+      let%bind v' = Orcml.parse_value v
+                    |> Result.map_error ~f:(fun err -> Error.createf "%s" (Orcml.error_to_string_hum err)) in
       Orcml.unblock bc instance id v' in
     (match res with
      | Ok({Orcml.Res.instance;
@@ -175,12 +183,12 @@ let realize_coeffect (model : Model.t) id v =
        let realized' = realized_coef::realized in
        if Orcml.is_running instance
        then (Model.Running { r with values = values';
-                              realized = realized';
-                              coeffects = coeffects'' @ (map_coeffects new_coeffects);
-                              instance})
+                                    realized = realized';
+                                    coeffects = coeffects'' @ (map_coeffects new_coeffects);
+                                    instance})
        else (Finished { values = values';
-                              program;
-                              realized = realized'})
+                        program;
+                        realized = realized'})
      | Error(err) -> with_error (Error.to_string_hum err) model)
   | other -> other
 
@@ -226,7 +234,6 @@ module View = struct
   open Vdom
   open Attr
   open Node
-
 
   let main inject (m : Model.t) =
     let error_row = function
@@ -317,31 +324,27 @@ module View = struct
 
 end
 
-(* let values = Node.ul [] (List.map m.Model.values ~f:(fun v ->
- *     Node.li [] [(Node.text v)])) in *)
-
-(* let on_drop = Attr.on "drop" (fun e ->
- *     let files = e##.dataTransfer##.files in
- *     (if files##.length > 0
- *      then
- *        let reader = new%js File.fileReader in
- *        reader##.onloadend := Dom.handler (fun _ ->
- *            let content = reader##.result
- *                          |> File.CoerceTo.arrayBuffer
- *                          |> Js.Opt.to_option
- *                          |> Option.value_exn
- *                          |> Typed_array.String.of_arrayBuffer in
- *            inject (Upload content) |> ignore;
- *            Js._false);
- *        reader##readAsArrayBuffer(files##item(0)));
- *     Event.Many [Event.Prevent_default; Event.Stop_propagation];
- *   ) in *)
 
 let view (m : Model.t Incr.t) ~inject =
   let open Incr.Let_syntax in
   let%map m = m in
   let open Vdom in
+  let on_drop = Attr.on "drop" (fun e ->
+      let files = e##.dataTransfer##.files in
+      (if files##.length > 0
+       then
+         let reader = new%js File.fileReader in
+         reader##.onloadend := Dom.handler (fun _ ->
+             let content = reader##.result
+                           |> File.CoerceTo.arrayBuffer
+                           |> Js.Opt.to_option
+                           |> Option.value_exn
+                           |> Typed_array.String.of_arrayBuffer in
+             inject (Action.Upload content) |> ignore;
+             Js._false);
+         reader##readAsArrayBuffer(files##item(0)));
+      Event.Many [Event.Prevent_default; Event.Stop_propagation]) in
   let body = Node.div
-      [Attr.class_ "container"]
+      [Attr.class_ "container"; on_drop]
       (View.main inject m) in
   Node.body [] [body]

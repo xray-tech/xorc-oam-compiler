@@ -8,8 +8,9 @@ type results = { mutable success : int;
                  mutable failed : int }
 
 let strings_to_values vs =
-  List.map vs ~f:Orcml.parse_value
-  |> List.map ~f:(fun v -> Or_error.ok_exn v)
+  List.map vs ~f:(fun v -> match Orcml.parse_value v with
+      | Ok(v) -> v
+      | Error(_) -> assert false)
 
 module Values = Set.Make(Orcml.Value)
 
@@ -78,9 +79,11 @@ let run_loop p compiled checks =
     | Tests.CheckAndResume { values; unblock = (id, v); next; killed } ->
       (match check_values values actual  with
        | `Ok ->
-         let v = Orcml.parse_value v |> Or_error.ok_exn in
-         T.Continue(id, v) |> Serializer.dump_msg |> Protocol.write input;
-         tick killed next
+         (match Orcml.parse_value v with
+          | Error _ -> assert false
+          | Ok(v) ->
+            T.Continue(id, v) |> Serializer.dump_msg |> Protocol.write input;
+            tick killed next)
        | other -> return other)
   in
   tick [] checks
@@ -88,7 +91,7 @@ let run_loop p compiled checks =
 let run_test results p (e, checks) =
   debug "Run test: %s" e;
   let res =
-    let open Or_error.Let_syntax in
+    let open Result.Let_syntax in
     let%bind parsed = Orcml.parse e in
     let%bind ir = Orcml.translate_no_deps parsed in
     Orcml.compile ir in
@@ -102,7 +105,7 @@ let run_test results p (e, checks) =
         | `Fail reason ->
           fail reason)
   | Error(err) ->
-    fail (Error.to_string_hum err); return ()
+    fail (Orcml.error_to_string_hum err); return ()
 
 let with_prog (prog, args) tests f =
   let tests' = List.concat_map tests ~f:(fun (_, l) -> l) in
@@ -164,7 +167,7 @@ let exec =
 let bench_test n p (e, _checks) =
   info "Bench program:\n%s" e;
   let res =
-    let open Or_error.Let_syntax in
+    let open Result.Let_syntax in
     let%bind parsed = Orcml.parse e in
     let%bind ir = Orcml.translate_no_deps parsed in
     Orcml.compile ir in
@@ -186,7 +189,7 @@ let bench_test n p (e, _checks) =
           error "Bad message %s" (Message_pack.sexp_of_t v |> Sexp.to_string_hum);
           exit 1)
   | Error(err) ->
-    fail (Error.to_string_hum err); return ()
+    fail (Orcml.error_to_string_hum err); return ()
 
 let bench_tests prog n tests =
   with_prog prog tests (bench_test n) >>= fun () -> exit 0

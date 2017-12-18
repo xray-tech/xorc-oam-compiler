@@ -16,15 +16,38 @@ end
 
 type ir1 [@@deriving sexp_of]
 
-val parse : string -> ast Or_error.t
+type parse_error =
+  [ | `NoInput
+    | `SyntaxError of string * int * int]
 
-val parse_ns : string -> ast Or_error.t
+type parse_value_error =
+  [ parse_error
+  | `UnsupportedValueAST ]
 
-val parse_value : string -> Value.t Or_error.t
+type 'a link_error =
+  [ `LinkerError of 'a]
 
-val translate : ast -> (string list * ir1) Or_error.t
+type no_deps_error =
+  [ `UnexpectedDependencies of string list ]
 
-val translate_no_deps : ast -> ir1 Or_error.t
+type compile_error =
+  [ `UnboundVar of string * Ast.pos ]
+
+val error_to_string_hum : [< parse_error
+                          | parse_value_error
+                          | no_deps_error
+                          | compile_error
+                          | `BadFormat ] -> string
+
+val parse : string -> (ast, [> parse_error]) Result.t
+
+val parse_ns : string -> (ast, [> parse_error]) Result.t
+
+val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
+
+val translate : ast -> string list * ir1
+
+val translate_no_deps : ast -> (ir1, [> no_deps_error]) Result.t
 
 module Fun : sig
   type t = {
@@ -37,13 +60,13 @@ end
 type imports = (int * Fun.t) list
 type repo = (string * Fun.impl) list [@@deriving sexp_of, compare]
 
-val compile : ir1 -> (imports * repo) Or_error.t
+val compile : ir1 -> (imports * repo, [> compile_error]) Result.t
 
-val compile_ns : ir1 -> (imports * repo) Or_error.t
+val compile_ns : ir1 -> (imports * repo, [> compile_error]) Result.t
 
-type linker = int -> int Or_error.t
+type 'a linker = int -> (int, 'a) Result.t
 
-val link : repo -> linker -> repo Or_error.t
+val link : repo -> 'a linker -> (repo, [> 'a link_error]) Result.t
 
 type bc [@@deriving sexp_of, compare]
 
@@ -66,13 +89,16 @@ val unblock : ?dependencies:bc -> bc -> instance -> int -> Value.t -> Res.t Or_e
 val is_running : instance -> bool
 
 module Serializer : sig
-  val imports : Msgpck.t -> imports Or_error.t
+  type 'a load_error =
+    [ | 'a link_error
+      | `BadFormat ]
+  val imports : Msgpck.t -> (imports, [> `BadFormat]) Result.t
 
   val dump : ?imports:imports -> bc -> Msgpck.t
-  val load : ?linker:linker -> Msgpck.t -> bc Or_error.t
+  val load : ?linker:('a linker) -> Msgpck.t -> (bc, [> 'a load_error]) Result.t
 
   val dump_instance : ?mapping:(Fun.t * int) list -> instance -> Msgpck.t
-  val load_instance : ?linker:linker -> Msgpck.t -> instance Or_error.t
+  val load_instance : ?linker:('a linker) -> Msgpck.t -> (instance, [> 'a load_error]) Result.t
 end
 
 module Testkit : sig
@@ -83,13 +109,14 @@ module Testkit : sig
                coeffects : coeffect list;
                killed : int list }
   module Serializer : sig
+    type load_error = [`BadFormat]
     val dump_msg : msg -> Msgpck.t
-    val load_msg : Msgpck.t -> msg Or_error.t
+    val load_msg : Msgpck.t -> (msg, [> load_error]) Result.t
 
     val dump_res : Res.t -> Msgpck.t
-    val load_res : Msgpck.t -> res Or_error.t
+    val load_res : Msgpck.t -> (res, [> load_error]) Result.t
 
     val dump_bench_res : float -> Msgpck.t
-    val load_bench_res : Msgpck.t -> float Or_error.t
+    val load_bench_res : Msgpck.t -> (float, [> load_error]) Result.t
   end
 end

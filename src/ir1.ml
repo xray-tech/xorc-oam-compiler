@@ -322,14 +322,11 @@ and deflate_many es k =
 
 let translate e =
   deps := [];
-  Or_error.try_with (fun () ->
-      let e' = translate' e in
-      (!deps, e'))
+  let e' = translate' e in
+  (!deps, e')
 
 let translate_no_deps e =
-  let open Result.Let_syntax in
-  let%bind (deps, e') = translate e in
+  let (deps, e') = translate e in
   if List.length deps > 0
-  then let err = [%sexp_of: string * string list] ("Unexpected dependencies", deps) in
-    Error(Error.create_s err)
+  then Error(`UnexpectedDependencies deps)
   else Ok(e')
