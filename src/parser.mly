@@ -197,7 +197,7 @@ ty:
   | name=IDENT { (TyVar(name), make_pos $startpos $endpos) }
   | name=IDENT args=type_args { (TyApp(name, args), make_pos $startpos $endpos) }
   | LEFT_BRACE
-      pairs=separated_nonempty_list(COMMA, k=IDENT EQ t=ty { (k, t) })
+      pairs=separated_list(COMMA, k=IDENT DOUBLE_COLON t=ty { (k, t) })
     RIGHT_BRACE
     { (TyRecord(pairs), make_pos $startpos $endpos) }
   | LEFT_PAREN
