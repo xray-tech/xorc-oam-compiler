@@ -5,11 +5,27 @@ type ast [@@deriving sexp_of, compare]
 type env
 
 module Const : sig
-  type t [@@deriving sexp_of, compare]
+  type t =
+    | Int of int
+    | Float of float
+    | String of string
+    | Signal
+    | Null
+    | Bool of bool
+  [@@deriving sexp_of, compare]
 end
 
 module Value : sig
-  type t [@@deriving sexp, compare]
+  type t =
+    | VConst of Const.t
+    | VClosure of int * int * env
+    | VLabel of int
+    | VPrim of int
+    | VTuple of t list
+    | VList of t list
+    | VRecord of (string * t) list
+  and env
+  [@@deriving sexp, compare]
 
   include Comparator.S with type t := t
 end
@@ -41,7 +57,7 @@ val error_to_string_hum : [< parse_error
 
 val parse : string -> (ast, [> parse_error]) Result.t
 
-val parse_ns : string -> (ast, [> parse_error]) Result.t
+val parse_ns : filename:string -> string -> (ast, [> parse_error]) Result.t
 
 val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
 

@@ -67,9 +67,9 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
   let compiled = ref [] in
   let is_already_compiled ns =
     List.find !compiled ~f:(fun (ns', _) -> String.equal ns ns') |> Option.is_some in
-  let analyze code =
+  let analyze filename code =
     let open Result.Let_syntax in
-    let%map parsed = Orcml.parse_ns code in
+    let%map parsed = Orcml.parse_ns ~filename code in
     debug "Parsed NS:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
     Orcml.translate parsed in
   let rec compile_loop = function
@@ -81,7 +81,7 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
       match%bind NSLoader.load ns with
       | None -> Error(`CantLoadNS ns) |> return
       | Some(code) ->
-        analyze code |> function
+        analyze ns code |> function
         | Error(err) -> Error(err) |> return
         | Ok((deps, e)) ->
           compile_loop deps >>=? fun () ->
@@ -122,7 +122,7 @@ let empty_loader =
   end : NSLoader)
 
 let implicit_prelude =
-  "refer from core (abs, signum, min, max)
+  "refer from core (abs, signum, min, max, Rwait, Println)
    refer from idioms (curry, curry3, uncurry, uncurry3, flip, constant, defer, defer2,
      ignore, ignore2, compose, while, repeat, fork, forkMap, seq, seqMap, join,
      joinMap, alt, altMap, por, pand)
@@ -191,7 +191,7 @@ let make_bytecode prelude ns input =
     else prog in
   let (parser, compiler) =
     if ns
-    then (Orcml.parse_ns, Orcml.compile_ns)
+    then (Orcml.parse_ns ~filename:"", Orcml.compile_ns)
     else (Orcml.parse, Orcml.compile) in
   let analyzed =
     let open Result.Let_syntax in
@@ -251,17 +251,77 @@ let compile =
         exec () |> ignore;
         Scheduler.go () |> never_returns]
 
-let generate_result mapping state_path {Orcml.Res.values; coeffects; instance} =
-  List.iter values ~f:(fun v ->
-      info "Value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
-  List.iter coeffects ~f:(fun (id, v) ->
-      info "Coeffect: %i -> %s" id (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
-  (match (Orcml.is_running instance, state_path) with
-   | (true, Some(state_path)) ->
-     let msgpck = Orcml.Serializer.dump_instance ~mapping instance in
-     Writer.save state_path ~contents:(Msgpck.String.to_string msgpck)
-   | _ -> return ())
-  >>= fun () -> exit 0
+let run_loop mapping state_path unblock res =
+  let on_air = ref 0 in
+  let stopped = Ivar.create () in
+  let minstance = Moption.create () in
+  let module V = Orcml.Value in
+  let module C = Orcml.Const in
+  let dump_state instance =
+    match state_path with
+    | Some(state_path) ->
+      let msgpck = Orcml.Serializer.dump_instance ~mapping instance in
+      Writer.save state_path ~contents:(Msgpck.String.to_string msgpck)
+    | _ -> return () in
+  let coeffect_kind = function
+    | V.VRecord(pairs) ->
+      (match List.Assoc.find pairs ~equal:String.equal "kind" with
+       | Some(V.VConst(C.String v)) -> Some(v, pairs)
+       | _ -> None)
+    | _ -> None in
+  let rec handle_rwait id r =
+    match List.Assoc.find_exn r ~equal:String.equal "timeout" with
+    | V.VConst(C.Int(v)) ->
+      let timeout = Float.of_int v |> Time.Span.of_ms in
+      after timeout >>= fun () ->
+      on_air := !on_air - 1;
+      unblock' id (V.VConst C.Signal)
+    | v ->
+      error "Bad type for timeout value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum);
+      return ()
+  and handle_println id r =
+    let v = List.Assoc.find_exn r ~equal:String.equal "value" in
+    info "Println: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum);
+    on_air := !on_air - 1;
+    unblock' id (V.VConst C.Signal)
+  and handlers = [
+    ("rwait", handle_rwait);
+    ("println", handle_println)]
+  and coeffect_handler v =
+    let open Option.Let_syntax in
+    let%bind (kind, pairs) = coeffect_kind v in
+    let%map handler = List.Assoc.find handlers ~equal:String.equal kind in
+    (handler, pairs)
+  and tick {Orcml.Res.values; coeffects; instance} =
+    Moption.set_some minstance instance;
+    List.iter values ~f:(fun v ->
+        info "Value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
+    on_air := !on_air + List.length coeffects;
+    List.iter coeffects ~f:(fun (id, v) ->
+        match coeffect_handler v with
+        | Some(handler, pairs) ->
+          handler id pairs |> don't_wait_for
+        | None ->
+          on_air := !on_air - 1;
+          info "Coeffect: %i -> %s" id (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
+    match (Orcml.is_running instance, !on_air) with
+    | (false, _) ->
+      Ivar.fill_if_empty stopped true; return ()
+    | (true, 0) ->
+      dump_state instance >>| fun () ->
+      Ivar.fill_if_empty stopped true
+    | (true, _) -> return ()
+  and unblock' id v =
+    match unblock (Moption.get_some_exn minstance) id v with
+    | Error(err) ->
+      error "Error: %s" (Error.sexp_of_t err |> Sexp.to_string_hum);
+      exit 1
+    | Ok(res) -> tick res in
+  tick res |> don't_wait_for;
+  let%bind res = Ivar.read stopped in
+  if res
+  then exit 0
+  else exit 1
 
 let error_to_string_hum = function
   | `CantLoadNS ns -> (sprintf "Can't load namespace %s" ns)
@@ -297,7 +357,7 @@ let exec =
         compile_input_and_deps prelude includes bc input
         >>= fun (imports_mapping, dependencies, compiled) ->
         match Orcml.run ~dependencies compiled with
-        | Ok(v) -> generate_result imports_mapping dump v
+        | Ok(v) -> run_loop imports_mapping dump (Orcml.unblock ~dependencies compiled) v
         | Error(err) ->
           error "Runtime error:\n%s" (Error.to_string_hum err);
           exit 1 in
@@ -357,7 +417,7 @@ let unblock =
         load_instance imports_mapping load >>= fun instance ->
         parse_value value >>= fun value' ->
         match Orcml.unblock ~dependencies compiled instance id value' with
-        | Ok(v) -> generate_result imports_mapping dump v
+        | Ok(v) -> run_loop imports_mapping dump (Orcml.unblock ~dependencies compiled) v
         | Error(err) ->
           error "Runtime error:\n%s" (Error.to_string_hum err);
           exit 1 in

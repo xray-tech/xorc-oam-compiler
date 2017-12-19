@@ -1,3 +1,4 @@
+open Base
 type parse_error = Errors.parse_error
 
 type parse_value_error = Errors.parse_value_error
@@ -16,17 +17,35 @@ let compare_ast = Ast.compare_e
 
 type env = Inter.env
 module Const = struct
-  type t = Ast.const
+  type t = Ast.const =
+    | Int of int
+    | Float of float
+    | String of string
+    | Signal
+    | Null
+    | Bool of bool
+  [@@deriving sexp_of, compare]
   let compare = Ast.compare_const
   let sexp_of_t = Ast.sexp_of_const
 end
 
-
 module Value = struct
-  type t = Inter.v
+  type t = Inter.v =
+    | VConst of Const.t
+    | VClosure of int * int * env
+    | VLabel of int
+    | VPrim of int
+    | VTuple of t list
+    | VList of t list
+    | VRecord of (string * t) list
+  and env = Inter.env
   let sexp_of_t = Inter.sexp_of_v
   let t_of_sexp = Inter.v_of_sexp
   let compare = Inter.compare_v
+
+  let sexp_of_env = Inter.sexp_of_env
+  let env_of_sexp = Inter.env_of_sexp
+  let compare_env = Inter.compare_env
 
   include Inter.Value
 end

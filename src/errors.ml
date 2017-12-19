@@ -23,11 +23,11 @@ type compile_error =
 
 let to_string_hum = function
   | `NoInput -> "No input to parse"
-  | `SyntaxError(file, line, col) -> Printf.sprintf "Syntax error in file %s at line %i column %i" file line col
+  | `SyntaxError(file, line, col) -> Printf.sprintf "Syntax error in namespace %s at line %i column %i" file (line + 1) col
   | `UnsupportedValueAST -> "Can't parse it as value"
   | `UnexpectedDependencies d -> Printf.sprintf "External dependencies are not supported here (%s)" (String.concat ~sep:", " d)
   | `UnboundVar(bind, {Ast.pstart}) ->
-    Printf.sprintf "Unbound variable %s in file %s at line %i column %i" bind pstart.pos_fname pstart.pos_lnum (pstart.pos_cnum - pstart.pos_bol + 1)
+    Printf.sprintf "Unbound variable %s in file %s at line %i column %i" bind pstart.pos_fname (pstart.pos_lnum + 1) (pstart.pos_cnum - pstart.pos_bol + 1)
   | `BadFormat -> "Binary message is bad formatted"
 
 
