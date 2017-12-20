@@ -1,6 +1,13 @@
 open Base
 open Inter0
 
+let to_string = function
+  | VConst(Ast.String x) -> x
+  | VConst(Ast.Int x) -> Int.to_string x
+  | VConst(Ast.Float x) -> Float.to_string x
+    (* TODO *)
+  | _ -> "<value>"
+
 let default = [|
   (* Let *)
   (function
@@ -17,7 +24,7 @@ let default = [|
       PrimVal (VConst(Ast.Float(Float.(of_int x + y))))
     | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
       PrimVal (VConst(Ast.Float(Float.(x + of_int y))))
-    | [| VConst(Ast.String x); VConst(Ast.String y) |] -> PrimVal (VConst(Ast.String(String.concat [x;y])))
+    | [| VConst(Ast.String x); other |] -> PrimVal (VConst(Ast.String(String.concat [x; to_string other])))
     | [| VRecord(pairs1); VRecord(pairs2) |] ->
       let merged = List.fold pairs2 ~init:pairs1 ~f:(fun acc (a, b) ->
           List.Assoc.add acc ~equal:String.equal a b) in
