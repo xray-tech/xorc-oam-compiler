@@ -320,14 +320,19 @@ let unblock' deps code instance coeffect value =
                 values = clb;
                 coeffects = c_clb;
                 queue = [] } in
-  let token = List.Assoc.find_exn instance.blocks ~equal:Int.equal coeffect in
-  publish state token.stack token.env value;
-  run_loop state;
-  let (killed, instance') = check_killed coeffect instance in
-  Res.{ values = !values;
-        coeffects = !coeffects;
-        killed;
-        instance = instance'}
+  match List.Assoc.find instance.blocks ~equal:Int.equal coeffect with
+  | None -> Res.{ values = [];
+                  coeffects = [];
+                  killed = [];
+                  instance}
+  | Some(token) ->
+    publish state token.stack token.env value;
+    run_loop state;
+    let (killed, instance') = check_killed coeffect instance in
+    Res.{ values = !values;
+          coeffects = !coeffects;
+          killed;
+          instance = instance'}
 
 let unblock ?(dependencies = [||]) code instance coeffect value =
   Or_error.try_with ~backtrace:true (fun () -> unblock' dependencies code instance coeffect value)
