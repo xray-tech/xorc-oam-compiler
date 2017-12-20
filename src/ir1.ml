@@ -31,6 +31,8 @@ let collect_defs e =
       let clauses = Hashtbl.find_or_add acc ident ~default:(fun () -> []) in
       Hashtbl.set acc ~key:ident ~data:((ident, params, guard, body)::clauses);
       collect_clauses e
+    | (Ast.EDecl((DSig _, _), e), _) ->
+      collect_clauses e
     | e -> (Hashtbl.data acc, e) in
   collect_clauses e
 
@@ -291,7 +293,7 @@ let rec translate' ((e, pos) as ast) =
     let e' = A.EDecl((DDef(n, [], params, None, None, body), A.dummy),
                      (A.EIdent n, A.dummy)) in
     translate'((e', A.dummy))
-  | A.EDecl((DDef _, _), _) ->
+  | A.EDecl((DDef _, _), _) | EDecl((DSig _, _), _) ->
     translate_defs (e, pos)
   | A.EDecl((DVal(p, val_e), _), e) ->
     translate' ((EPruning(e, p, val_e)), pos)
@@ -309,7 +311,7 @@ let rec translate' ((e, pos) as ast) =
 
   | A.EDecl((DInclude(_), _), _e) ->
     assert false
-  | EDecl((DSig(_), _), e) | EDecl((DAlias(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
+  | EDecl((DAlias(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
     translate' e
 
 and deflate e k =
