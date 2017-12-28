@@ -57,7 +57,7 @@ let tests =
        ("signal", Check (allof ["signal"]));
        ("stop", Check (allof []));
 
-       ("Let(2, 3, 4) >(x,y,z)> Let(x | z)", Check (oneof ["2"; "4"]));
+       ("(2, 3, 4) >(x,y,z)> Let(x | z)", Check (oneof ["2"; "4"]));
 
        ("floor(3.2)", Check (allof ["3"]));
        ("ceil(3.2)", Check (allof ["4"]));

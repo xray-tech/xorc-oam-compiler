@@ -82,7 +82,9 @@ let empty_loader =
   end : NSLoader)
 
 let implicit_prelude =
-  "refer from core (abs, signum, min, max, (+), Rwait, Println)
+  "refer from core (abs, signum, min, max, (+), (-), (*), (/), (%), (**), (=), (/=),
+     (:>), (>=), (<:), (<=), (||), (&&), (~), (:), Ift, Iff, ceil, floor, sqrt, Let,
+     Rwait, Println)
    refer from idioms (curry, curry3, uncurry, uncurry3, flip, constant, defer, defer2,
      ignore, ignore2, compose, while, repeat, fork, forkMap, seq, seqMap, join,
      joinMap, alt, altMap, por, pand)
@@ -90,7 +92,7 @@ let implicit_prelude =
      append, foldl, foldl1, foldr, foldr1, afold, zipWith, zip, unzip, concat,
      length, take, drop, member, merge, mergeBy, sort, sortBy, mergeUnique,
      mergeUniqueBy, sortUnique, sortUniqueBy, group, groupBy, rangeBy, range,
-     any, all, sum, product, and, or, minimum, maximum) "
+     any, all, sum, product, and, or, minimum, maximum)"
 
 let compile_source loader prelude prog =
   let prog' = if prelude

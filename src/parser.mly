@@ -130,10 +130,7 @@ expr:
 return_type: DOUBLE_COLON ret=ty { ret }
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
-  | DEF LEFT_PAREN op=binop RIGHT_PAREN t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
-    { (DDef(op, (optional_list t_ps), ps, ret, guard, e),
-       make_pos $startpos $endpos) }
-  | DEF name=IDENT t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
+  | DEF name=ident_or_op t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
     { (DDef(name, (optional_list t_ps), ps, ret, guard, e),
        make_pos $startpos $endpos) }
   | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
@@ -158,7 +155,10 @@ decl:
        make_pos $startpos $endpos) }
 
 guard: IF LEFT_PAREN e=expr RIGHT_PAREN { e }
-ident_or_op: x=IDENT { x } | LEFT_PAREN x=binop RIGHT_PAREN { x }
+ident_or_op:
+  | x=IDENT { x }
+  | LEFT_PAREN x=binop RIGHT_PAREN { x }
+  | LEFT_PAREN x=NOT RIGHT_PAREN { x }
 
 constructors:
   | c=constructor { [c] }

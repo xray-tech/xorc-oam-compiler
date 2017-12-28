@@ -3,7 +3,7 @@
   (public_name orcml)
   (libraries (base menhirLib sedlex stdio msgpck))
   (preprocess (pps (ppx_jane)))
-  (flags (:standard -w -9))
+  (flags (:standard -w -9 -w -27))
 ))
 
 (rule

@@ -41,28 +41,28 @@ let rec increment_instances = function
 
 let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
 
-(* let rec format_value = function
- *   | Value v -> format_v v
- *   | Pending { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
- *   | Pending { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
- * and format_v = function
- *   | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
- *   | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
- *   | VTu
- *
- * let format_env env =
- *   let vs = (Array.to_sequence env
- *             |> Sequence.map ~f:format_value
- *             |> Sequence.to_list) in
- *   "(" ^ String.concat ~sep:", " vs ^ ")"
- *
- * let print_debug { code } (pc, c) env  =
- *   let (size, f) = code.(pc) in
- *   let op = f.(c) in
- *   Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
- *     pc c size
- *     (sexp_of_t op |> Sexp.to_string_hum)
- *     (format_env env) *)
+let rec format_value = function
+  | Value v -> format_v v
+  | Pending { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
+  | Pending { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
+and format_v = function
+  | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
+  | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
+  | _ -> "<>"
+
+let format_env env =
+  let vs = (Array.to_sequence env
+            |> Sequence.map ~f:format_value
+            |> Sequence.to_list) in
+  "(" ^ String.concat ~sep:", " vs ^ ")"
+
+let print_debug { code } (pc, c) env  =
+  let (size, f) = code.(pc) in
+  let op = f.(c) in
+  Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
+    pc c size
+    (sexp_of_t op |> Sexp.to_string_hum)
+    (format_env env)
 
 let get_code inter pc =
   inter.code.(pc)
@@ -121,7 +121,7 @@ and halt state stack env =
 and tick
     ({ instance; inter } as state)
     (pc, c) stack env =
-  (* print_debug state (pc, c) env; *)
+  (* print_debug inter (pc, c) env; *)
   let realized arg =
     (match env.(arg) with
      | Pending ({ pend_value = Pend } as p) ->

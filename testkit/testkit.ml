@@ -88,13 +88,27 @@ let run_loop p compiled checks =
   in
   tick [] checks
 
-let run_test results p (e, checks) =
+let implicit_core =
+  "refer from core (abs, signum, min, max, (+), (-), (*), (/), (%), (**), (=), (/=),
+     (:>), (>=), (<:), (<=), (||), (&&), (~), (:), Ift, Iff, ceil, floor, sqrt, Let,
+     Rwait, Println)\n"
+
+let compiled_core =
+  let%map code = Reader.file_contents "prelude/core.orc" in
+  let parsed = Orcml.parse_ns ~filename:"core" code
+               |> Result.map_error ~f:(fun _ -> "Core compilation error")
+               |> Result.ok_or_failwith in
+  let (_, ir) = Orcml.translate parsed in
+  ir
+
+let run_test core results p (e, checks) =
   debug "Run test: %s" e;
   let res =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml.parse e in
-    let%bind ir = Orcml.translate_no_deps parsed in
-    Orcml.compile ~deps:[] ir in
+    let e' = implicit_core ^ e in
+    let%bind parsed = Orcml.parse e' in
+    let (_, ir) = Orcml.translate parsed in
+    Orcml.compile ~deps:[("core", core)] ir in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
@@ -135,7 +149,8 @@ let with_prog (prog, args) tests f =
 
 let exec_tests prog tests =
   let results = { success = 0; failed = 0 } in
-  with_prog prog tests (run_test results) >>| fun () ->
+  let%bind core = compiled_core in
+  with_prog prog tests (run_test core results) >>| fun () ->
   info "Success: %i; Failed: %i\n" results.success results.failed;
   if results.failed > 0
   then exit 1
@@ -161,7 +176,7 @@ let exec =
         let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
         Log.Global.set_output [output];
         let tests' = filter_tests suits in
-        exec_tests (prog, Option.value args ~default:[]) tests' |> ignore;
+        exec_tests  (prog, Option.value args ~default:[]) tests' |> ignore;
         Scheduler.go () |> never_returns]
 
 let bench_test n p (e, _checks) =

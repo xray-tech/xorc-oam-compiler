@@ -63,6 +63,9 @@ let rec translate' ((e, pos) as ast) =
     let call target params =
       (ECall(target, params), ast)
 
+    let ffi target params =
+      (EFFI(target, params), ast)
+
     let otherwise left right =
       (EOtherwise(left, right), ast)
 
@@ -95,24 +98,24 @@ let rec translate' ((e, pos) as ast) =
         DSL.(deflate' (const x) (fun x' ->
             deflate' (call "=" [focus; x']) (fun is_eq ->
                 seqw
-                  (call "'Ift" [is_eq])
+                  (ffi "core.ift" [is_eq])
                   (expr ()))))
       | A.PTuple(ps) ->
         DSL.(deflate' (const (A.Int (List.length ps))) (fun arity ->
-            seqw (call "'ArityCheck" [focus; arity])
+            seqw (ffi "core.arity-check" [focus; arity])
               (unravel_tuple ps 0 focus expr)))
       | A.PCons(head, tail) ->
         let head' = make_fresh () in
         let tail' = make_fresh () in
         DSL.(seq
-               (call "'First" [focus]) head'
+               (ffi "core.first" [focus]) head'
                (seq
-                  (call "'Rest" [focus]) tail'
+                  (ffi "core.rest" [focus]) tail'
                   (unravel head head' (fun () ->
                        unravel tail tail' expr))))
       | A.PList(ps) ->
         DSL.(deflate' (const (A.Int (List.length ps))) (fun size ->
-            seqw (call "'ListSizeCheck" [focus; size])
+            seqw (ffi "core.list-check-size" [focus; size])
               (unravel_list ps focus expr)))
       | A.PRecord(pairs) ->
         unravel_record pairs focus expr
@@ -125,7 +128,7 @@ let rec translate' ((e, pos) as ast) =
         let bind = make_fresh () in
         DSL.(deflate' (const (A.String f)) (fun field ->
             seq
-              (call "'FieldAccess" [focus; field])
+              (ffi "core.field-access" [focus; field])
               bind
               (unravel p bind (fun () ->
                    unravel_record pairs' focus expr))))
@@ -136,9 +139,9 @@ let rec translate' ((e, pos) as ast) =
         let head' = make_fresh () in
         let tail' = make_fresh () in
         DSL.(seq
-               (call "'First" [focus]) head'
+               (ffi "core.first" [focus]) head'
                (seq
-                  (call "'Rest" [focus]) tail'
+                  (ffi "core.rest" [focus]) tail'
                   (unravel p head' (fun () ->
                        unravel_list ps' tail' expr))))
     and unravel_tuple ps i focus expr =
@@ -150,7 +153,7 @@ let rec translate' ((e, pos) as ast) =
             seq (call focus [i']) bind (unravel p bind (fun () ->
                 unravel_tuple ps' (i + 1) focus expr)))) in
     let on_source () = if List.length !bindings > 0
-      then DSL.call "'MakeTuple" (List.map !bindings ~f:(fun (b, _) -> b))
+      then DSL.ffi "core.make-tuple" (List.map !bindings ~f:(fun (b, _) -> b))
       else DSL.const A.Signal in
     let on_target bridge target =
       if List.length !bindings > 0
@@ -176,12 +179,12 @@ let rec translate' ((e, pos) as ast) =
     let target_binding = make_fresh () in
     DSL.(seq
            (otherwise
-              (seq source res (call "'WrapSome" [res]))
-              (call "'GetNone" []))
+              (seq source res (ffi "core.wrap-some" [res]))
+              (ffi "core.get-none" []))
            maybe_res
            (par
-              (seq (call "'UnwrapSome" [maybe_res]) target_binding (target target_binding))
-              (seqw (call "'IsNone" [maybe_res]) else_)))
+              (seq (ffi "core.unwrap-some" [maybe_res]) target_binding (target target_binding))
+              (seqw (ffi "core.is-none" [maybe_res]) else_)))
   and translate_clauses defs =
     let rebind_vars vars expr =
       List.fold vars ~init:expr ~f:(fun acc (p, binding) ->
@@ -191,12 +194,12 @@ let rec translate' ((e, pos) as ast) =
     let clause' vars strict else_ guard body =
       let stricted_values = make_fresh () in
       let pattern = Ast.PTuple (List.map strict ~f:(fun (x, _) -> x)) in
-      let values = DSL.call "'MakeTuple" (List.map strict ~f:(fun (_, x) -> x)) in
+      let values = DSL.ffi "core.make-tuple" (List.map strict ~f:(fun (_, x) -> x)) in
       let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
       let source' = match guard with
         | Some(v) -> DSL.(let bind = make_fresh () in
                           let guarded = deflate v (fun res ->
-                              (seqw (call "'Ift" [res]) (ident bind))) in
+                              (seqw (ffi "core.ift" [res]) (ident bind))) in
                           seq source bind (on_target bind (rebind_vars vars guarded)))
         | None -> source in
       let body' = rebind_vars vars body in
@@ -264,10 +267,10 @@ let rec translate' ((e, pos) as ast) =
            (seq source bridge (on_target bridge (translate' e2))))
   | A.EList(es) ->
     deflate_many es (fun es' ->
-        (ECall("'MakeList", es'), ast))
+        (EFFI("core.make-list", es'), ast))
   | A.ETuple(es) ->
     deflate_many es (fun es' ->
-        (ECall("'MakeTuple", es'), ast))
+        (EFFI("core.make-tuple", es'), ast))
   | A.ERecord(pairs) ->
     let (keys, vals) = List.unzip pairs in
     let key_consts = (List.map keys ~f:(fun k ->
@@ -276,14 +279,18 @@ let rec translate' ((e, pos) as ast) =
         deflate_many vals (fun vals' ->
             let args = List.fold2_exn keys' vals' ~init:[] ~f:(fun acc k v ->
                 k::v::acc) in
-            (ECall("'MakeRecord", args), ast) ))
+            (EFFI("core.make-record", args), ast) ))
   | A.ECond(pred, then_, else_) ->
     DSL.(
       deflate pred (fun pred' ->
           par
-            (seqw (call "'Ift" [pred']) (translate' then_))
-            (seqw (call "'Iff" [pred']) (translate' else_))))
+            (seqw (ffi "core.ift" [pred']) (translate' then_))
+            (seqw (ffi "core.iff" [pred']) (translate' else_))))
   | A.EConst c -> (EConst(c), ast)
+  (* special case for unary operator '-' *)
+  | A.ECall((EIdent "-", _), _, [arg]) ->
+      deflate arg (fun arg' ->
+          (EFFI("core.sub", [arg']), ast))
   | A.ECall(e, _, args) ->
     deflate e (fun e' ->
         deflate_many args (fun args' ->
@@ -305,7 +312,7 @@ let rec translate' ((e, pos) as ast) =
   | A.EFieldAccess(target, field) ->
     deflate target (fun t ->
         deflate (A.EConst(A.String field), A.dummy) (fun f ->
-            (ECall("'FieldAccess", [t; f]), ast)))
+            (EFFI("core.field-access", [t; f]), ast)))
   | A.EDecl((DRefer(ns, fs), _), e) ->
     deps := ns::!deps;
     (ERefer(ns, fs, translate' e), ast)

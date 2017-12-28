@@ -4,6 +4,7 @@ module I = Inter0
 
 type unit = {
   is_closure : bool;
+  ns : string;
   ident : string;
   ctx : ctx option ref;                (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
   params : string list;
@@ -48,13 +49,18 @@ let new_index = ctx_vars
 
 let len = List.length
 
-type compile_unit = LocalFun of unit | ImportFun of string * string
+let compile_unit_equal a b =
+  match (a, b) with
+  | ({ns; ident}, {ns = ns'; ident = ident'})
+    when String.equal ns' ns && String.equal ident' ident ->
+    true
+  | _ -> false
 
 type state = {
-  deps : (string * unit) list;
+  deps : unit list;
   mutable ffi_in_use : string list;
   mutable repo : (string * string * int * I.t array) list;
-  mutable compile_queue : compile_unit list;
+  mutable compile_queue : unit list;
 }
 
 let repo_index state ns ident =
@@ -62,32 +68,37 @@ let repo_index state ns ident =
     | [] -> None
     | (ns', ident', _, _)::xs when String.equal ns' ns && String.equal ident' ident ->
       Some(len xs)
-    | xs -> f xs in
+    | _::xs -> f xs in
   f state.repo
 
 let get_label state unit =
-  let rec f = function
+  let rec f i = function
     | [] ->
-      state.compile_queue <- (LocalFun unit)::state.compile_queue;
-      len state.repo + len state.compile_queue
-    | LocalFun({ident})::xs when String.equal ident unit.ident ->
-      len state.repo + len xs + 1
-    | _::xs -> f xs in
+      state.compile_queue <- state.compile_queue @ [unit];
+      len state.repo + i
+    | {ns; ident}::_ when String.equal ident unit.ident ->
+      len state.repo + i
+    | _::xs -> f (i + 1) xs in
   match repo_index state "" unit.ident with
   | Some(i) -> i
-  | None -> f state.compile_queue
+  | None -> f 0 state.compile_queue
 
 let get_import_label state (ns, ident) =
-  let rec f = function
-    | [] ->
-      state.compile_queue <- (ImportFun (ns, ident))::state.compile_queue;
-      len state.repo + len state.compile_queue
-    | ImportFun(ns', ident')::xs when String.equal ns' ns && String.equal ident' ident ->
-      len state.repo + len xs + 1
-    | _::xs -> f xs in
-  match repo_index state ns ident with
-  | Some(i) -> i
-  | None -> f state.compile_queue
+  with_return (fun r ->
+      let rec f i = function
+        | [] ->
+          (match List.find state.deps ~f:(fun {ns = ns'; ident = ident'} ->
+               String.equal ns' ns && String.equal ident' ident) with
+           | None -> r.return None
+           | Some(unit) ->
+             state.compile_queue <- state.compile_queue @ [unit];
+             len state.repo + i)
+        | {ns = ns'; ident = ident'}::_ when String.equal ns' ns && String.equal ident' ident ->
+          len state.repo + i
+        | _::xs -> f (i+1) xs in
+      match repo_index state ns ident with
+      | Some(i) -> Some(i)
+      | None -> Some(f 0 state.compile_queue))
 
 let get_ffi state def =
   let rec f = function
@@ -143,6 +154,8 @@ let closure_vars ctx pos vars =
       Ok filtered)
 
 type env = {
+  ns : string;
+  current_fun : string;
   ctx : ctx;
   shift : int;
   tail_call : bool;
@@ -157,6 +170,10 @@ let compile_e env e =
         let ctx_find x = match ctx_find env.ctx pos x with
           | Ok(v) -> v
           | Error(_) as err -> r.return err in
+        let get_import_label' (ns, ident) =
+          match get_import_label env.state (ns, ident) with
+          | None -> r.return (Error (`UnknownReferedFunction(ns, ident)))
+          | Some(i) -> i in
         let open! Ir1 in
         let compile_call ident args =
           let args' = List.map args ~f:(fun arg ->
@@ -164,14 +181,16 @@ let compile_e env e =
               | (i, BindVar) -> i
               | _ -> assert false) in
           (match ctx_find ident with
-           | (_, BindFun unit) when env.tail_call && String.equal ident unit.ident ->
+           | (_, BindFun unit) when env.tail_call &&
+                                    String.equal env.current_fun unit.ident &&
+                                    String.equal env.ns unit.ns ->
              let c = get_label env.state unit in
              (0, [I.TailCall(I.TFun(c), Array.of_list args')])
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
              (0, [I.Call(I.TFun(c), Array.of_list args')])
            |  (_, BindNs f) ->
-             let c = get_import_label env.state f in
+             let c = get_import_label' f in
              (0, [I.Call(I.TFun(c), Array.of_list args')])
            (* TODO tail call of closures *)
            | (i, BindVar) ->
@@ -212,7 +231,7 @@ let compile_e env e =
              let c = get_label env.state unit in
              (0, [I.Label(c)])
            | (_, BindNs f) ->
-             let c = get_import_label env.state f in
+             let c = get_import_label' f in
              (0, [I.Label(c)])
            | (_, BindCoeffect) -> raise Util.TODO)
         | EConst v -> (0, [I.Const v])
@@ -260,7 +279,11 @@ let compile_e env e =
               closure_vars env.ctx pos all) in
           let binds = List.map2_exn fs closure_vars ~f:(fun (ident, params, body) vars ->
               match vars with
-              | Ok ([]) -> (ident, BindFun {ident; is_closure = false; ctx = ref None; params; body})
+              | Ok ([]) -> (ident, BindFun {ns = env.ns;
+                                            ident;
+                                            is_closure = false;
+                                            ctx = ref None;
+                                            params; body})
               | Ok _ -> (ident, BindVar)
               | Error _ as err -> r.return err ) in
           let ctx' = binds @ env.ctx in
@@ -272,7 +295,11 @@ let compile_e env e =
             | BindFun _ ->
               (i, index, acc)
             | BindVar ->
-              let c = get_label env.state {ident; is_closure = true; ctx = ref (Some ctx'); params; body} in
+              let c = get_label env.state {ns = env.ns;
+                                           ident;
+                                           is_closure = true;
+                                           ctx = ref (Some ctx');
+                                           params; body} in
               (i + 2, index + 1, I.Pruning(i - 1, Some(index), i)::I.Closure(c, closure_size)::acc)
             | _ -> assert false in
           let init = (env.shift + len body, new_index env.ctx, []) in
@@ -302,7 +329,7 @@ let compile_e env e =
         | EStop -> (0, [I.Stop]) in
       Ok(compile_e' env e))
 
-let compile_fun state {is_closure; ctx; params; body} =
+let compile_fun state {ns; ident; is_closure; ctx; params; body} =
   let params' = List.rev_map params ~f:(fun n -> (n, BindVar)) in
   let ctx = Option.value_exn !ctx in
   let ctx' = if is_closure
@@ -311,23 +338,31 @@ let compile_fun state {is_closure; ctx; params; body} =
                                       | _ -> true) in
   let ctx'' = params' @ ctx' in
   let open Result.Let_syntax in
-  let%map (size, f) = compile_e { ctx = ctx''; tail_call = true; shift = 0; state} body in
+  let%map (size, f) = compile_e { ns; current_fun = ident;
+                                  ctx = ctx'';
+                                  tail_call = true;
+                                  shift = 0;
+                                  state} body in
   (size + List.length params + ctx_vars ctx', f)
 
 let rec prepare_dep ctx ns = function
   | Ir1.ENS ->
     List.filter_map ctx ~f:(function
-        | (_, BindFun unit) -> Some (ns, unit)
+        | (_, BindFun unit) -> Some unit
         | _ -> None)
   | Ir1.EFix(fs, (e, _)) ->
     let binds = List.map fs ~f:(fun (ident, params, body) ->
-        (ident, BindFun {ident; is_closure = false; ctx = ref None; params; body})) in
+        (ident, BindFun {ns;
+                         ident;
+                         is_closure = false;
+                         ctx = ref None;
+                         params; body})) in
     let ctx' = binds @ ctx in
     List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
     prepare_dep ctx' ns e
-  | ERefer(ns, fs, (e, _)) ->
+  | ERefer(ns', fs, (e, _)) ->
     let binds = (List.map fs ~f:(fun name ->
-        (name, BindNs(ns, name)))) in
+        (name, BindNs(ns', name)))) in
     prepare_dep (binds @ ctx) ns e
   | _ -> assert false
 
@@ -346,29 +381,33 @@ let compile ~deps e =
       let state = { deps = prepare_deps deps;
                     repo = [];
                     ffi_in_use = [];
-                    compile_queue = [LocalFun {ident = "'main";
-                                               is_closure = false;
-                                               ctx = ref (Some init_ctx);
-                                               params = [];
-                                               body = e}]} in
-      let rec compile_loop () =
-        match state.compile_queue with
-        | [] -> ()
-        | LocalFun(unit)::xs ->
-          state.compile_queue <- xs;
-          compile_unit "" unit
-        | ImportFun(ns, ident)::xs ->
-          state.compile_queue <- xs;
-          match List.find state.deps ~f:(fun (ns', {ident = ident'}) -> String.equal ns ns' && String.equal ident ident') with
-          | None -> r.return (Error (`UnknownReferedFunction(ns, ident)))
-          | Some (_, unit) -> compile_unit ns unit
-      and compile_unit ns unit =
+                    compile_queue = [{ns = "";
+                                      ident = "'main";
+                                      is_closure = false;
+                                      ctx = ref (Some init_ctx);
+                                      params = [];
+                                      body = e}]} in
+      let compile_unit unit =
         (match compile_fun state unit with
          | Error _ as err -> r.return err
          | Ok(size, ops) ->
-           state.repo <- (ns, unit.ident, size, Array.of_list_rev ops)::state.repo;
-           compile_loop ()) in
+           let x = (unit.ns, unit.ident, size, Array.of_list_rev ops) in
+           state.repo <- x::state.repo) in
+      let remove_from_queue el =
+        let rec f acc = function
+          | [] -> (List.rev acc)
+          | x::xs when compile_unit_equal x el ->
+            (List.rev acc) @ xs
+          | x::xs -> f (x::acc) xs in
+        state.compile_queue <- f [] state.compile_queue in
+      let rec compile_loop () =
+        match state.compile_queue with
+        | [] -> ()
+        | unit::_ ->
+          compile_unit unit;
+          remove_from_queue unit;
+          compile_loop () in
       compile_loop ();
       let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, body) ->
-        (size, body)) in
-      Ok({I.ffi = state.ffi_in_use; code}))
+          (size, body)) in
+      Ok({I.ffi = List.rev state.ffi_in_use; code}))
