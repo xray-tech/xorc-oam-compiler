@@ -26,6 +26,7 @@
 %token NUMBER_SIGN
 %token COMMA DOT
 %token LESS MORE
+%token <string> FFI
 %token BAR SEMICOLON
 %token SIG DOUBLE_COLON TOVERRIDE
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR NOT COLON DEREFERENCE
@@ -101,6 +102,9 @@ expr:
   | target=expr t_args=type_args ar=args 
    { (ECall(target, t_args, ar),
       make_pos $startpos $endpos) }
+  | target=FFI ar=args
+   { (EFFI(target, ar),
+      make_pos $startpos $endpos) }
   | e1=expr BAR e2=expr
     { (EParallel(e1, e2),
        make_pos $startpos $endpos) }
@@ -126,13 +130,16 @@ expr:
 return_type: DOUBLE_COLON ret=ty { ret }
 decl:
   | VAL p=pattern EQ e=expr  { (DVal(p, e), make_pos $startpos $endpos) }
+  | DEF LEFT_PAREN op=binop RIGHT_PAREN t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
+    { (DDef(op, (optional_list t_ps), ps, ret, guard, e),
+       make_pos $startpos $endpos) }
   | DEF name=IDENT t_ps=type_params? ps=params ret=return_type? guard=guard? EQ e=expr
     { (DDef(name, (optional_list t_ps), ps, ret, guard, e),
        make_pos $startpos $endpos) }
   | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
     { (DSig(name, ((optional_list t_ps), args, ret)),
        make_pos $startpos $endpos) }
-  | REFER ns=namespace LEFT_PAREN idents=separated_list(COMMA, IDENT) RIGHT_PAREN
+  | REFER ns=namespace LEFT_PAREN idents=separated_list(COMMA, ident_or_op) RIGHT_PAREN
     { (DRefer(ns, idents),
        make_pos $startpos $endpos) }
   | IMPORT t=IDENT n=IDENT EQ def=STRING
@@ -151,6 +158,7 @@ decl:
        make_pos $startpos $endpos) }
 
 guard: IF LEFT_PAREN e=expr RIGHT_PAREN { e }
+ident_or_op: x=IDENT { x } | LEFT_PAREN x=binop RIGHT_PAREN { x }
 
 constructors:
   | c=constructor { [c] }

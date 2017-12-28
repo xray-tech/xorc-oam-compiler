@@ -94,17 +94,17 @@ let run_test results p (e, checks) =
     let open Result.Let_syntax in
     let%bind parsed = Orcml.parse e in
     let%bind ir = Orcml.translate_no_deps parsed in
-    Orcml.compile ir in
+    Orcml.compile ~deps:[] ir in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" e reason in
   match res with
-  | Ok((_, repo)) ->
-    run_loop p (Orcml.finalize repo) checks >>| (function
+  | Ok bc ->
+    run_loop p bc checks >>| (function
         | `Ok -> results.success <- results.success + 1
         | `Fail reason ->
           fail reason)
-  | Error(err) ->
+  | Error err ->
     fail (Orcml.error_to_string_hum err); return ()
 
 let with_prog (prog, args) tests f =
@@ -170,14 +170,14 @@ let bench_test n p (e, _checks) =
     let open Result.Let_syntax in
     let%bind parsed = Orcml.parse e in
     let%bind ir = Orcml.translate_no_deps parsed in
-    Orcml.compile ir in
+    Orcml.compile ~deps:[] ir in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
-  | Ok((_, repo)) ->
+  | Ok(bc) ->
     let input = Process.stdin p in
     let output = Process.stdout p in
-    T.Benchmark(Orcml.finalize repo, n) |> Serializer.dump_msg |> Protocol.write input;
+    T.Benchmark(bc, n) |> Serializer.dump_msg |> Protocol.write input;
     Protocol.read_msg output >>= (function
         | None ->
           error "Engine stopped";

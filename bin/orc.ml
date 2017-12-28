@@ -26,43 +26,6 @@ let list_position l ~f =
     | _::xs -> step (acc + 1) xs in
   step 0 l
 
-let imports_linker imports_mapping fun_ =
-  let equal a b = Int.equal 0 (Orcml.Fun.compare a b) in
-  (match List.Assoc.find imports_mapping ~equal fun_  with
-   | Some(pointer) -> Ok(pointer)
-   | None ->
-     Error(fun_))
-
-let linker imports_mapping imports p =
-  match List.Assoc.find imports ~equal:Int.equal p with
-  | None ->
-    Ok(p)
-  | Some(x) ->
-    imports_linker imports_mapping x
-
-let link_namespaces compiled =
-  with_return (fun r ->
-      let change_pointers shift imports_mapping imports repo =
-        let size = List.length repo in
-        let linker p = match List.Assoc.find imports ~equal:Int.equal p with
-          (* it's local fun, so we add shift to it and do not forget that result
-             code is reversed *)
-          | None ->
-            Ok(shift + (size - (Int.abs p)))
-          (* it's pointer to external fun, we should already have it *)
-          | Some(x) -> imports_linker imports_mapping x in
-        Orcml.link repo linker in
-      let fold_compiled (imports_mapping, all_code) (ns, (imports, repo)) =
-        let shift = List.length all_code in
-        match change_pointers shift imports_mapping imports repo with
-        | Error(err) -> r.return (Error err)
-        | Ok(repo') ->
-          let m = List.mapi (List.rev repo) ~f:(fun i (name, _) -> (Orcml.Fun.{ns; name}, shift + i)) in
-          (m @ imports_mapping, repo' @ all_code) in
-      let (global_mapping, code) =
-        List.fold (List.rev compiled) ~init:([], []) ~f:fold_compiled in
-      Ok(Orcml.finalize (List.rev code), global_mapping))
-
 let compile_namespaces (module NSLoader : NSLoader) init_queue =
   let compiled = ref [] in
   let is_already_compiled ns =
@@ -85,13 +48,10 @@ let compile_namespaces (module NSLoader : NSLoader) init_queue =
         | Error(err) -> Error(err) |> return
         | Ok((deps, e)) ->
           compile_loop deps >>=? fun () ->
-          match Orcml.compile_ns e with
-          | Error(err) -> Error(err) |> return
-          | Ok(res) ->
-            compiled := (ns, res)::!compiled;
-            compile_loop queue in
+          compiled := (ns, e)::!compiled;
+          compile_loop queue in
   compile_loop init_queue >>=? (fun () ->
-      return (link_namespaces !compiled))
+      return (Ok !compiled))
 
 let optional_file_contents path =
   Monitor.try_with (fun () -> Reader.file_contents path >>| Option.some )
@@ -122,7 +82,7 @@ let empty_loader =
   end : NSLoader)
 
 let implicit_prelude =
-  "refer from core (abs, signum, min, max, Rwait, Println)
+  "refer from core (abs, signum, min, max, (+), Rwait, Println)
    refer from idioms (curry, curry3, uncurry, uncurry3, flip, constant, defer, defer2,
      ignore, ignore2, compose, while, repeat, fork, forkMap, seq, seqMap, join,
      joinMap, alt, altMap, por, pand)
@@ -146,66 +106,30 @@ let compile_source loader prelude prog =
   | Ok((deps, ir)) ->
     debug "Translated:\n%s" (Orcml.sexp_of_ir1 ir |> Sexp.to_string_hum);
     compile_namespaces loader deps
-    >>=? fun (deps, imports_mapping) ->
-    match Result.Let_syntax.(
-        let%bind (imports, repo) = Orcml.compile ir in
-        debug "Before linking:\n%s" (Orcml.sexp_of_repo repo |> Sexp.to_string_hum);
-        let linker = linker imports_mapping imports in
-        let%map repo' = Orcml.link repo linker in
-        repo') with
-    | Error(err) -> Error err |> return
-    | Ok(repo') ->
-      Ok(imports_mapping, deps, Orcml.finalize repo') |> return
+    >>=? fun deps ->
+    match Orcml.compile ~deps ir with
+    | Error _ as err -> return err
+    | Ok(bc) ->
+      debug "Compiled:\n%s" (Orcml.sexp_of_bc bc |> Sexp.to_string_hum);
+      return (Ok bc)
 
-let imports_to_deps imports =
-  let rec f acc = function
-    | [] -> String.Set.to_list acc
-    | (_, {Orcml.Fun.ns})::xs -> f (String.Set.add acc ns) xs in
-  f String.Set.empty imports
-
-let compile_bc loader prog =
+let compile_bc prog =
   let (_, packed) = Msgpck.String.read prog in
-  match Orcml.Serializer.imports packed with
-  | Error(err) -> return(Error err)
-  | Ok(imports) ->
-    let deps = imports_to_deps imports in
-    compile_namespaces loader deps
-    >>=? fun (deps, imports_mapping) ->
-    let linker = linker imports_mapping imports in
-    let res =
-      Orcml.Serializer.load ~linker packed
-      |> Result.map ~f:(fun bc -> (imports_mapping, deps, bc)) in
-    return res
+  return (Orcml.Serializer.load packed)
 
 let compile_input prelude includes is_byte_code input =
   let loader = multiloader (List.map includes ~f:fs) in
   let%bind prog = read_file_or_stdin input in
   if is_byte_code
-  then compile_bc loader prog
+  then compile_bc prog
   else compile_source loader prelude prog
 
-let make_bytecode prelude ns input =
-  let%map prog = read_file_or_stdin input in
-  let prog' = if prelude
-    then implicit_prelude ^ prog
-    else prog in
-  let (parser, compiler) =
-    if ns
-    then (Orcml.parse_ns ~filename:"", Orcml.compile_ns)
-    else (Orcml.parse, Orcml.compile) in
-  let analyzed =
-    let open Result.Let_syntax in
-    let%map parsed = parser prog' in
-    debug "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
-    Orcml.translate parsed in
-  match analyzed with
-  | Error(err) -> Error(err)
-  | Ok((deps, ir)) ->
-    debug "Translated:\n%s" (Orcml.sexp_of_ir1 ir |> Sexp.to_string_hum);
-    info "Dependencies: %s" ([%sexp_of: string list] deps |> Sexp.to_string_hum);
-    let open Result.Let_syntax in
-    let%map (imports, repo) = compiler ir in
-    Orcml.Serializer.dump ~imports (Orcml.finalize repo)
+let make_bytecode prelude includes input =
+  let loader = multiloader (List.map includes ~f:fs) in
+  let%bind prog = read_file_or_stdin input in
+  match%map compile_source loader prelude prog with
+  | Error _ as err -> err
+  | Ok(bc) -> Ok (Orcml.Serializer.dump bc)
 
 let prelude_flag =
   let open Command.Param in
@@ -215,6 +139,10 @@ let includes_flag =
   let open Command.Param in
   flag "-i" (listed file) ~doc:"Directories to include"
 
+let exts_flag =
+  let open Command.Param in
+  flag "-ext" (listed file) ~doc:"Extensions"
+
 let bc_flag =
   let open Command.Param in
   flag "-bc" no_arg ~doc:"Execute bytecode, not Orc source file. By default reads from stdin"
@@ -223,6 +151,11 @@ let dump_flag =
   let open Command.Param in
   flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
 
+let error_to_string_hum = function
+  | `CantLoadNS ns -> (sprintf "Can't load namespace %s" ns)
+  | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
+    Orcml.error_to_string_hum other
+
 let compile =
   let open Command.Let_syntax in
   Command.basic
@@ -230,14 +163,14 @@ let compile =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and output = flag "-output" (optional file) ~doc:"Output path"
-      and ns = flag "-ns" no_arg ~doc:"Compile namespace"
+      and includes = includes_flag
       and prelude = prelude_flag
       and verbose = verbose_flag in
       let exec () =
-        make_bytecode prelude ns input >>= fun res ->
+        make_bytecode prelude includes input >>= fun res ->
         (match res with
          | Error(err) ->
-           error "Can't compile: %s" (Orcml.error_to_string_hum err);
+           error "Can't compile: %s" (error_to_string_hum err);
            exit 1
          | Ok(bc) ->
            let bc' = Msgpck.String.to_string bc in
@@ -251,7 +184,7 @@ let compile =
         exec () |> ignore;
         Scheduler.go () |> never_returns]
 
-let run_loop mapping state_path unblock res =
+let run_loop state_path unblock res =
   let on_air = ref 0 in
   let stopped = Ivar.create () in
   let minstance = Moption.create () in
@@ -260,7 +193,7 @@ let run_loop mapping state_path unblock res =
   let dump_state instance =
     match state_path with
     | Some(state_path) ->
-      let msgpck = Orcml.Serializer.dump_instance ~mapping instance in
+      let msgpck = Orcml.Serializer.dump_instance instance in
       Writer.save state_path ~contents:(Msgpck.String.to_string msgpck)
     | _ -> return () in
   let coeffect_kind = function
@@ -323,24 +256,23 @@ let run_loop mapping state_path unblock res =
   then exit 0
   else exit 1
 
-let error_to_string_hum = function
-  | `CantLoadNS ns -> (sprintf "Can't load namespace %s" ns)
-  | `LinkerError ({Orcml.Fun.ns; name}) ->
-    (sprintf "Error while linking ns: %s; func: %s" ns name)
-  | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST) as other ->
-    Orcml.error_to_string_hum other
-
 let compile_input_and_deps prelude includes bc input  =
   compile_input prelude includes bc input >>= fun res ->
   (match res with
    | Error(err) ->
      error "Can't compile: %s" (error_to_string_hum err);
      exit 1
-   | Ok((imports_mapping, dependencies, compiled)) ->
-     debug "Compiled:\n%s\nDeps:\n%s"
-       (Orcml.sexp_of_bc compiled |> Sexp.to_string_hum)
-       (Orcml.sexp_of_bc dependencies |> Sexp.to_string_hum);
-     return (imports_mapping, dependencies, compiled))
+   | Ok(bc) ->
+     match Orcml.inter bc with
+     | Error(err) ->
+       error "Can't make runner: %s" (error_to_string_hum err);
+       exit 1
+     | Ok(inter) ->
+       return inter)
+
+let load_exts exts =
+  List.iter exts ~f:(fun ext ->
+    Dynlink.loadfile ext)
 
 let exec =
   let open Command.Let_syntax in
@@ -352,12 +284,14 @@ let exec =
       and prelude = prelude_flag
       and dump = dump_flag
       and includes = includes_flag
+      and exts = exts_flag
       and verbose = verbose_flag in
       let exec () =
+        load_exts exts;
         compile_input_and_deps prelude includes bc input
-        >>= fun (imports_mapping, dependencies, compiled) ->
-        match Orcml.run ~dependencies compiled with
-        | Ok(v) -> run_loop imports_mapping dump (Orcml.unblock ~dependencies compiled) v
+        >>= fun inter ->
+        match Orcml.run inter with
+        | Ok(v) -> run_loop dump (Orcml.unblock inter) v
         | Error(err) ->
           error "Runtime error:\n%s" (Error.to_string_hum err);
           exit 1 in
@@ -367,28 +301,18 @@ let exec =
         Scheduler.go () |> never_returns
     ]
 
-let load_instance imports_mapping path =
+let load_instance path =
   match%bind file_contents path with
   | Error(err) ->
     error "Can't read state file:%s" (Error.to_string_hum err);
     exit 1
   | Ok(bc_raw) ->
     let (_, packed) = Msgpck.String.read bc_raw in
-    match Orcml.Serializer.imports packed with
+    match Orcml.Serializer.load_instance packed with
     | Error(err) ->
       error "Can't parse state file:%s" (error_to_string_hum err);
       exit 1;
-    | Ok(imports) ->
-      let linker p =
-        match List.Assoc.find imports ~equal:Int.equal p with
-        | None -> Ok(p)
-        | Some(fun_) ->
-          imports_linker imports_mapping fun_ in
-      match Orcml.Serializer.load_instance ~linker packed with
-      | Error(err) ->
-        error "Can't parse state file:%s" (error_to_string_hum err);
-        exit 1;
-      | Ok(instance) -> return instance
+    | Ok(instance) -> return instance
 
 let parse_value v =
   match Orcml.parse_value v with
@@ -413,11 +337,11 @@ let unblock =
       and verbose = verbose_flag in
       let exec () =
         compile_input_and_deps prelude includes bc input
-        >>= fun (imports_mapping, dependencies, compiled) ->
-        load_instance imports_mapping load >>= fun instance ->
+        >>= fun inter ->
+        load_instance load >>= fun instance ->
         parse_value value >>= fun value' ->
-        match Orcml.unblock ~dependencies compiled instance id value' with
-        | Ok(v) -> run_loop imports_mapping dump (Orcml.unblock ~dependencies compiled) v
+        match Orcml.unblock inter instance id value' with
+        | Ok(v) -> run_loop dump (Orcml.unblock inter) v
         | Error(err) ->
           error "Runtime error:\n%s" (Error.to_string_hum err);
           exit 1 in
@@ -433,28 +357,34 @@ let tests_server =
   let write v = Protocol.write (Lazy.force Writer.stdout) v in
   let write_result r =
     write (Serializer.dump_res r) in
-  let rec server code state =
+  let rec server inter state =
     let input = (Lazy.force Reader.stdin) in
     Protocol.read_msg_or_exit ~code:0 input >>= fun msg ->
     match Serializer.load_msg msg
           |> Result.map_error ~f:(fun _ -> "Protocol error")
           |> Result.ok_or_failwith with
     | Execute(bc) ->
-      handle_res (Some bc) (Orcml.run bc)
+      let inter = Orcml.inter bc
+                  |> Result.map_error ~f:error_to_string_hum
+                  |> Result.ok_or_failwith in
+      handle_res (Some inter) (Orcml.run inter)
     | Continue(id, v) ->
-      let res = Orcml.unblock (Option.value_exn code) (Option.value_exn state) id v in
-      handle_res code res
+      let res = Orcml.unblock (Option.value_exn inter) (Option.value_exn state) id v in
+      handle_res inter res
     | Benchmark(bc, iter) ->
+            let inter = Orcml.inter bc
+                  |> Result.map_error ~f:error_to_string_hum
+                  |> Result.ok_or_failwith in
       (match Benchmark.latency1 ~style:Benchmark.Nil
-               (Int64.of_int iter) Orcml.run bc with
+               (Int64.of_int iter) Orcml.run inter with
       | [(_, [{Benchmark.wall}])] ->
         write (Serializer.dump_bench_res (wall *. 1000.0));
         server None None
       | _ -> assert false)
-  and handle_res code = function
+  and handle_res inter = function
     | Ok(({Orcml.Res.instance} as v)) ->
       write_result v;
-      server code (Some instance)
+      server inter (Some instance)
     | Error(err) ->
       error "Runtime error:\n%s" (Error.to_string_hum err);
       exit 1 in

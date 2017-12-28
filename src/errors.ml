@@ -9,17 +9,19 @@ type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
-type 'a link_error =
-  [ `LinkerError of 'a]
-[@@deriving sexp_of]
-
 type no_deps_error =
   [ `UnexpectedDependencies of string list ]
 [@@deriving sexp_of]
 
 type compile_error =
-  [ `UnboundVar of string * Ast.pos ]
+  [ `UnboundVar of string * Ast.pos
+  | `UnknownReferedFunction of string * string ]
 [@@deriving sexp_of]
+
+type inter_error =
+  [ `UnknownFFI of string ]
+[@@deriving sexp_of]
+
 
 let to_string_hum = function
   | `NoInput -> "No input to parse"
@@ -29,6 +31,8 @@ let to_string_hum = function
   | `UnboundVar(bind, {Ast.pstart}) ->
     Printf.sprintf "Unbound variable %s in file %s at line %i column %i" bind pstart.pos_fname (pstart.pos_lnum + 1) (pstart.pos_cnum - pstart.pos_bol + 1)
   | `BadFormat -> "Binary message is bad formatted"
+  | `UnknownFFI def -> Printf.sprintf "Unsupported FFI call %s" def
+  | `UnknownReferedFunction(ns, ident) -> Printf.sprintf "Undknown refered function %s:%s" ns ident
 
 
 let foo () = Error(`Foo)

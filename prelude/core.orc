@@ -11,6 +11,8 @@ def max(x,y) = if x :> y then x else y
 
 def eq(x,y) = (x = y)
 
+def (+)(x,y) = `core.plus`(x, y)
+
 def Println(x) = Coeffect({. kind = "println", value = x .})
 
 def Rwait(x) = Coeffect({. kind = "rwait", timeout = x .})

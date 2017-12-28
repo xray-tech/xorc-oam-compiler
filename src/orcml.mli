@@ -20,7 +20,6 @@ module Value : sig
     | VConst of Const.t
     | VClosure of int * int * env
     | VLabel of int
-    | VPrim of int
     | VTuple of t list
     | VList of t list
     | VRecord of (string * t) list
@@ -40,19 +39,21 @@ type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
-type 'a link_error =
-  [ `LinkerError of 'a]
-
 type no_deps_error =
   [ `UnexpectedDependencies of string list ]
 
 type compile_error =
-  [ `UnboundVar of string * Ast.pos ]
+  [ `UnboundVar of string * Ast.pos
+  | `UnknownReferedFunction of string * string ]
+
+type inter_error =
+  [ `UnknownFFI of string]
 
 val error_to_string_hum : [< parse_error
                           | parse_value_error
                           | no_deps_error
                           | compile_error
+                          | inter_error
                           | `BadFormat ] -> string
 
 val parse : string -> (ast, [> parse_error]) Result.t
@@ -65,28 +66,15 @@ val translate : ast -> string list * ir1
 
 val translate_no_deps : ast -> (ir1, [> no_deps_error]) Result.t
 
-module Fun : sig
-  type t = {
-    ns : string;
-    name : string;
-  } [@@deriving sexp_of, compare]
-  type impl
-end
-
-type imports = (int * Fun.t) list
-type repo = (string * Fun.impl) list [@@deriving sexp_of, compare]
-
-val compile : ir1 -> (imports * repo, [> compile_error]) Result.t
-
-val compile_ns : ir1 -> (imports * repo, [> compile_error]) Result.t
-
-type 'a linker = int -> (int, 'a) Result.t
-
-val link : repo -> 'a linker -> (repo, [> 'a link_error]) Result.t
-
 type bc [@@deriving sexp_of, compare]
 
-val finalize : repo -> bc
+module Env : sig
+  type prim_res = PrimVal of Value.t | PrimHalt | PrimUnsupported
+
+  val register_ffi : string -> (Value.t array -> prim_res) -> unit
+end
+
+val compile : deps:(string * ir1) list -> ir1 -> (bc, [> compile_error]) Result.t
 
 type coeffect = int * Value.t
 type instance
@@ -98,23 +86,25 @@ module Res : sig
              instance : instance}
 end
 
-val run : ?dependencies:bc -> bc -> Res.t Or_error.t
+type inter
 
-val unblock : ?dependencies:bc -> bc -> instance -> int -> Value.t -> Res.t Or_error.t
+val inter : bc -> (inter, [> inter_error]) Result.t
+
+val run :  inter -> Res.t Or_error.t
+
+val unblock : inter -> instance -> int -> Value.t -> Res.t Or_error.t
 
 val is_running : instance -> bool
 
 module Serializer : sig
-  type 'a load_error =
-    [ | 'a link_error
-      | `BadFormat ]
-  val imports : Msgpck.t -> (imports, [> `BadFormat]) Result.t
+  type load_error =
+    [ | `BadFormat ]
 
-  val dump : ?imports:imports -> bc -> Msgpck.t
-  val load : ?linker:('a linker) -> Msgpck.t -> (bc, [> 'a load_error]) Result.t
+  val dump : bc -> Msgpck.t
+  val load : Msgpck.t -> (bc, [> load_error]) Result.t
 
-  val dump_instance : ?mapping:(Fun.t * int) list -> instance -> Msgpck.t
-  val load_instance : ?linker:('a linker) -> Msgpck.t -> (instance, [> 'a load_error]) Result.t
+  val dump_instance : instance -> Msgpck.t
+  val load_instance : Msgpck.t -> (instance, [> load_error]) Result.t
 end
 
 module Testkit : sig

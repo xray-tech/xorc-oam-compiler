@@ -107,6 +107,7 @@ let rec token lexbuf =
   | '%' -> update lexbuf; MOD (lexeme lexbuf)
   | "**" -> update lexbuf; POW (lexeme lexbuf)
   | ':' -> update lexbuf; COLON (lexeme lexbuf)
+  | '`' -> update lexbuf; FFI (ffi (Buffer.create 0) lexbuf)
   | integer -> update lexbuf; INT (Int.of_string (lexeme lexbuf))
   | float -> update lexbuf; FLOAT (Float.of_string (lexeme lexbuf))
   | id -> update lexbuf; IDENT (lexeme lexbuf)
@@ -122,6 +123,14 @@ and string buffer lexbuf =
   | '\\' -> store(); string buffer lexbuf
   | '"' -> update lexbuf; Buffer.contents buffer
   | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store(); string buffer lexbuf
+  | _ -> assert false
+and ffi buffer lexbuf =
+  let store () = Buffer.add_string buffer (lexeme lexbuf) in
+  let buf = lexbuf.stream in
+  match%sedlex buf with
+  | eof -> raise (SyntaxError "Unclosed ffi")
+  | '`' -> update lexbuf; Buffer.contents buffer
+  | Plus (Compl ('`')) -> store(); ffi buffer lexbuf
   | _ -> assert false
 and read_comment level lexbuf =
   let buf = lexbuf.stream in

@@ -31,7 +31,7 @@ let parse_ns ~filename s =
     (Ast.EDecl(decl, e), Ast.dummy) in
   let%map res = Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
                 |> parse_with_error Parser.ns filename in
-  List.fold_right res ~init:(Ast.EStop, Ast.dummy) ~f:fold_decls
+  List.fold_right res ~init:(Ast.ENS, Ast.dummy) ~f:fold_decls
 
 let value_from_ast e =
   with_return (fun r ->

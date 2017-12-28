@@ -1,6 +1,6 @@
 (executables
  ((names (orc))
-  (libraries (orcml orcml_testkit benchmark core async async_extended))
+  (libraries (orcml orcml_testkit benchmark core async async_extended dynlink))
   (preprocess (pps (ppx_jane)))
   (flags (:standard -w -9))))
 

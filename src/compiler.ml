@@ -1,86 +1,19 @@
 open Common
 
-type prim =
-  | Let | Add | Sub | Ift | Iff
-  | Mult | Div | Mod | Pow
-  | Eq | NotEq | GT | GTE | LT | LTE
-  | And | Or | Not
-  | Floor | Ceil | Sqrt
-  | Cons
-  | FieldAccess | MakeTuple | MakeList | MakeRecord
-  | ArityCheck | ListSizeCheck | First | Rest
-  | WrapSome | UnwrapSome | GetNone | IsNone
-  | ErrorPrim
-[@@deriving compare, enumerate, sexp]
+module I = Inter0
 
-type binding =
+type unit = {
+  is_closure : bool;
+  ident : string;
+  ctx : ctx option ref;                (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
+  params : string list;
+  body : Ir1.e }
+and binding =
   | BindVar
   | BindCoeffect
-  | BindFun of int
-  | BindNs of (string * int)
-  | BindSite of string
-  | BindPrim of prim [@@deriving variants, sexp]
-
-type ctx = (string * binding) list [@@deriving sexp]
-
-type unit = { is_closure : bool;
-              ident : string;
-              label : int;
-              ctx : ctx;
-              params : string list;
-              body : Ir1.e }
-
-module Fun = struct
-  type t = {
-    ns : string;
-    name : string;
-  } [@@deriving sexp_of, compare]
-
-  type impl = int * Inter.t list [@@deriving sexp_of, compare]
-end
-
-type imports = (int * Fun.t) list
-type repo = (string * Fun.impl) list [@@deriving sexp_of, compare]
-
-let prims_map = [("Let", Let);
-                 ("Ift", Ift);
-                 ("Iff", Iff);
-                 ("+", Add);
-                 ("-", Sub);
-                 ("*", Mult);
-                 ("/", Div);
-                 ("%", Mod);
-                 ("**", Pow);
-                 ("/=", NotEq);
-                 ("=", Eq);
-                 ("<:", LT);
-                 ("<=", LTE);
-                 (":>", GT);
-                 (">=", GTE);
-                 ("&&", And);
-                 ("||", Or);
-                 ("~", Not);
-                 (":", Cons);
-                 ("floor", Floor);
-                 ("ceil", Ceil);
-                 ("sqrt", Sqrt);
-                 ("Error", ErrorPrim);
-                 ("'FieldAccess", FieldAccess);
-                 ("'MakeTuple", MakeTuple);
-                 ("'MakeList", MakeList);
-                 ("'MakeRecord", MakeRecord);
-                 ("'Ift", Ift);
-                 ("'Iff", Iff);
-                 ("'ArityCheck", ArityCheck);
-                 ("'ListSizeCheck", ListSizeCheck);
-                 ("'First", First);
-                 ("'Rest", Rest);
-                 ("'WrapSome", WrapSome);
-                 ("'UnwrapSome", UnwrapSome);
-                 ("'IsNone", IsNone);
-                 ("'GetNone", GetNone)]
-
-let prims = List.map prims_map ~f:(fun ((s, p)) -> (s, bindprim p))
+  | BindFun of unit
+  | BindNs of (string * string)
+and ctx = (string * binding) list [@@deriving sexp_of]
 
 let list_index l v ~f =
   let rec index acc = function
@@ -93,7 +26,7 @@ let ctx_vars ctx  =
   let rec find acc = function
     | [] -> acc
     | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun(_))::xs | (_,BindPrim(_))::xs  | (_,BindSite(_))::xs | (_,BindCoeffect)::xs | (_, BindNs(_))::xs ->
+    | (_, BindFun _)::xs | (_,BindCoeffect)::xs | (_, BindNs(_))::xs ->
       find acc xs in
   find 0 ctx
 
@@ -113,42 +46,59 @@ let ctx_find ctx pos ident =
 
 let new_index = ctx_vars
 
-let prim_index p =
-  match list_index all_of_prim p ~f:compare_prim with
-  | Some i -> i
-  | None -> assert false
-
-let prim_target p = Inter.TPrim(prim_index p)
-
 let len = List.length
 
-let label = ref 0
+type compile_unit = LocalFun of unit | ImportFun of string * string
 
-let new_label () =
-  label := !label + 1;
-  !label
+type state = {
+  deps : (string * unit) list;
+  mutable ffi_in_use : string list;
+  mutable repo : (string * string * int * I.t array) list;
+  mutable compile_queue : compile_unit list;
+}
 
-let compile_queue = ref []
+let repo_index state ns ident =
+  let rec f = function
+    | [] -> None
+    | (ns', ident', _, _)::xs when String.equal ns' ns && String.equal ident' ident ->
+      Some(len xs)
+    | xs -> f xs in
+  f state.repo
 
-let ns_labels = ref []
+let get_label state unit =
+  let rec f = function
+    | [] ->
+      state.compile_queue <- (LocalFun unit)::state.compile_queue;
+      len state.repo + len state.compile_queue
+    | LocalFun({ident})::xs when String.equal ident unit.ident ->
+      len state.repo + len xs + 1
+    | _::xs -> f xs in
+  match repo_index state "" unit.ident with
+  | Some(i) -> i
+  | None -> f state.compile_queue
 
-let get_ns_label fun_ =
-  match List.find !ns_labels ~f:(fun (_, fun_') ->
-      Fun.compare fun_ fun_' |> Int.equal 0) with
-  | Some(lbl, _) -> lbl
-  | None ->
-    let lbl = new_label () in
-    ns_labels := (lbl, fun_)::!ns_labels;
-    lbl
+let get_import_label state (ns, ident) =
+  let rec f = function
+    | [] ->
+      state.compile_queue <- (ImportFun (ns, ident))::state.compile_queue;
+      len state.repo + len state.compile_queue
+    | ImportFun(ns', ident')::xs when String.equal ns' ns && String.equal ident' ident ->
+      len state.repo + len xs + 1
+    | _::xs -> f xs in
+  match repo_index state ns ident with
+  | Some(i) -> i
+  | None -> f state.compile_queue
 
-let ns_label_pos fun_ =
-  match List.findi !ns_labels ~f:(fun _ (_, fun_') ->
-      Fun.compare fun_ fun_' |> Int.equal 0) with
-  | Some(pos, _) -> pos
-  | None -> assert false
+let get_ffi state def =
+  let rec f = function
+    | [] ->
+      state.ffi_in_use <- def::state.ffi_in_use;
+      len state.ffi_in_use - 1
+    | x::xs when String.equal x def ->
+      len xs
+    | _::xs -> f xs in
+  f state.ffi_in_use
 
-let add_to_queue unit =
-  compile_queue := unit::!compile_queue
 
 let free_vars init e =
   let rec step ctx (e, (_ast_e, _pos)) =
@@ -168,9 +118,6 @@ let free_vars init e =
     | ESequential(e1, Some(bind), e2) ->
       let ctx' = (bind, BindVar)::ctx in
       step ctx e1 @ step ctx' e2
-    | ESite(bind, def, e) ->
-      let ctx' = (bind, BindSite(def))::ctx in
-      step ctx' e
     | EFix(funs, e) ->
       let ctx' = (List.map funs ~f:(fun (bind, _, _) -> (bind, BindVar))) @ ctx in
       step ctx' e @ (List.concat_map funs ~f:(fun (_, params, e) ->
@@ -181,7 +128,9 @@ let free_vars init e =
       step ctx' e
     | ECall(target, params) ->
       (if_out_of_scope target) @ (List.concat_map params ~f:if_out_of_scope)
-    | EConst _ | EStop-> [] in
+    | EFFI(_, params) ->
+      List.concat_map params ~f:if_out_of_scope
+    | EConst _ | EStop | ENS -> [] in
   step (List.map init ~f:(fun ident -> (ident, BindVar))) e
 
 let closure_vars ctx pos vars =
@@ -193,36 +142,52 @@ let closure_vars ctx pos vars =
           | _ -> false) in
       Ok filtered)
 
-let compile_e ctx shift current_fun tail_call e =
+type env = {
+  ctx : ctx;
+  shift : int;
+  tail_call : bool;
+  state : state;
+}
+
+exception NS of ctx
+
+let compile_e env e =
   with_return (fun r ->
-      let rec compile_e' ctx shift current_fun tail_call (e, (ast_e, pos)) =
-        let ctx_find x = match ctx_find ctx pos x with
+      let rec compile_e' env (e, (ast_e, pos)) =
+        let ctx_find x = match ctx_find env.ctx pos x with
           | Ok(v) -> v
           | Error(_) as err -> r.return err in
-        let is_tail_call = tail_call && true in
-        let not_tail_call = false in
         let open! Ir1 in
         let compile_call ident args =
           let args' = List.map args ~f:(fun arg ->
               match ctx_find arg with
               | (i, BindVar) -> i
-              | _ -> raise Util.TODO) in
+              | _ -> assert false) in
           (match ctx_find ident with
-           | (_, BindPrim p) ->
-             (0, [Inter.Call(Inter.TPrim(prim_index p), Array.of_list args')])
-           | (_, BindFun c) when tail_call && Int.equal c current_fun ->
-             (0, [Inter.TailCall(Inter.TFun(c), Array.of_list args')])
-           | (_, BindFun i) | (_, BindNs(_, i)) ->
-             (0, [Inter.Call(Inter.TFun(i), Array.of_list args')])
+           | (_, BindFun unit) when env.tail_call && String.equal ident unit.ident ->
+             let c = get_label env.state unit in
+             (0, [I.TailCall(I.TFun(c), Array.of_list args')])
+           | (_, BindFun unit) ->
+             let c = get_label env.state unit in
+             (0, [I.Call(I.TFun(c), Array.of_list args')])
+           |  (_, BindNs f) ->
+             let c = get_import_label env.state f in
+             (0, [I.Call(I.TFun(c), Array.of_list args')])
+           (* TODO tail call of closures *)
            | (i, BindVar) ->
-             (0, [Inter.Call(Inter.TDynamic(i), Array.of_list args')])
-           | (_, BindSite(_)) ->
-             raise Util.TODO
+             (0, [I.Call(I.TDynamic(i), Array.of_list args')])
            | (_, BindCoeffect) ->
              (match args' with
-              | [i] -> (0, [Inter.Coeffect i])
+              | [i] -> (0, [I.Coeffect i])
               | _ -> raise Util.TODO)) in
-        let preprocess_call ident args e_info =
+        let need_preprocess args =
+          List.find args ~f:(fun arg ->
+              match ctx_find arg with
+              | (_, BindFun(_))
+              | (_, BindNs(_) | (_, BindCoeffect)) -> true
+              | (_, BindVar) -> false)
+          |> Option.is_some in
+        let preprocess_args args e_info k =
           let deflate arg k =
             match ctx_find arg with
             | (_, BindVar) -> k arg
@@ -233,181 +198,177 @@ let compile_e ctx shift current_fun tail_call e =
             | arg::args ->
               deflate arg (fun i ->
                   f (i::acc) args)
-            | [] -> (ECall(ident, (List.rev acc)), e_info) in
+            | [] -> k (List.rev acc) in
           f [] args in
         match e with
+        | ENS -> raise (NS env.ctx)
         | EIdent x ->
           (* Stdio.eprintf "--LOOKUP %s: %s\n" x (sexp_of_ctx ctx |> Sexp.to_string_hum); *)
           (match ctx_find x with
-           | (i, BindVar) -> (0, [Inter.Call(prim_target Let, [| i |])])
-           | (_, BindFun i) -> (0, [Inter.Label(i)])
-           | (_, BindNs(_, i)) -> (0, [Inter.Label(i)])
-           | (_, BindCoeffect) | (_, BindSite(_)) -> raise Util.TODO
-           | (_, BindPrim prim)  -> (0, [Inter.Prim(prim_index prim)]))
-        | EConst v -> (0, [Inter.Const v])
+           | (_, BindVar) ->
+             (EFFI ("core.let", [x]), (ast_e, pos))
+             |> compile_e' env
+           | (_, BindFun unit) ->
+             let c = get_label env.state unit in
+             (0, [I.Label(c)])
+           | (_, BindNs f) ->
+             let c = get_import_label env.state f in
+             (0, [I.Label(c)])
+           | (_, BindCoeffect) -> raise Util.TODO)
+        | EConst v -> (0, [I.Const v])
         | EParallel(e1, e2) ->
-          let (s2, e2') = compile_e' ctx shift current_fun is_tail_call e2 in
-          let (s1, e1') = compile_e' ctx (shift + len e2') current_fun is_tail_call e1 in
+          let (s2, e2') = compile_e' env e2 in
+          let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
-           Inter.Parallel(shift + len e1' + len e2' - 1,
-                          shift + len e2' - 1)
+           I.Parallel(env.shift + len e1' + len e2' - 1,
+                      env.shift + len e2' - 1)
            ::(e1' @ e2'))
         | EOtherwise(e1, e2) ->
-          let (s2, e2') = compile_e' ctx shift current_fun  is_tail_call e2 in
-          let (s1, e1') = compile_e' ctx (shift + len e2') current_fun not_tail_call e1 in
+          let (s2, e2') = compile_e' env e2 in
+          let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
-           Inter.Otherwise(shift + len e1' + len e2' - 1,
-                           shift + len e2' - 1)
+           I.Otherwise(env.shift + len e1' + len e2' - 1,
+                       env.shift + len e2' - 1)
            ::(e1' @ e2'))
         | EPruning(e1, v, e2) ->
           let (ctx', index) = match v with
-            | None -> (ctx, None)
-            | Some(v) -> ((v, BindVar)::ctx, Some(new_index ctx)) in
-          let (s2, e2') = compile_e' ctx' shift current_fun not_tail_call e2 in
-          let (s1, e1') = compile_e' ctx' (shift + len e2') current_fun is_tail_call e1 in
+            | None -> (env.ctx, None)
+            | Some(v) -> ((v, BindVar)::env.ctx, Some(new_index env.ctx)) in
+          (* FIXME ctx' in right branch? wrong *)
+          let (s2, e2') = compile_e' { env with tail_call = false; ctx = ctx' } e2 in
+          let (s1, e1') = compile_e' { env with shift = env.shift + len e2'; ctx = ctx'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
-           Inter.Pruning(shift + len e1' + len e2' - 1,
-                         index,
-                         shift + len e2' -1)
+           I.Pruning(env.shift + len e1' + len e2' - 1,
+                     index,
+                     env.shift + len e2' -1)
            ::(e1' @ e2'))
         | ESequential(e1, v, e2) ->
           let (ctx', index) = match v with
-            | None -> (ctx, None)
-            | Some(v) -> ((v, BindVar)::ctx, Some(new_index ctx)) in
-          let (s2, e2') = compile_e' ctx' shift current_fun  is_tail_call e2 in
-          let (s1, e1') = compile_e' ctx (shift + len e2') current_fun  not_tail_call e1 in
+            | None -> (env.ctx, None)
+            | Some(v) -> ((v, BindVar)::env.ctx, Some(new_index env.ctx)) in
+          let (s2, e2') = compile_e' { env with ctx = ctx' } e2 in
+          let (s1, e1') = compile_e' { env with tail_call = false; shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
-           Inter.Sequential(shift + len e1' + len e2' - 1,
-                            index,
-                            shift + len e2' - 1)
+           I.Sequential(env.shift + len e1' + len e2' - 1,
+                        index,
+                        env.shift + len e2' - 1)
            ::(e1' @ e2'))
         | EFix(fs, e) ->
           let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
           let closure_vars = List.map fs ~f:(fun (_, params, e) ->
               let all = free_vars (vars @ params) e in
-              closure_vars ctx pos all) in
-          let binds = List.map2_exn vars closure_vars ~f:(fun ident vars ->
+              closure_vars env.ctx pos all) in
+          let binds = List.map2_exn fs closure_vars ~f:(fun (ident, params, body) vars ->
               match vars with
-              | Ok ([]) -> (ident, bindfun (new_label ()))
+              | Ok ([]) -> (ident, BindFun {ident; is_closure = false; ctx = ref None; params; body})
               | Ok _ -> (ident, BindVar)
               | Error _ as err -> r.return err ) in
-          let ctx' = binds @ ctx in
-          let (s, body) = compile_e' ctx' shift current_fun is_tail_call e in
+          let ctx' = binds @ env.ctx in
+          List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> ());
+          let (s, body) = compile_e' { env with ctx = ctx'} e in
           let closure_size = ctx_vars ctx' in
           let make_fun (i, index, acc) (_, bind) (ident, params, body) =
             match bind with
-            | BindFun(label) ->
-              add_to_queue {ident; is_closure = false; label; ctx =  ctx'; params; body};
+            | BindFun _ ->
               (i, index, acc)
             | BindVar ->
-              let label = new_label () in
-              add_to_queue {ident; is_closure = true; label; ctx =  ctx'; params; body};
-              (i + 2, index + 1, Inter.Pruning(i - 1, Some(index), i)::Inter.Closure(label, closure_size)::acc)
+              let c = get_label env.state {ident; is_closure = true; ctx = ref (Some ctx'); params; body} in
+              (i + 2, index + 1, I.Pruning(i - 1, Some(index), i)::I.Closure(c, closure_size)::acc)
             | _ -> assert false in
-          let init = (shift + len body, new_index ctx, []) in
+          let init = (env.shift + len body, new_index env.ctx, []) in
           let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
           (s + (len closures / 2), closures @ body)
         | ECall(ident, args) ->
-          let to_preprocess = List.find args ~f:(fun arg ->
-              match ctx_find arg with
-              | (_, BindPrim(_)) | (_, BindFun(_)) | (_, BindNs(_)) -> true
-              | (_, BindVar) -> false
-              | _ -> raise Util.TODO) in
-          (match to_preprocess with
-           | Some(_) ->
-             preprocess_call ident args (ast_e, pos) |> compile_e' ctx shift current_fun tail_call
-           | None -> compile_call ident args)
+          if need_preprocess args
+          then preprocess_args args (ast_e, pos) (fun args' ->
+              (ECall(ident, args'), (ast_e, pos)))
+               |> compile_e' env
+          else compile_call ident args
         | ERefer(ns, fs, e) ->
           let ctx' = (List.map fs ~f:(fun name ->
-              let lbl = get_ns_label Fun.{ns; name} in
-              (name, BindNs(ns, lbl)))) @ ctx in
-          compile_e' ctx' shift current_fun is_tail_call e
-        | EStop -> (0, [Inter.Stop])
-        | ESite(_, _, _) -> raise Util.TODO in
-      Ok(compile_e' ctx shift current_fun tail_call e))
+              (name, BindNs(ns, name)))) @ env.ctx in
+          compile_e' { env with ctx = ctx' } e
+        | EFFI(def, args) ->
+          if need_preprocess args
+          then preprocess_args args (ast_e, pos) (fun args' ->
+              (EFFI(def, args'), (ast_e, pos)))
+               |> compile_e' env
+          else
+            let args' = List.map args ~f:(fun arg ->
+                match ctx_find arg with
+                | (i, BindVar) -> i
+                | _ -> assert false) in
+            (0, [I.FFI(get_ffi env.state def, Array.of_list args')])
+        | EStop -> (0, [I.Stop]) in
+      Ok(compile_e' env e))
 
-let compile_fun {is_closure; label; ctx; params; body} =
+let compile_fun state {is_closure; ctx; params; body} =
   let params' = List.rev_map params ~f:(fun n -> (n, BindVar)) in
+  let ctx = Option.value_exn !ctx in
   let ctx' = if is_closure
     then ctx
     else List.filter ctx ~f:(function | (_, BindVar) -> false
                                       | _ -> true) in
   let ctx'' = params' @ ctx' in
   let open Result.Let_syntax in
-  let%map (size, f) = compile_e ctx'' 0 label true body in
+  let%map (size, f) = compile_e { ctx = ctx''; tail_call = true; shift = 0; state} body in
   (size + List.length params + ctx_vars ctx', f)
 
-type 'a linker = int -> (int, 'a) Result.t
+let rec prepare_dep ctx ns = function
+  | Ir1.ENS ->
+    List.filter_map ctx ~f:(function
+        | (_, BindFun unit) -> Some (ns, unit)
+        | _ -> None)
+  | Ir1.EFix(fs, (e, _)) ->
+    let binds = List.map fs ~f:(fun (ident, params, body) ->
+        (ident, BindFun {ident; is_closure = false; ctx = ref None; params; body})) in
+    let ctx' = binds @ ctx in
+    List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
+    prepare_dep ctx' ns e
+  | ERefer(ns, fs, (e, _)) ->
+    let binds = (List.map fs ~f:(fun name ->
+        (name, BindNs(ns, name)))) in
+    prepare_dep (binds @ ctx) ns e
+  | _ -> assert false
 
-let link repo linker =
-  with_return (fun r ->
-      let linker' p =
-        match linker p with
-        | Error(err) -> r.return(Error(`LinkerError err))
-        | Ok(v) -> v in
-      let change = function
-        | Inter.Closure((p, size)) ->
-          Inter.Closure((linker' p, size))
-        | Inter.Label(p) ->
-          Inter.Label(linker' p)
-        | Inter.Call(Inter.TFun(p), args) ->
-          Inter.Call(Inter.TFun(linker' p), args)
-        | Inter.TailCall(Inter.TFun(p), args) ->
-          Inter.TailCall(Inter.TFun(linker' p), args)
-        | op -> op in
-      Ok(List.map repo ~f:(fun (ident, (size, body)) ->
-          (ident, (size, List.map body ~f:change)))))
+let init_ctx = [("Coeffect", BindCoeffect)]
 
-let compile' e =
-  with_return (fun r ->
-      compile_queue := [];
-      label := 0;
-      ns_labels := [];
-      add_to_queue {ident = "'main";
-                    is_closure = false;
-                    label = !label;
-                    ctx = (("Coeffect", BindCoeffect)::prims);
-                    params = [];
-                    body = e};
-      let rec compile_loop acc =
-        match !compile_queue with
-        | [] -> acc
-        | ({label; ident} as unit)::xs ->
-          compile_queue := xs;
-          (match compile_fun unit with
-           | Error _ as err -> r.return err
-           | Ok(f) ->
-             compile_loop ((label, ident, f)::acc)) in
-      let repo = compile_loop [] in
-      let labels_mapping = List.mapi repo ~f:(fun addr (label, _, _) ->
-          (label, addr)) in
-      let repo' = List.map repo ~f:(fun (_, ident, (size, body)) -> (ident, (size, body))) in
-      let linker lbl =
-        match List.Assoc.find labels_mapping ~equal:Int.equal lbl with
-        | Some(addr) -> Ok(-addr - 1)
-        | None ->
-          let fun_ = List.Assoc.find_exn !ns_labels ~equal:Int.equal lbl in
-          Ok(ns_label_pos fun_) in
-      match link repo' linker with
-      | Ok(v) -> Ok v
-      | _ -> assert false)
+let prepare_deps deps =
+  List.concat_map deps ~f:(fun (ns, (e, _)) ->
+      prepare_dep init_ctx ns e)
 
 let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let make_imports () =
-  List.mapi !ns_labels ~f:(fun i (_, fun_) ->
-      (i, fun_))
-
-let compile e =
-  let open Result.Let_syntax in
-  let%map repo = compile' e in
-  (make_imports (), repo)
-
-let compile_ns e =
-  let open Result.Let_syntax in
-  let%map (imports, repo) = compile e in
-  (* Last function is a main function and it's just stub here *)
-  let repo' = List.rev repo |> List.tl_exn |> List.rev in
-  (imports, repo')
+let compile ~deps e =
+  with_return (fun r ->
+      let state = { deps = prepare_deps deps;
+                    repo = [];
+                    ffi_in_use = [];
+                    compile_queue = [LocalFun {ident = "'main";
+                                               is_closure = false;
+                                               ctx = ref (Some init_ctx);
+                                               params = [];
+                                               body = e}]} in
+      let rec compile_loop () =
+        match state.compile_queue with
+        | [] -> ()
+        | LocalFun(unit)::xs ->
+          state.compile_queue <- xs;
+          compile_unit "" unit
+        | ImportFun(ns, ident)::xs ->
+          state.compile_queue <- xs;
+          match List.find state.deps ~f:(fun (ns', {ident = ident'}) -> String.equal ns ns' && String.equal ident ident') with
+          | None -> r.return (Error (`UnknownReferedFunction(ns, ident)))
+          | Some (_, unit) -> compile_unit ns unit
+      and compile_unit ns unit =
+        (match compile_fun state unit with
+         | Error _ as err -> r.return err
+         | Ok(size, ops) ->
+           state.repo <- (ns, unit.ident, size, Array.of_list_rev ops)::state.repo;
+           compile_loop ()) in
+      compile_loop ();
+      let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, body) ->
+        (size, body)) in
+      Ok({I.ffi = state.ffi_in_use; code}))

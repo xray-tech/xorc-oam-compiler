@@ -5,18 +5,21 @@ module Value = struct
   include (val Comparator.make ~compare:compare_v ~sexp_of_t:sexp_of_v)
 end
 
-type bc = (int * t array) array [@@deriving sexp, compare]
-
 type instance = { mutable current_coeffect : int;
                   mutable blocks : (int * token) list }
 
-type state = { code : bc;
-               deps : bc;
-               instance : instance;
-               mutable queue : token list;
-               prims : prims;
-               values: (v -> unit);
-               coeffects: ((int * v) -> unit)}
+type inter = {
+  code : code;
+  env_snapshot : Env.snapshot;
+}
+
+type state = {
+  inter : inter;
+  instance : instance;
+  mutable queue : token list;
+  values: (v -> unit);
+  coeffects: ((int * v) -> unit)
+}
 
 type coeffect = int * v
 
@@ -61,10 +64,8 @@ let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
  *     (sexp_of_t op |> Sexp.to_string_hum)
  *     (format_env env) *)
 
-let get_code state pc =
-  if pc < 0
-  then state.code.(Int.abs pc - 1)
-  else state.deps.(pc)
+let get_code inter pc =
+  inter.code.(pc)
 
 let rec publish state stack env v =
   match stack with
@@ -118,7 +119,7 @@ and halt state stack env =
       | _ -> in_stack stack' in
   in_stack stack
 and tick
-    ({ prims; instance } as state)
+    ({ instance; inter } as state)
     (pc, c) stack env =
   (* print_debug state (pc, c) env; *)
   let realized arg =
@@ -141,12 +142,12 @@ and tick
           values.(i) <- v;
           step (i + 1) in
     step 0 in
-  let call_prim prim args =
+  let call_ffi index args =
     match realized_multi args with
     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
     | `Stopped -> halt state stack env
     | `Values args' ->
-      let impl = prims.(prim) in
+      let impl = Env.get_ffi inter.env_snapshot index in
       (* Stdio.eprintf "---CALL %i\n" prim;
        * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
       (match impl args' with
@@ -157,16 +158,13 @@ and tick
        | PrimUnsupported ->
          (* TODO warning? *)
          halt state stack env) in
-  let (_, proc) = get_code state pc in
+  let (_, proc) = get_code inter pc in
   match proc.(c) with
   | Const v ->
     publish state stack env (VConst v);
     halt state stack env
   | Label i ->
     publish state stack env (VLabel i);
-    halt state stack env
-  | Prim i ->
-    publish state stack env (VPrim i);
     halt state stack env
   | Stop -> halt state stack env
   | Parallel(c1, c2) ->
@@ -193,17 +191,15 @@ and tick
   | Closure (pc', to_copy) ->
     publish state stack env (VClosure(pc', to_copy, env));
     halt state stack env
-  | Call(TPrim(prim), args) ->
-    call_prim prim args
   | Call(TFun(pc'), args) ->
-    let (size, f_code) = get_code state pc' in
+    let (size, f_code) = get_code inter pc' in
     let env' = alloc_env size in
     let frame = FCall(env) in
     Array.iteri args ~f:(fun i arg ->
         env'.(i) <- env.(arg));
     tick state (pc', Array.length f_code - 1) (frame::stack) env'
   | TailCall(TFun(pc'), args) ->
-    let (_, f_code) = get_code state pc' in
+    let (_, f_code) = get_code inter pc' in
     Array.iteri args ~f:(fun i arg ->
         env.(i) <- env.(arg));
     let token = { pc = (pc', Array.length f_code - 1);
@@ -215,7 +211,7 @@ and tick
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
      | `Stopped -> raise Util.TODO
      | `Value(VClosure(pc', to_copy, closure_env)) ->
-       let (size, f_code) = get_code state pc' in
+       let (size, f_code) = get_code inter pc' in
        let env' = alloc_env size in
        for i = 0 to to_copy - 1 do
          env'.(i) <- closure_env.(i)
@@ -225,7 +221,7 @@ and tick
        let frame = FCall(env) in
        tick state (pc', Array.length f_code - 1) (frame::stack) env'
      | `Value(VLabel(pc')) ->
-       let (size, f_code) = get_code state pc' in
+       let (size, f_code) = get_code inter pc' in
        let env' = alloc_env size in
        Array.iteri args ~f:(fun i arg ->
            env'.(i) <- env.(arg));
@@ -239,8 +235,6 @@ and tick
           publish state stack env (List.nth_exn vs i);
           halt state stack env
         | `Value(_) -> raise Util.TODO)
-     | `Value(VPrim(prim)) ->
-       call_prim prim args
      | `Value(_) -> raise Util.TODO)
   | Coeffect arg ->
     (match realized arg with
@@ -252,8 +246,9 @@ and tick
        state.coeffects (instance.current_coeffect, descr);
        instance.blocks <- (instance.current_coeffect, token)::instance.blocks;
        instance.current_coeffect <- instance.current_coeffect + 1)
+  | FFI(target, args) ->
+    call_ffi target args
   | TailCall(TDynamic(_), _) -> raise Util.TODO
-  | TailCall(TPrim(_), _) -> assert false
 
 let values_clb () =
   let storage = ref [] in
@@ -288,20 +283,20 @@ let check_killed just_unblocked instance =
   let (killed, blocks) = List.fold instance.blocks ~init:([], []) ~f in
   (killed, {instance with blocks})
 
-let run' deps code =
+let run' inter =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
-  let (init_env_size, e_code) = code.(Array.length code - 1) in
-  let pc = (-Array.length code, Array.length e_code - 1) in
+  let (init_env_size, e_code) = inter.code.(0) in
+  let pc = (0, Array.length e_code - 1) in
   let env = alloc_env init_env_size in
   let stack = [FResult] in
-  let state = { code; deps; instance;
-                prims = Prims.default;
-                values = clb;
-                coeffects = c_clb;
-                queue = [{pc; env; stack}]} in
+  let state = {
+    inter; instance;
+    values = clb;
+    coeffects = c_clb;
+    queue = [{pc; env; stack}]} in
   run_loop state;
   (* TODO killed coeffects *)
   Res.{ values = !values;
@@ -309,14 +304,18 @@ let run' deps code =
         killed = [];
         instance}
 
-let run ?(dependencies = [||]) code =
-  Or_error.try_with ~backtrace:true (fun () -> run' dependencies code)
+let inter {ffi; code} =
+  let open Result.Let_syntax in
+  let%map env_snapshot = Env.snapshot ffi in
+  { code; env_snapshot }
 
-let unblock' deps code instance coeffect value =
+let run inter =
+  Or_error.try_with ~backtrace:true (fun () -> run' inter)
+
+let unblock' inter instance coeffect value =
   let (values, clb) = values_clb () in
   let (coeffects, c_clb) = coeffects_clb () in
-  let state = { deps; code; instance;
-                prims = Prims.default;
+  let state = { inter; instance;
                 values = clb;
                 coeffects = c_clb;
                 queue = [] } in
@@ -334,8 +333,9 @@ let unblock' deps code instance coeffect value =
           killed;
           instance = instance'}
 
-let unblock ?(dependencies = [||]) code instance coeffect value =
-  Or_error.try_with ~backtrace:true (fun () -> unblock' dependencies code instance coeffect value)
+let unblock inter instance coeffect value =
+  Or_error.try_with ~backtrace:true (fun () ->
+      unblock' inter instance coeffect value)
 
 let is_running { blocks } =
   not (List.is_empty blocks)

@@ -10,11 +10,12 @@ type e' =
   | EConst of Ast.const
   | EIdent of string
   | ECall of string * string list
+  | EFFI of string * string list
   | EStop
-  | ESite of string * string * e
   | EFix of (string * string list * e) list * e
   | ERefer of string * string list * e
-and e = e' * Ast.e sexp_opaque [@@deriving sexp_of]
+  | ENS
+and e = e' * Ast.e [@@deriving sexp_of]
 
 let fresh = ref 0
 let deps = ref []
@@ -287,6 +288,10 @@ let rec translate' ((e, pos) as ast) =
     deflate e (fun e' ->
         deflate_many args (fun args' ->
             (ECall(e', args'), ast)))
+  | A.EFFI(target, args) ->
+    deflate_many args (fun args' ->
+        (EFFI(target, args'), ast))
+
   | A.EStop -> (EStop, ast)
   | A.ELambda(_, params, _, body) ->
     let n = make_fresh () in
@@ -313,6 +318,7 @@ let rec translate' ((e, pos) as ast) =
     assert false
   | EDecl((DAlias(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
     translate' e
+  | ENS -> (ENS, ast)
 
 and deflate e k =
   match e with

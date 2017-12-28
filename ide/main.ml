@@ -46,7 +46,7 @@ module Model = struct
                    coeffects : (int * Coeffect.t) list;
                    realized : (string * string) list;
                    error : string option;
-                   bc : Orcml.bc [@compare.ignore];
+                   inter : Orcml.inter [@compare.ignore];
                    instance : Orcml.instance [@compare.ignore]}
     | Finished of { program : string;
                     values : Value.t list;
@@ -95,11 +95,14 @@ let map_coeffects coeffects =
              collapsed = true}))
 
 let run program (model : Model.t) bc =
-  match Orcml.run bc with
+  match Orcml.inter bc with
+  | Error(err) -> with_error (Orcml.error_to_string_hum err) model
+  | Ok(inter) -> 
+  match Orcml.run inter with
   | Error(err) ->
     with_error (Error.to_string_hum err) model
   | Ok({Orcml.Res.values; instance; coeffects }) ->
-    Running { instance; program; bc;
+    Running { instance; program; inter;
               values = map_values values;
               coeffects = map_coeffects coeffects;
               error = None;
@@ -124,13 +127,13 @@ let run_code (model : Model.t) =
     debug (sprintf "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum));
     let%bind ir1 = Orcml.translate_no_deps parsed
                    |> with_common_error in
-    Orcml.compile ir1
+    Orcml.compile ~deps:[] ir1
     |> with_common_error in
   (match compiled with
    | Error(err) ->
      with_error (Orcml.error_to_string_hum err) model
-   | Ok((_, repo)) ->
-     run code model (Orcml.finalize repo))
+   | Ok(bc) ->
+     run code model bc)
 
 let run_bc (model : Model.t) bc =
   let (_, packed) = Msgpck.String.read bc in
@@ -164,12 +167,12 @@ let coeffect_toggle (model : Model.t) id =
 
 let realize_coeffect (model : Model.t) id v =
   match model with
-  | Running({coeffects; values; realized; instance; bc; program} as r) ->
+  | Running({coeffects; values; realized; instance; inter; program} as r) ->
     let coeffects' = List.Assoc.remove coeffects ~equal:Int.equal id in
     let res = let open Result.Let_syntax in
       let%bind v' = Orcml.parse_value v
                     |> Result.map_error ~f:(fun err -> Error.createf "%s" (Orcml.error_to_string_hum err)) in
-      Orcml.unblock bc instance id v' in
+      Orcml.unblock inter instance id v' in
     (match res with
      | Ok({Orcml.Res.instance;
            coeffects = new_coeffects;

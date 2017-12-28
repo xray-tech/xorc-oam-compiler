@@ -3,11 +3,11 @@ type parse_error = Errors.parse_error
 
 type parse_value_error = Errors.parse_value_error
 
-type 'a link_error = 'a Errors.link_error
-
 type no_deps_error = Errors.no_deps_error
 
 type compile_error = Errors.compile_error
+
+type inter_error = Errors.inter_error
 
 let error_to_string_hum = Errors.to_string_hum
 
@@ -34,7 +34,6 @@ module Value = struct
     | VConst of Const.t
     | VClosure of int * int * env
     | VLabel of int
-    | VPrim of int
     | VTuple of t list
     | VList of t list
     | VRecord of (string * t) list
@@ -63,30 +62,22 @@ let translate = Ir1.translate
 
 let translate_no_deps = Ir1.translate_no_deps
 
-module Fun = Compiler.Fun
-
-type repo = Compiler.repo
-let sexp_of_repo = Compiler.sexp_of_repo
-let compare_repo = Compiler.compare_repo
-
-type imports = Compiler.imports
-type 'a linker = 'a Compiler.linker
-
-let link = Compiler.link
-
 let compile = Compiler.compile
-let compile_ns = Compiler.compile_ns
 
 type bc = Inter.bc
 let sexp_of_bc = Inter.sexp_of_bc
 let compare_bc = Inter.compare_bc
 
-let finalize = Compiler.finalize
-
 type coeffect = Inter.coeffect
 type instance = Inter.instance
 
 module Res = Inter.Res
+
+module Env = Env
+
+type inter = Inter.inter
+
+let inter = Inter.inter
 
 let run = Inter.run
 let unblock = Inter.unblock

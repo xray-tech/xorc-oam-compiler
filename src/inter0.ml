@@ -1,5 +1,5 @@
 open Base
-type call_target = TPrim of int | TFun of int | TDynamic of int [@@deriving sexp, compare]
+type call_target = TFun of int | TDynamic of int [@@deriving sexp, compare]
 
 type c = int [@@deriving sexp, compare]
 
@@ -9,18 +9,17 @@ type t =
   | Pruning of c * int option * c
   | Sequential of c * int option * c
   | Call of call_target * int array
+  | FFI of int * int array
   | TailCall of call_target * int array
   | Coeffect of int
   | Stop
   | Const of Ast.const
   | Closure of (int * int)
   | Label of int
-  | Prim of int
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
   | VLabel of int
-  | VPrim of int
   | VTuple of v list
   | VList of v list
   | VRecord of (string * v) list
@@ -50,3 +49,11 @@ and token = {
 
 type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
 type prims = (v array -> prim_v) array
+
+type code = (int * t array) array
+[@@deriving sexp, compare]
+
+type bc = {
+  ffi : string list;
+  code : code;
+} [@@deriving sexp, compare]
