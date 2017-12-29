@@ -76,7 +76,7 @@ let get_label state unit =
     | [] ->
       state.compile_queue <- state.compile_queue @ [unit];
       len state.repo + i
-    | {ns; ident}::_ when String.equal ident unit.ident ->
+    | {ns; ident}::_ when String.equal ns unit.ns && String.equal ident unit.ident ->
       len state.repo + i
     | _::xs -> f (i + 1) xs in
   match repo_index state "" unit.ident with

@@ -274,7 +274,8 @@ let compile_input_and_deps prelude includes bc input  =
 
 let load_exts exts =
   List.iter exts ~f:(fun ext ->
-    Dynlink.loadfile ext)
+      try Dynlink.loadfile ext with
+      | Dynlink.Error err -> error "Ext %s load error: %s" ext (Dynlink.error_message err))
 
 let exec =
   let open Command.Let_syntax in

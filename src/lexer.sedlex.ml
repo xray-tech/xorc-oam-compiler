@@ -118,12 +118,17 @@ and string buffer lexbuf =
   match%sedlex buf with
   | eof -> raise (SyntaxError "Unclosed string")
   | newline -> new_line lexbuf; store(); string buffer lexbuf
-  | "\\\"" -> store(); string buffer lexbuf
-  | "\\\\" -> store(); string buffer lexbuf
-  | '\\' -> store(); string buffer lexbuf
+  | '\\' ->  escaped_char buffer lexbuf
   | '"' -> update lexbuf; Buffer.contents buffer
   | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store(); string buffer lexbuf
   | _ -> assert false
+and escaped_char buffer lexbuf =
+  let store () = Buffer.add_string buffer (lexeme lexbuf) in
+  let buf = lexbuf.stream in
+  match%sedlex buf with
+  | eof -> raise (SyntaxError "Unexpected end of input")
+  | '"' -> store(); string buffer lexbuf
+  | _ -> raise (SyntaxError "Invalid escape sequence")
 and ffi buffer lexbuf =
   let store () = Buffer.add_string buffer (lexeme lexbuf) in
   let buf = lexbuf.stream in
