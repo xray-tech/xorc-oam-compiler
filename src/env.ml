@@ -2,7 +2,13 @@ open Common
 
 type prim = (Inter0.v array -> Inter0.prim_v)
 
-type prim_res = Inter0.prim_v = PrimVal of Inter0.v | PrimHalt | PrimUnsupported
+type prim_res = Inter0.prim_v =
+  | PrimVal of Inter0.v
+  | PrimHalt
+  | PrimUnsupported
+  | PrimPendingSubscribe of Inter0.pending
+  | PrimPendingRealize of (Inter0.pending * Inter0.v)
+  | PrimPendingStop of Inter0.pending
 
 type t = {
   ffi_mapping : (string, int) Hashtbl.t;
@@ -218,7 +224,47 @@ let core = [
   ("core.error", function
       | vals ->
         Stdio.eprintf "%s\n" ([%sexp_of: Inter0.v array] vals |> Sexp.to_string_hum);
-        PrimHalt)]
+        PrimHalt);
+  ("core.make-ref", function
+      | [| v |] -> PrimVal (VRef (ref v))
+      | _ -> PrimUnsupported);
+  ("core.deref", function
+      | [| VRef x |] -> PrimVal !x
+      | _ -> PrimUnsupported);
+  ("core.set", function
+      | [| VRef x; v|] ->
+        x := v;
+        PrimVal(VConst Ast.Signal)
+      | _ -> PrimUnsupported);
+  ("core.make-pending", function
+      | [||] -> PrimVal (VPending { pend_value = Pend; pend_waiters = [] })
+      | _ -> PrimUnsupported);
+  ("core.pending-read", function
+      | [| VPending { pend_value = PendVal v } |] ->
+        PrimVal(v)
+      | [| VPending { pend_value = PendStopped } |] ->
+        PrimHalt
+      | [| VPending p |] ->
+        PrimPendingSubscribe p
+      | _ -> PrimUnsupported);
+  ("core.realize", function
+      | [| VPending ({ pend_value = Pend } as p); v|] ->
+        PrimPendingRealize (p, v)
+      | [| VPending _; _ |] ->
+        PrimVal(VConst Ast.Signal)
+      | _ -> PrimUnsupported);
+  ("core.is-realized", function
+      | [| VPending { pend_value = PendVal _ } |] ->
+        PrimVal(VConst (Ast.Bool true))
+      | [| VPending _ |] ->
+        PrimVal(VConst (Ast.Bool false))
+      | _ -> PrimUnsupported);
+  ("core.stop-pending", function
+      | [| VPending ({ pend_value = Pend } as p) |] ->
+        PrimPendingStop p
+      | [| VPending _ |] ->
+        PrimVal(VConst Ast.Signal)
+      | _ -> PrimUnsupported)]
 
 let () =
   List.iter core ~f:(fun (def, f) -> register_ffi def f)

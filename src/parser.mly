@@ -159,6 +159,7 @@ ident_or_op:
   | x=IDENT { x }
   | LEFT_PAREN x=binop RIGHT_PAREN { x }
   | LEFT_PAREN x=NOT RIGHT_PAREN { x }
+  | LEFT_PAREN x=DEREFERENCE RIGHT_PAREN { x }
 
 constructors:
   | c=constructor { [c] }
@@ -230,7 +231,6 @@ const:
   | t=LT | t=GT | t=GTE | t=LTE | t=AND | t=OR | t=ASSIGN
   | t=EQ | t=NOT_EQ | t=COLON
   { t }
-
 
 %inline unop:
   | t=SUB | t=NOT

@@ -23,6 +23,8 @@ and v =
   | VTuple of v list
   | VList of v list
   | VRecord of (string * v) list
+  | VRef of v ref
+  | VPending of pending
 and env_v =
   | Value of v | Pending of pending
 and env = env_v array
@@ -47,7 +49,14 @@ and token = {
   stack : stack;
 } [@@deriving sexp, compare]
 
-type prim_v = PrimVal of v | PrimHalt | PrimUnsupported
+type prim_v =
+  | PrimVal of v
+  | PrimHalt
+  | PrimUnsupported
+  | PrimPendingSubscribe of pending
+  | PrimPendingRealize of (pending * v)
+  | PrimPendingStop of pending
+
 type prims = (v array -> prim_v) array
 
 type code = (int * t array) array

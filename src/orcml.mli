@@ -23,7 +23,10 @@ module Value : sig
     | VTuple of t list
     | VList of t list
     | VRecord of (string * t) list
+    | VRef of t ref
+    | VPending of pending
   and env
+  and pending
   [@@deriving sexp, compare]
 
   include Comparator.S with type t := t
@@ -69,7 +72,13 @@ val translate_no_deps : ast -> (ir1, [> no_deps_error]) Result.t
 type bc [@@deriving sexp_of, compare]
 
 module Env : sig
-  type prim_res = PrimVal of Value.t | PrimHalt | PrimUnsupported
+  type prim_res =
+    | PrimVal of Value.t
+    | PrimHalt
+    | PrimUnsupported
+    | PrimPendingSubscribe of Value.pending
+    | PrimPendingRealize of (Value.pending * Value.t)
+    | PrimPendingStop of Value.pending
 
   val register_ffi : string -> (Value.t array -> prim_res) -> unit
 end

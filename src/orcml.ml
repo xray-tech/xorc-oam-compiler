@@ -37,7 +37,10 @@ module Value = struct
     | VTuple of t list
     | VList of t list
     | VRecord of (string * t) list
+    | VRef of t ref
+    | VPending of pending
   and env = Inter.env
+  and pending = Inter.pending
   let sexp_of_t = Inter.sexp_of_v
   let t_of_sexp = Inter.v_of_sexp
   let compare = Inter.compare_v
@@ -45,6 +48,10 @@ module Value = struct
   let sexp_of_env = Inter.sexp_of_env
   let env_of_sexp = Inter.env_of_sexp
   let compare_env = Inter.compare_env
+
+  let sexp_of_pending = Inter.sexp_of_pending
+  let pending_of_sexp = Inter.pending_of_sexp
+  let compare_pending = Inter.compare_pending
 
   include Inter.Value
 end

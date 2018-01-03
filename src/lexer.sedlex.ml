@@ -91,6 +91,7 @@ let rec token lexbuf =
   | '|' -> update lexbuf; BAR
   | '.' -> update lexbuf; DOT
   | '~' -> update lexbuf; NOT (lexeme lexbuf)
+  | '?' -> update lexbuf; DEREFERENCE (lexeme lexbuf)
   | '+' -> update lexbuf; ADD (lexeme lexbuf)
   | '-' -> update lexbuf; SUB (lexeme lexbuf)
   | '=' -> update lexbuf; EQ (lexeme lexbuf)

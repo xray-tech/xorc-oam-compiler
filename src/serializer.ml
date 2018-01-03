@@ -129,21 +129,21 @@ let load packed =
 
 open Inter
 
-let rec dump_value on_env = function
+let rec dump_simple_value = function
   | VConst x ->
     [M.Int 0; serialize_const x]
-  | VClosure(pc, to_copy, env) ->
-    [M.Int 1; M.Int pc; M.Int to_copy; on_env env]
   | VTuple vs ->
-    [M.Int 2; M.List (List.concat_map vs ~f:(dump_value on_env))]
+    [M.Int 2; M.List (List.concat_map vs ~f:(dump_simple_value))]
   | VList vs ->
-    [M.Int 3; M.List (List.concat_map vs ~f:(dump_value on_env))]
+    [M.Int 3; M.List (List.concat_map vs ~f:(dump_simple_value))]
   | VRecord pairs ->
     [M.Int 4; M.List (List.concat_map pairs ~f:(fun (k, v) ->
-         (M.String k)::(dump_value on_env v)))]
+         (M.String k)::(dump_simple_value v)))]
   | VLabel pc ->
     [M.Int 5; M.Int pc]
-
+  | VRef v ->
+    dump_simple_value !v
+  | _ -> assert false
 
 let dump_instance { current_coeffect; blocks } =
   let id = ref 0 in
@@ -151,6 +151,7 @@ let dump_instance { current_coeffect; blocks } =
   let frames = ref [] in
   let envs = ref [] in
   let pendings = ref [] in
+  let refs = ref [] in
   let in_cache cache obj =
     match List.find_map !cache ~f:(function
         | (id, obj') when phys_equal obj obj' -> Some(id)
@@ -168,6 +169,24 @@ let dump_instance { current_coeffect; blocks } =
     match in_cache cache obj with
     | `Exists _ -> ()
     | `New _ -> f () in
+  let rec dump_value = function
+    | VConst x ->
+      [M.Int 0; serialize_const x]
+    | VClosure(pc, to_copy, env) ->
+      [M.Int 1; M.Int pc; M.Int to_copy; dedup envs env]
+    | VTuple vs ->
+      [M.Int 2; M.List (List.concat_map vs ~f:dump_value)]
+    | VList vs ->
+      [M.Int 3; M.List (List.concat_map vs ~f:dump_value)]
+    | VRecord pairs ->
+      [M.Int 4; M.List (List.concat_map pairs ~f:(fun (k, v) ->
+           (M.String k)::(dump_value v)))]
+    | VLabel pc ->
+      [M.Int 5; M.Int pc]
+    | VRef v ->
+      [(M.Int 6); (dedup refs v)]
+    | VPending p ->
+      [(M.Int 7); (dedup pendings p)] in
   let serialize_frame (id, frame) =
     let f = match frame with
       | FPruning { instances; pending } ->
@@ -186,11 +205,11 @@ let dump_instance { current_coeffect; blocks } =
     let tokens = List.map pend_waiters ~f:serialize_token in
     let v = match pend_value with
       | Pend -> [M.Int 0; M.List tokens]
-      | PendVal v -> (M.Int 1)::(dump_value (dedup envs) v)
+      | PendVal v -> (M.Int 1)::(dump_value v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
   and serialize_env_v = function
-    | Value x -> M.List ((M.Int 0)::(dump_value (dedup envs) x))
+    | Value x -> M.List ((M.Int 0)::(dump_value x))
     | Pending x -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
@@ -199,6 +218,8 @@ let dump_instance { current_coeffect; blocks } =
             M.Int c;
             M.List (List.map stack ~f:(dedup frames));
             dedup envs env] in
+  let serialize_ref (i, v) =
+    (M.Int i)::dump_value !v in
   let serialize_block (i, token) =
     [M.Int i; serialize_token token] in
   let rec walk_token { stack; env } =
@@ -229,14 +250,14 @@ let dump_instance { current_coeffect; blocks } =
   M.List [(M.Int current_coeffect);
           M.List (List.concat_map !frames ~f:serialize_frame);
           M.List (List.concat_map !pendings ~f:serialize_pending);
+          M.List (List.concat_map !refs ~f:serialize_ref);
           M.List (List.concat_map !envs ~f:serialize_env);
           M.List (List.concat_map blocks ~f:serialize_block)]
 
 let serialize_result {Inter.Res.coeffects; killed; values} =
-  let serialize_value = (dump_value (fun _ -> assert false)) in
-  let values' = (List.concat_map values ~f:serialize_value) in
+  let values' = (List.concat_map values ~f:dump_simple_value) in
   let serialize_coeffect (id, v) =
-    M.List ((M.Int id)::(serialize_value v)) in
+    M.List ((M.Int id)::(dump_simple_value v)) in
   M.List
     [M.List values';
      M.List (List.map coeffects ~f:serialize_coeffect);

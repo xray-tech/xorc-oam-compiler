@@ -17,7 +17,7 @@ module Serializer = struct
     | Execute(bc) ->
       M.List [M.Int 0; Serializer.dump bc]
     | Continue(id, v) ->
-      M.List ((M.Int 1)::(M.Int id)::(Serializer.dump_value (fun _ -> assert false) v))
+      M.List ((M.Int 1)::(M.Int id)::(Serializer.dump_simple_value v))
     | Benchmark(bc, iter) ->
       M.List [M.Int 2; Serializer.dump bc; M.Int iter]
 
@@ -35,9 +35,9 @@ module Serializer = struct
 
   let dump_res {Inter.Res.values; coeffects; killed} =
     let values' = List.map values ~f:(fun v ->
-        M.List (Serializer.dump_value (fun _ -> assert false) v)) in
+        M.List (Serializer.dump_simple_value v)) in
     let dump_coeffect (id, v) =
-      M.List ((M.Int id)::(Serializer.dump_value (fun _ -> assert false) v)) in
+      M.List ((M.Int id)::(Serializer.dump_simple_value v)) in
     M.List [
       M.List values';
       M.List (List.map coeffects ~f:dump_coeffect);

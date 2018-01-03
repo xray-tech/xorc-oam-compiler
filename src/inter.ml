@@ -84,10 +84,8 @@ let rec publish state stack env v =
       publish state stack' env v
     | FOtherwise _ ->
       publish state stack' env v
-    | FPruning ({ pending = { pend_value = Pend } } as r) ->
-      r.pending.pend_value <- PendVal v;
-      List.iter r.pending.pend_waiters ~f:(fun { pc; stack; env } ->
-          tick state pc stack env)
+    | FPruning { pending = ({ pend_value = Pend } as p) } ->
+      pending_realize state p v
     | FPruning { pending = { pend_value = PendVal(_) } } -> ()
     | FPruning { pending = { pend_value = PendStopped } } -> assert false
     | FCall env' ->
@@ -112,12 +110,20 @@ and halt state stack env =
         in_stack stack'
       | FOtherwise r ->
         r.instances <- r.instances - 1
-      | FPruning { instances = 1; pending = ({ pend_value = Pend } as pending)} ->
-        pending.pend_value <- PendStopped
+      | FPruning { instances = 1; pending = ({ pend_value = Pend } as p)} ->
+        pending_stop state p
       | FPruning r ->
         r.instances <- r.instances - 1
       | _ -> in_stack stack' in
   in_stack stack
+and pending_realize state p v =
+  p.pend_value <- PendVal v;
+  List.iter p.pend_waiters ~f:(fun { pc; stack; env } ->
+      tick state pc stack env)
+and pending_stop state p =
+  p.pend_value <- PendStopped;
+  List.iter p.pend_waiters ~f:(fun { pc; stack; env } ->
+      tick state pc stack env)
 and tick
     ({ instance; inter } as state)
     (pc, c) stack env =
@@ -157,6 +163,16 @@ and tick
        | PrimHalt -> halt state stack env
        | PrimUnsupported ->
          (* TODO warning? *)
+         halt state stack env
+       | PrimPendingSubscribe p ->
+         p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
+       | PrimPendingRealize (p, v) ->
+         pending_realize state p v;
+         publish state stack env (VConst Ast.Signal);
+         halt state stack env
+       | PrimPendingStop p ->
+         pending_stop state p;
+         publish state stack env (VConst Ast.Signal);
          halt state stack env) in
   let (_, proc) = get_code inter pc in
   match proc.(c) with
