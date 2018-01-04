@@ -114,6 +114,8 @@ and halt state stack env =
         pending_stop state p
       | FPruning r ->
         r.instances <- r.instances - 1
+      | FCall env ->
+        halt state stack' env
       | _ -> in_stack stack' in
   in_stack stack
 and pending_realize state p v =
