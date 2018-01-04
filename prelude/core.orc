@@ -23,6 +23,7 @@ def sqrt(x) = `core.sqrt`(x)
 def Let(x) = `core.let`(x)
 
 def Println(x) = Coeffect({. kind = "println", value = x .})
+def Error(x) = Println("Error: " + x)
 
 def Rwait(x) = Coeffect({. kind = "rwait", timeout = x .})
 
