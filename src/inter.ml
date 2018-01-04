@@ -233,7 +233,7 @@ and tick
   | Call(TDynamic(i), args) ->
     (match realized i with
      | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters
-     | `Stopped -> raise Util.TODO
+     | `Stopped -> halt state stack env
      | `Value(VClosure(pc', to_copy, closure_env)) ->
        let (size, f_code) = get_code inter pc' in
        let env' = alloc_env size in
