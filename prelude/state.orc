@@ -1,5 +1,13 @@
 refer from core ((=))
 
+def Ref(init) =
+  val v = `core.make-ref`(init)
+  def read() =
+    `core.deref`(v)
+  def write(x) =
+    `core.set`(v, x)
+  {. read = read, write = write .}
+
 def Cell() =
   val v = `core.make-pending`()
   def read() =
