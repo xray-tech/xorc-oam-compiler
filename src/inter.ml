@@ -139,17 +139,23 @@ and tick
      | Pending { pend_value = PendVal(v) }
      | Value(v) -> `Value v) in
   let realized_multi args =
-    let values = (Array.create ~len:(Array.length args) (VConst (Ast.Null))) in
-    let rec step = function
-      | i when Int.equal (Array.length args) i -> `Values values
-      | i ->
-        match realized args.(i) with
-        | `Pending p -> `Pending p
-        | `Stopped -> `Stopped
-        | `Value v ->
-          values.(i) <- v;
-          step (i + 1) in
-    step 0 in
+    let args' = Array.map args ~f:realized in
+    if Array.find args' ~f:(function
+        | `Stopped -> true
+        | _ -> false) |> Option.is_some
+    then `Stopped
+    else
+      let values = (Array.create ~len:(Array.length args) (VConst (Ast.Null))) in
+      let rec step = function
+        | i when Int.equal (Array.length args) i -> `Values values
+        | i ->
+          match args'.(i) with
+          | `Pending p -> `Pending p
+          | `Stopped -> `Stopped
+          | `Value v ->
+            values.(i) <- v;
+            step (i + 1) in
+      step 0 in
   let call_ffi index args =
     match realized_multi args with
     | `Pending p -> p.pend_waiters <- { pc = (pc, c); stack; env }::p.pend_waiters

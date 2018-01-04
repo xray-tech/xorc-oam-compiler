@@ -141,6 +141,7 @@ let tests =
        ("(1 | stop) >> 2", Check (allof ["2"]));
        ("(1;signal) >> stop; 3", Check (allof ["3"]));
        ("def f(x) = x # (f(x) <x< stop); 5", Check (allof ["5"]));
+       ("val x = stop val y = Coeffect(1) x+y;y+x;true", Check (allof ["true"]))
      ]);
    ("combinators", [
        ("2 | 3", Check (allof ["2"; "3"]));
