@@ -350,6 +350,7 @@ let unblock' inter instance coeffect value =
                   instance}
   | Some(token) ->
     publish state token.stack token.env value;
+    halt state token.stack token.env;
     run_loop state;
     let (killed, instance') = check_killed coeffect instance in
     Res.{ values = !values;
