@@ -1,5 +1,5 @@
 refer from idioms (flip)
-refer from core (min, max, (+), (-), (:))
+refer from core (min, max, (+), (-), (:), (<:))
 def each([]) = stop
 def each(h:t) = h | each(t)
 
