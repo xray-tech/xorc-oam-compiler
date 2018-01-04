@@ -54,7 +54,7 @@ def Channel() =
     else `core.pending-read`(pend)
 
   def get() =
-    getD(); pendingCreateIfNeedAndRead(readPoint)
+    getD(); if `core.deref`(isClosed) = true then stop else pendingCreateIfNeedAndRead(readPoint)
 
   def put(v) =
     if `core.deref`(isClosed) = true
