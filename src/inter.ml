@@ -43,12 +43,19 @@ let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
 
 let rec format_value = function
   | Value v -> format_v v
-  | Pending { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
-  | Pending { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
+  | Pending p -> format_pending p
+and format_pending = function
+  | { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
+  | { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
 and format_v = function
   | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
+  | VTuple l -> Printf.sprintf "(Tuple %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
+  | VList l -> Printf.sprintf "(List %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
+  | VRecord pairs -> Printf.sprintf "(Record %s)" (String.concat ~sep:", " (List.map pairs ~f:(fun (k, v) -> Printf.sprintf "%s: %s" k (format_v v))))
   | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
-  | _ -> "<>"
+  | VLabel i -> Printf.sprintf "(Label %i)" i
+  | VRef v -> Printf.sprintf "(Ref %s)" (format_v !v)
+  | VPending p -> format_pending p
 
 let format_env env =
   let vs = (Array.to_sequence env

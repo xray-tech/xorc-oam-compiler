@@ -238,6 +238,13 @@ let tests =
          def bar(f) = f(1,2)
          bar(foo)",
         Check (allof ["3"]));
+
+       ("def foo(x) =
+           def bar() = x + 1
+           def zoo() = bar()
+           zoo()
+        foo(1)",
+       Check (allof ["2"]))
      ]);
    ("blocks", [
        (* ("Coeffect(1) >x> x + 2",

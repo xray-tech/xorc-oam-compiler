@@ -110,7 +110,6 @@ let get_ffi state def =
     | _::xs -> f xs in
   f state.ffi_in_use
 
-
 let free_vars init e =
   let rec step ctx (e, (_ast_e, _pos)) =
     let open! Ir1 in
@@ -163,6 +162,24 @@ type env = {
 }
 
 exception NS of ctx
+
+(* Here we determine which functions are closures
+   Function is closure if:
+   - it uses variables from outer scope
+   - it uses functions from the same scope which are closures (and this is recursive rule)*)
+let analyze_functions_graph g =
+  let rec f checked ident = function
+    | ([], []) -> false
+    | ([], edges) ->
+      let unchecked = List.filter edges ~f:(fun edge ->
+          not (List.mem checked edge ~equal:String.equal)) in
+      List.find unchecked ~f:(fun edge ->
+          let x = List.Assoc.find_exn g ~equal:String.equal edge in
+          f (ident::checked) edge x) |> Option.is_some
+    | _ -> true
+  in
+  List.map g ~f:(fun (ident, x) ->
+      (ident, f [ident] ident x))
 
 let compile_e env e =
   with_return (fun r ->
@@ -274,18 +291,23 @@ let compile_e env e =
            ::(e1' @ e2'))
         | EFix(fs, e) ->
           let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
-          let closure_vars = List.map fs ~f:(fun (_, params, e) ->
+          let closure_vars = List.map fs ~f:(fun (ident, params, e) ->
               let all = free_vars (vars @ params) e in
-              closure_vars env.ctx pos all) in
-          let binds = List.map2_exn fs closure_vars ~f:(fun (ident, params, body) vars ->
-              match vars with
-              | Ok ([]) -> (ident, BindFun {ns = env.ns;
-                                            ident;
-                                            is_closure = false;
-                                            ctx = ref None;
-                                            params; body})
-              | Ok _ -> (ident, BindVar)
-              | Error _ as err -> r.return err ) in
+              let all_plus_fix = free_vars params e in
+              let fix_links = List.filter all_plus_fix ~f:(fun x ->
+                  List.mem all x ~equal:String.equal |> not) in
+              match closure_vars env.ctx pos all with
+              | Ok v -> (ident, (v, fix_links))
+              | Error _ as err -> r.return err) in
+          let closures = analyze_functions_graph closure_vars in
+          let binds = List.map2_exn fs closures ~f:(fun (ident, params, body) (_, is_closure) ->
+              if is_closure
+              then (ident, BindVar)
+              else (ident, BindFun {ns = env.ns;
+                                    ident;
+                                    is_closure;
+                                    ctx = ref None;
+                                    params; body})) in
           let ctx' = binds @ env.ctx in
           List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> ());
           let (s, body) = compile_e' { env with ctx = ctx'} e in
