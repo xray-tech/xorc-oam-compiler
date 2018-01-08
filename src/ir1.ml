@@ -121,6 +121,8 @@ let rec translate' ((e, pos) as ast) =
         unravel_record pairs focus expr
       | A.PTyped(p, _) ->
         unravel p focus expr
+      | A.PCall _ ->
+        raise Util.TODO
     and unravel_record pairs focus expr =
       match pairs with
       | [] -> expr ()

@@ -122,7 +122,7 @@ expr:
        make_pos $startpos $endpos) } %prec low
   | e=expr DOUBLE_COLON ty=ty { (EHasType(e, ty), make_pos $startpos $endpos) }
   | e=expr TOVERRIDE ty=ty { (EOverrideType(e, ty), make_pos $startpos $endpos) }
-  | LAMBDA ty_ps=type_params? ps=params return=ty? EQ e=expr
+  | LAMBDA ty_ps=type_params? ps=params return=return_type? EQ e=expr
     { (ELambda(optional_list ty_ps, ps, return, e),
        make_pos $startpos $endpos) }
   | d=decl NUMBER_SIGN? e=expr { (EDecl(d, e), make_pos $startpos $endpos) } %prec low
@@ -164,7 +164,7 @@ ident_or_op:
 constructors:
   | c=constructor { [c] }
   | BAR c=constructor { [c] }
-  | cs=constructors c=constructor { c::cs }
+  | cs=constructors BAR c=constructor { c::cs }
 
 constructor: n=IDENT LEFT_PAREN slots=separated_list(COMMA, slot) RIGHT_PAREN { (n, List.length slots) }
 slot:
@@ -195,6 +195,8 @@ pattern:
     { (PRecord(pairs), make_pos $startpos $endpos) }
   | head=pattern COLON tail=pattern
     { (PCons(head, tail), make_pos $startpos $endpos) }
+  | name=IDENT LEFT_PAREN ps=separated_list(COMMA, pattern) RIGHT_PAREN
+    { (PCall(name, ps), make_pos $startpos $endpos) }
   | p=pattern AS n=IDENT
     { (PAs(p, n), make_pos $startpos $endpos) }
   | LEFT_PAREN p=pattern RIGHT_PAREN

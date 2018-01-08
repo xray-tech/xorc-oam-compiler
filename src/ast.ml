@@ -46,6 +46,7 @@ type p' =
   | PTuple of p list
   | PList of p list
   | PCons of p * p
+  | PCall of ident * p list
   | PRecord of (string * p) list
   | PAs of p * string
   | PTyped of p * ty
