@@ -26,7 +26,7 @@ module Serializer = struct
       Result.map (Serializer.load_no_linker bc) ~f:(fun v ->
           Execute(v))
     | M.List ((M.Int 1)::(M.Int id)::tail) ->
-      Result.map (Serializer.load_value (fun _ -> assert false) tail) ~f:(fun (v, _) ->
+      Result.map (Serializer.load_simple_value tail) ~f:(fun (v, _) ->
           Continue(id, v))
     | M.List [M.Int 2; bc; M.Int iter] ->
       Result.map (Serializer.load_no_linker bc) ~f:(fun v ->
@@ -50,13 +50,13 @@ module Serializer = struct
         | M.List [M.List values; M.List coeffects; M.List killed] ->
           let values' = List.map values ~f:(function
               | M.List xs ->
-                (match Serializer.load_value (fun _ -> assert false) xs with
+                (match Serializer.load_simple_value xs with
                  | Ok((v, _)) -> v
                  | _ -> bad_format ())
               | _ -> bad_format ()) in
           let coeffects' = List.map coeffects ~f:(function
               | M.List ((M.Int id)::xs) ->
-                (match Serializer.load_value (fun _ -> assert false) xs with
+                (match Serializer.load_simple_value xs with
                  | Ok((v, _)) -> (id, v)
                  | _ -> bad_format ())
               | _ -> bad_format ()) in

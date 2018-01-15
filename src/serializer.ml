@@ -145,6 +145,34 @@ let rec dump_simple_value = function
     dump_simple_value !v
   | _ -> assert false
 
+let load_simple_value v =
+  with_return (fun r ->
+      let rec f = function
+        | (M.Int 0)::v::xs ->
+          (match deserialize_const v with
+           | Ok(c) -> (VConst(c), xs)
+           | Error(_) as err -> r.return err)
+        | (M.Int 2)::(M.List vs)::xs ->
+          (VTuple(multiple vs), xs)
+        | (M.Int 3)::(M.List vs)::xs ->
+          (VList(multiple vs), xs)
+        | (M.Int 4)::(M.List pairs)::xs ->
+          let rec deserialize_pairs = function
+            | [] -> []
+            | (M.String field)::xs ->
+              let (v, xs') = f xs in
+              (field, v)::(deserialize_pairs xs')
+            | _ -> r.return (Error `BadFormat) in
+          (VRecord(deserialize_pairs pairs), xs)
+        | (M.Int 5)::(M.Int pc)::xs ->
+          (VLabel(pc), xs)
+        | _ -> r.return (Error `BadFormat)
+      and multiple = function
+        | [] -> []
+        | xs -> let (v, xs') = f xs in
+          v::(multiple xs') in
+      Ok(f v))
+
 let dump_instance { current_coeffect; blocks } =
   let id = ref 0 in
   let make_id () = id := !id + 1; !id in
@@ -264,42 +292,13 @@ let serialize_result {Inter.Res.coeffects; killed; values} =
      M.List (List.map killed ~f:(fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
-let load_value on_env v =
-  with_return (fun r ->
-      let rec f = function
-        | (M.Int 0)::v::xs ->
-          (match deserialize_const v with
-           | Ok(c) -> (VConst(c), xs)
-           | Error(_) as err -> r.return err)
-        | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
-          (VClosure(pc, to_copy, on_env env), xs)
-        | (M.Int 2)::(M.List vs)::xs ->
-          (VTuple(multiple vs), xs)
-        | (M.Int 3)::(M.List vs)::xs ->
-          (VList(multiple vs), xs)
-        | (M.Int 4)::(M.List pairs)::xs ->
-          let rec deserialize_pairs = function
-            | [] -> []
-            | (M.String field)::xs ->
-              let (v, xs') = f xs in
-              (field, v)::(deserialize_pairs xs')
-            | _ -> r.return (Error `BadFormat) in
-          (VRecord(deserialize_pairs pairs), xs)
-        | (M.Int 5)::(M.Int pc)::xs ->
-          (VLabel(pc), xs)
-        | _ -> r.return (Error `BadFormat)
-      and multiple = function
-        | [] -> []
-        | xs -> let (v, xs') = f xs in
-          v::(multiple xs') in
-      Ok(f v))
-
 let load_instance packed =
   with_return (fun r ->
       let bad_format () = r.return (Error `BadFormat) in
       let frames_repo = ref [] in
       let envs_repo = ref [] in
       let pendings_repo = ref [] in
+      let refs_repo = ref [] in
       let repo_find repo id =
         List.Assoc.find !repo ~equal:Int.equal id in
       let add_repo repo id v = repo := (id, v)::!repo in
@@ -310,11 +309,18 @@ let load_instance packed =
         | None -> let p = dummy_pending () in
           add_repo pendings_repo id p;
           p in
-      let dummy_env len = Array.create ~len (Value (VConst (Ast.Null))) in
+      let repo_or_dummy_ref id =
+        match repo_find refs_repo id with
+        | Some(v) -> v
+        | None -> let v = ref (VConst Ast.Null) in
+          add_repo refs_repo id v;
+          v in
+      let dummy_env len = Array.create ~len (Value (VConst Ast.Null)) in
       match packed with
       | M.List [M.Int current_coeffect;
                 M.List frames;
                 M.List pendings;
+                M.List refs;
                 M.List envs;
                 M.List blocks] ->
         let env_size id =
@@ -330,6 +336,39 @@ let load_instance packed =
           | None -> let e = dummy_env (env_size id) in
             add_repo envs_repo id e;
             e in
+        let load_value v =
+          let rec f = function
+            | (M.Int 0)::v::xs ->
+              (match deserialize_const v with
+               | Ok(c) -> (VConst(c), xs)
+               | Error(_) as err -> r.return err)
+            | (M.Int 1)::(M.Int pc)::(M.Int to_copy)::(M.Int env)::xs ->
+              (VClosure(pc, to_copy, repo_or_dummy_env env), xs)
+            | (M.Int 2)::(M.List vs)::xs ->
+              (VTuple(multiple vs), xs)
+            | (M.Int 3)::(M.List vs)::xs ->
+              (VList(multiple vs), xs)
+            | (M.Int 4)::(M.List pairs)::xs ->
+              let rec deserialize_pairs = function
+                | [] -> []
+                | (M.String field)::xs ->
+                  let (v, xs') = f xs in
+                  (field, v)::(deserialize_pairs xs')
+                | _ -> r.return (Error `BadFormat) in
+              (VRecord(deserialize_pairs pairs), xs)
+            | (M.Int 5)::(M.Int pc)::xs ->
+              (VLabel(pc), xs)
+            | (M.Int 6)::(M.Int reference)::xs ->
+              (VRef(repo_or_dummy_ref reference), xs)
+            | (M.Int 7)::(M.Int pending)::xs ->
+              (VPending(repo_or_dummy_pending pending), xs)
+            | _ -> r.return (Error `BadFormat)
+                     
+          and multiple = function
+            | [] -> []
+            | xs -> let (v, xs') = f xs in
+              v::(multiple xs') in
+          Ok(f v) in
         let rec deserialize_frames = function
           | [] -> ()
           | (M.Int id)::(M.Int 0)::(M.Int instances)::(M.Int pending)::xs ->
@@ -364,7 +403,7 @@ let load_instance packed =
               | (M.Int 0)::(M.List tokens)::xs' ->
                 (Pend, deserialize_tokens tokens, xs')
               | (M.Int 1)::xs' ->
-                (match load_value repo_or_dummy_env xs' with
+                (match load_value xs' with
                  | Error(_) as err -> r.return err
                  | Ok((v, xs'')) ->
                    (PendVal v, [], xs''))
@@ -377,8 +416,8 @@ let load_instance packed =
           | _ -> bad_format () in
         let deserialize_env_value = function
           | M.List ((M.Int 0)::xs) ->
-            (match load_value repo_or_dummy_env xs with
-             | Error(_) as err -> r.return err
+            (match load_value xs with
+             | Error _ as err -> r.return err
              | Ok((v, _)) ->
                Value v)
           | M.List [M.Int 1; M.Int pending] ->
@@ -392,6 +431,16 @@ let load_instance packed =
                 e.(i) <- deserialize_env_value v);
             deserialize_envs xs
           | _ -> bad_format () in
+        let rec deserialize_refs = function
+          | [] -> ()
+          | (M.Int id)::xs ->
+            (match load_value xs with
+             | Error _ as err -> r.return err
+             | Ok((v, xs')) ->
+               let x = repo_or_dummy_ref id in
+               x := v;
+               deserialize_refs xs')
+          | _ -> bad_format () in
         let rec deserialize_blocks = function
           | [] -> []
           | (M.Int id)::t::xs ->
@@ -400,6 +449,7 @@ let load_instance packed =
         deserialize_frames frames;
         deserialize_pendings pendings;
         deserialize_envs envs;
+        deserialize_refs refs;
         let blocks' = deserialize_blocks blocks in
         Ok({ current_coeffect; blocks = blocks' })
       | _ -> bad_format ()
