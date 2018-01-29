@@ -302,7 +302,12 @@ let rec is_alive = function
   | FPruning { pending = { pend_value = PendStopped } }::_
   | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
     false
+  | FPruning { pending = { pend_value = Pend; pend_waiters } }::_ when waiters_are_dead pend_waiters ->
+    false
   | _::xs -> is_alive xs
+and waiters_are_dead = function
+  | [] -> true
+  | { stack }::xs -> if is_alive stack then false else waiters_are_dead xs
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =

@@ -71,6 +71,11 @@ let run_loop p compiled checks =
   let rec tick killed_to_check check =
     let%bind {T.values = actual; killed = actual_killed} = Protocol.read_res output in
     match check with
+    | Tests.WithKilled { killed; values} ->
+      (match check_killed killed actual_killed with
+       | `Ok ->
+         check_values values actual |> return
+       | other -> return other)
     | Tests.Check expected ->
       (match check_killed killed_to_check actual_killed with
        | `Ok ->

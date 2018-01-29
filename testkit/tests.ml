@@ -4,6 +4,8 @@ type check =
 [@@deriving variants]
 
 type checks = | Check of check
+              | WithKilled of { values : check;
+                                killed : int list }
               | CheckAndResume of { values : check;
                                     unblock : (int * string);
                                     killed : int list;
@@ -141,7 +143,8 @@ let tests =
        ("(1 | stop) >> 2", Check (allof ["2"]));
        ("(1;signal) >> stop; 3", Check (allof ["3"]));
        ("def f(x) = x # (f(x) <x< stop); 5", Check (allof ["5"]));
-       ("val x = stop val y = Coeffect(1) x+y;y+x;true", Check (allof ["true"]))
+       ("val x = stop val y = Coeffect(1) x+y;y+x;true",
+        WithKilled {values = allof ["true"]; killed = [0]})
      ]);
    ("combinators", [
        ("2 | 3", Check (allof ["2"; "3"]));
@@ -244,7 +247,7 @@ let tests =
            def zoo() = bar()
            zoo()
         foo(1)",
-       Check (allof ["2"]))
+        Check (allof ["2"]))
      ]);
    ("blocks", [
        (* ("Coeffect(1) >x> x + 2",
@@ -301,8 +304,8 @@ let tests =
                          killed = [1];
                          next = Check (allof ["3"])});
        ("def foo(0) = 1
-       def foo((1, x)) = x
-       foo(Coeffect(1)) | foo(Coeffect(2)) | foo(Coeffect(3))",
+         def foo((1, x)) = x
+         foo(Coeffect(1)) | foo(Coeffect(2)) | foo(Coeffect(3))",
         CheckAndResume
           { values = allof [];
             unblock = (0, "0");
@@ -315,7 +318,15 @@ let tests =
                       { values = allof [];
                         unblock = (2, "(1, 3)");
                         killed = [];
-                        next = Check (allof ["3"])}}})]);
+                        next = Check (allof ["3"])}}});
+       ("val x = Coeffect(1)
+         val y = x | Coeffect(2)
+         y",
+        CheckAndResume
+          { values = allof [];
+            unblock = (1, "1");
+            killed = [0];
+            next = Check (allof ["1"])})]);
    ("tailrec", [
        ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(10000)",
         Check (allof ["0"]));
