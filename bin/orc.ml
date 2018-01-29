@@ -66,7 +66,7 @@ let file_contents path =
 let fs path =
   (module struct
     let load ns =
-      let ns' = String.Search_pattern.(replace_all (create "\.") ~in_:ns ~with_:"/") ^ ".orc" in
+      let ns' = String.Search_pattern.(replace_all (create "\\.") ~in_:ns ~with_:"/") ^ ".orc" in
       optional_file_contents (Filename.concat path ns')
   end : NSLoader)
 
