@@ -304,9 +304,9 @@ let rec is_alive = function
     false
   | _::xs -> is_alive xs
 
-let check_killed just_unblocked instance =
+let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =
-    if Int.equal id just_unblocked
+    if ignore_fun id
     then (killed, acc)
     else if is_alive stack
     then (killed, block::acc)
@@ -329,11 +329,11 @@ let run' inter =
     coeffects = c_clb;
     queue = [{pc; env; stack}]} in
   run_loop state;
-  (* TODO killed coeffects *)
+  let (killed, instance') = check_killed instance in
   Res.{ values = !values;
         coeffects = !coeffects;
-        killed = [];
-        instance}
+        killed;
+        instance = instance' }
 
 let inter {ffi; code} =
   let open Result.Let_syntax in
@@ -359,7 +359,7 @@ let unblock' inter instance coeffect value =
     publish state token.stack token.env value;
     halt state token.stack token.env;
     run_loop state;
-    let (killed, instance') = check_killed coeffect instance in
+    let (killed, instance') = check_killed ~ignore_fun:(fun id -> Int.equal id coeffect) instance in
     Res.{ values = !values;
           coeffects = !coeffects;
           killed;
