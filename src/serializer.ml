@@ -273,7 +273,7 @@ let dump_instance { current_coeffect; blocks } =
         | FPruning { pending } -> walk_pending pending
         | FCall(env) -> walk_env env
         | _ -> ())
-  and walk_stack = List.iter ~f: walk_frame in
+  and walk_stack l = List.iter l ~f: walk_frame in
   List.iter blocks ~f:(fun (_id, token) -> walk_token token);
   M.List [(M.Int current_coeffect);
           M.List (List.concat_map !frames ~f:serialize_frame);

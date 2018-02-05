@@ -42,4 +42,4 @@ let read_res r =
 module M = Msgpck
 
 let write w v =
-  Writer.write w (M.String.to_string v)
+  Writer.write_bytes w (M.String.to_string v)

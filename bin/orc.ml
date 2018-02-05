@@ -177,9 +177,9 @@ let compile =
          | Ok(bc) ->
            let bc' = Msgpck.String.to_string bc in
            (match output with
-            | Some(path) -> Writer.save path ~contents:bc'
+            | Some(path) -> Writer.save path ~contents:(Bytes.to_string bc')
             | None ->
-              print_string bc'; Async.return ()) >>= fun () ->
+              print_string (bc' |> Bytes.to_string); Async.return ()) >>= fun () ->
            exit 0) in
       fun () ->
         set_logging verbose;
@@ -196,7 +196,7 @@ let run_loop state_path unblock res =
     match state_path with
     | Some(state_path) ->
       let msgpck = Orcml.Serializer.dump_instance instance in
-      Writer.save state_path ~contents:(Msgpck.String.to_string msgpck)
+      Writer.save state_path ~contents:(Msgpck.String.to_string msgpck |> Bytes.to_string)
     | _ -> return () in
   let coeffect_kind = function
     | V.VRecord(pairs) ->
