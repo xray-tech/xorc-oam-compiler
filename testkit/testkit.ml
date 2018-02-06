@@ -186,11 +186,13 @@ let exec =
 
 let bench_test n p (e, _checks) =
   info "Bench program:\n%s" e;
+  let%bind core = compiled_core in
   let res =
     let open Result.Let_syntax in
-    let%bind parsed = Orcml.parse e in
-    let%bind ir = Orcml.translate_no_deps parsed in
-    Orcml.compile ~deps:[] ir in
+    let e' = implicit_core ^ e in
+    let%bind parsed = Orcml.parse e' in
+    let (_, ir) = Orcml.translate parsed in
+    Orcml.compile ~deps:[("core", core)] ir in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
