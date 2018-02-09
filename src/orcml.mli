@@ -114,6 +114,8 @@ module Serializer : sig
 
   val dump_instance : instance -> Msgpck.t
   val load_instance : Msgpck.t -> (instance, [> load_error]) Result.t
+
+  val dump_k : bc -> string
 end
 
 module Testkit : sig

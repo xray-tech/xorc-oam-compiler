@@ -363,7 +363,7 @@ let load_instance packed =
             | (M.Int 7)::(M.Int pending)::xs ->
               (VPending(repo_or_dummy_pending pending), xs)
             | _ -> r.return (Error `BadFormat)
-                     
+
           and multiple = function
             | [] -> []
             | xs -> let (v, xs') = f xs in
@@ -460,3 +460,42 @@ let load_no_linker v =
   | Ok(_) as ok -> ok
   | Error(`BadFormat) as err -> err
   | Error(`LinkerError _) -> assert false
+
+let dump_k {Inter.ffi; code} =
+  let open Printf in
+  let k_ffi = List.mapi ffi ~f:(fun i def -> sprintf "  %i \"%s\"" i def)
+              |> String.concat ~sep:"\n" in
+  let k_op' = function
+    | Parallel(left, right) -> sprintf "#parallel %i %i" left right
+    | Otherwise(left, right) -> sprintf "#otherwise %i %i" left right
+    | Sequential(left, None, right) -> sprintf "#sequential %i -1 %i" left right
+    | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left param right
+    | Pruning(left, None, right) -> sprintf "#pruning %i -1 %i" left right
+    | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left param right
+    | Call(target, args) ->
+      let target' = match target with
+        | TFun(i) -> sprintf "#callFun %i" i
+        | TDynamic(i) -> sprintf "#callDynamic %i" i in
+      let args' = Array.map args ~f:Int.to_string
+                  |> Array.to_list
+                  |> String.concat ~sep:", " in
+      sprintf "%s [ %s ]" target' args'
+    | FFI(target, args) ->
+      let args' = Array.map args ~f:Int.to_string
+                  |> Array.to_list
+                  |> String.concat ~sep:", " in
+      sprintf "#ffi %i [ %s ]" target args'
+    | Stop -> "#stop"
+    | Const(Ast.Int i) -> sprintf "#constInt %i" i
+    | _ -> "" in
+  let k_op i op =
+    sprintf "  %i: %s" i (k_op' op) in
+  let k_fun i (_, ops) =
+    let k_ops = Array.mapi ops ~f:k_op
+                |> Array.to_list
+                |> String.concat ~sep:"\n" in
+    sprintf "%i %i {\n%s\n}" i (Array.length ops - 1) k_ops in
+  let k_funs = Array.mapi code ~f:k_fun
+               |> Array.to_list
+               |> String.concat ~sep:"\n\n" in
+  sprintf "ffi {\n%s\n}\n\n%s\n" k_ffi k_funs

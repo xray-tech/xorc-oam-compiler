@@ -129,9 +129,7 @@ let compile_input prelude includes is_byte_code input =
 let make_bytecode prelude includes input =
   let loader = multiloader (List.map includes ~f:fs) in
   let%bind prog = read_file_or_stdin input in
-  match%map compile_source loader prelude prog with
-  | Error _ as err -> err
-  | Ok(bc) -> Ok (Orcml.Serializer.dump bc)
+  compile_source loader prelude prog
 
 let prelude_flag =
   let open Command.Param in
@@ -158,6 +156,12 @@ let error_to_string_hum = function
   | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
     Orcml.error_to_string_hum other
 
+let msgpack_format bc =
+  Msgpck.String.to_string (Orcml.Serializer.dump bc)
+  |> Bytes.to_string
+
+let k_format = Orcml.Serializer.dump_k
+
 let compile =
   let open Command.Let_syntax in
   Command.basic
@@ -165,6 +169,7 @@ let compile =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and output = flag "-output" (optional file) ~doc:"Output path"
+      and k = flag "-k" no_arg ~doc:"Output in K format"
       and includes = includes_flag
       and prelude = prelude_flag
       and verbose = verbose_flag in
@@ -175,11 +180,13 @@ let compile =
            error "Can't compile: %s" (error_to_string_hum err);
            exit 1
          | Ok(bc) ->
-           let bc' = Msgpck.String.to_string bc in
+           let bc' = if k
+             then k_format bc
+             else msgpack_format bc in
            (match output with
-            | Some(path) -> Writer.save path ~contents:(Bytes.to_string bc')
+            | Some(path) -> Writer.save path ~contents:bc'
             | None ->
-              print_string (bc' |> Bytes.to_string); Async.return ()) >>= fun () ->
+              print_string bc'; Async.return ()) >>= fun () ->
            exit 0) in
       fun () ->
         set_logging verbose;
@@ -375,7 +382,7 @@ let tests_server =
       let res = Orcml.unblock (Option.value_exn inter) (Option.value_exn state) id v in
       handle_res inter res
     | Benchmark(bc, iter) ->
-            let inter = Orcml.inter bc
+      let inter = Orcml.inter bc
                   |> Result.map_error ~f:error_to_string_hum
                   |> Result.ok_or_failwith in
       (match Benchmark.latency1 ~style:Benchmark.Nil
