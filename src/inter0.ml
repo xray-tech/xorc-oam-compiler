@@ -66,3 +66,27 @@ type bc = {
   ffi : string list;
   code : code;
 } [@@deriving sexp, compare]
+
+
+let rec format_value = function
+  | Value v -> format_v v
+  | Pending p -> format_pending p
+and format_pending = function
+  | { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
+  | { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
+and format_v = function
+  | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
+  | VTuple l -> Printf.sprintf "(Tuple %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
+  | VList l -> Printf.sprintf "(List %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
+  | VRecord pairs -> Printf.sprintf "(Record %s)" (String.concat ~sep:", " (List.map pairs ~f:(fun (k, v) -> Printf.sprintf "%s: %s" k (format_v v))))
+  | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
+  | VLabel i -> Printf.sprintf "(Label %i)" i
+  | VRef v -> Printf.sprintf "(Ref %s)" (format_v !v)
+  | VPending p -> format_pending p
+
+let format_env env =
+  let vs = (Array.to_sequence env
+            |> Sequence.map ~f:format_value
+            |> Sequence.to_list) in
+  "(" ^ String.concat ~sep:", " vs ^ ")"
+

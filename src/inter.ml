@@ -41,28 +41,6 @@ let rec increment_instances = function
 
 let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
 
-let rec format_value = function
-  | Value v -> format_v v
-  | Pending p -> format_pending p
-and format_pending = function
-  | { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
-  | { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
-and format_v = function
-  | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
-  | VTuple l -> Printf.sprintf "(Tuple %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
-  | VList l -> Printf.sprintf "(List %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
-  | VRecord pairs -> Printf.sprintf "(Record %s)" (String.concat ~sep:", " (List.map pairs ~f:(fun (k, v) -> Printf.sprintf "%s: %s" k (format_v v))))
-  | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
-  | VLabel i -> Printf.sprintf "(Label %i)" i
-  | VRef v -> Printf.sprintf "(Ref %s)" (format_v !v)
-  | VPending p -> format_pending p
-
-let format_env env =
-  let vs = (Array.to_sequence env
-            |> Sequence.map ~f:format_value
-            |> Sequence.to_list) in
-  "(" ^ String.concat ~sep:", " vs ^ ")"
-
 let print_debug { code } (pc, c) env  =
   let (size, f) = code.(pc) in
   let op = f.(c) in
@@ -73,6 +51,18 @@ let print_debug { code } (pc, c) env  =
 
 let get_code inter pc =
   inter.code.(pc)
+
+let rec is_alive = function
+  | [] -> true
+  | FPruning { pending = { pend_value = PendStopped } }::_
+  | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
+    false
+  | FPruning { pending = { pend_value = Pend; pend_waiters } }::_ when waiters_are_dead pend_waiters ->
+    false
+  | _::xs -> is_alive xs
+and waiters_are_dead = function
+  | [] -> true
+  | { stack }::xs -> if is_alive stack then false else waiters_are_dead xs
 
 let rec publish state stack env v =
   match stack with
@@ -128,7 +118,9 @@ and halt state stack env =
 and pending_realize state p v =
   p.pend_value <- PendVal v;
   List.iter p.pend_waiters ~f:(fun { pc; stack; env } ->
-      tick state pc stack env)
+      if is_alive stack
+      then tick state pc stack env
+      else ())
 and pending_stop state p =
   p.pend_value <- PendStopped;
   List.iter p.pend_waiters ~f:(fun { pc; stack; env } ->
@@ -296,18 +288,6 @@ let rec run_loop state =
     state.queue <- xs;
     tick state pc stack env;
     run_loop state
-
-let rec is_alive = function
-  | [] -> true
-  | FPruning { pending = { pend_value = PendStopped } }::_
-  | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
-    false
-  | FPruning { pending = { pend_value = Pend; pend_waiters } }::_ when waiters_are_dead pend_waiters ->
-    false
-  | _::xs -> is_alive xs
-and waiters_are_dead = function
-  | [] -> true
-  | { stack }::xs -> if is_alive stack then false else waiters_are_dead xs
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =

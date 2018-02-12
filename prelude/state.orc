@@ -45,25 +45,26 @@ def Channel() =
       >> head(queue')
 
   def pendingCreateIfNeedAndRead(box) =
-    val pend = `core.deref`(box)
-    if pend = null
-    then
-      `core.make-pending`()
-      >pend> `core.set`(box, pend)
-      >> `core.pending-read`(pend)
-    else `core.pending-read`(pend)
+    (val pend = `core.deref`(box)
+     if pend = null
+     then
+       `core.make-pending`()
+       >pend> `core.set`(box, pend)
+       >> `core.pending-read`(pend)
+     else `core.pending-read`(pend))
 
   def get() =
-    getD(); if `core.deref`(isClosed) = true then stop else pendingCreateIfNeedAndRead(readPoint)
+    getD(); if `core.deref`(isClosed) = true then stop else (pendingCreateIfNeedAndRead(readPoint) >> get())
 
   def put(v) =
+    `core.set`(queue, append(`core.deref`(queue), [v])) >>
     if `core.deref`(isClosed) = true
     then stop
     else
     (val readPoint' = `core.deref`(readPoint)
      if readPoint' = null
-     then `core.set`(queue, append(`core.deref`(queue), [v]))
-     else `core.set`(readPoint, null) >> `core.realize`(readPoint', v))
+     then signal
+     else `core.set`(readPoint, null) >> `core.realize`(readPoint', signal))    
 
   def close() =
     `core.set`(isClosed, true)
