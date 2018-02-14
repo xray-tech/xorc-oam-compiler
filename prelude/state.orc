@@ -79,6 +79,37 @@ def Channel() =
     else pendingCreateIfNeedAndRead(emptyWait)
   {. get = get, put = put, close = close .}
 
+def Counter() =
+  refer from core ((+), (-))
+  val value = `core.make-ref`(0)
+  val zeroWait = `core.make-ref`(`core.make-pending`())
+
+  def inc() =
+    `core.set`(value, `core.deref`(value) + 1)#
+
+  def dec() =
+     val value' = `core.deref`(value)
+     if value' = 0
+     then stop
+     else
+       val value'' = value' - 1
+       `core.set`(value, value'') >>
+       (if value'' = 0
+        then `core.realize`(`core.deref`(zeroWait), signal)
+             >> `core.set`(zeroWait, `core.make-pending`())
+        else signal)
+
+  def onZero() =
+    val value' = `core.deref`(value)
+    if value' = 0
+    then signal
+    else 
+      `core.pending-read`(`core.deref`(zeroWait))
+
+  def getValue() = `core.deref`(value)
+
+  {. inc = inc, dec = dec, onZero = onZero, value = getValue .}
+
 def (?)(r) = r.read()
 
 def (:=)(r,v) = r.write(v)
