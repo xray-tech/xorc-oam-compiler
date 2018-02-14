@@ -488,6 +488,7 @@ let dump_k {Inter.ffi; code} =
     | Stop -> "#stop"
     | Const(Ast.Int i) -> sprintf "#constInt %i" i
     | Const(Ast.Bool v) -> sprintf "#constBool %b" v
+    | Closure(pc, to_copy) -> sprintf "#closure %i %i" pc to_copy
     | _ -> "" in
   let k_op i op =
     sprintf "  %i: %s" i (k_op' op) in
