@@ -472,7 +472,7 @@ let dump_k {Inter.ffi; code} =
     | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left param right
     | Pruning(left, None, right) -> sprintf "#pruning %i -1 %i" left right
     | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left param right
-    | Call(target, args) ->
+    | Call(target, args) | TailCall(target, args) ->
       let target' = match target with
         | TFun(i) -> sprintf "#callFun %i" i
         | TDynamic(i) -> sprintf "#callDynamic %i" i in
@@ -488,7 +488,9 @@ let dump_k {Inter.ffi; code} =
     | Stop -> "#stop"
     | Const(Ast.Int i) -> sprintf "#constInt %i" i
     | Const(Ast.Bool v) -> sprintf "#constBool %b" v
+    | Const(Ast.String v) -> sprintf "#constString \"%s\"" v
     | Closure(pc, to_copy) -> sprintf "#closure %i %i" pc to_copy
+    | Coeffect(arg) -> sprintf "#coeffect %i" arg
     | _ -> "" in
   let k_op i op =
     sprintf "  %i: %s" i (k_op' op) in
