@@ -11,8 +11,13 @@
   (deps    (lexer.sedlex.ml))
   (action  (run ${lib:sedlex:ppx_sedlex} ${<} -o ${@}))))
 
+(rule
+ ((targets (parser_messages.ml))
+  (deps    (parser.mly handcrafted.messages))
+  (action  (with-stdout-to ${@} (run menhir parser.mly --compile-errors handcrafted.messages)))))
+
 (menhir
- ((flags (--explain --dump))
+ ((flags (--explain --dump --table))
   (modules (parser))))
 
 (jbuild_version 1)

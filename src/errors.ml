@@ -2,7 +2,7 @@ open Base
 
 type parse_error =
   [ `NoInput
-  | `SyntaxError of string * int * int]
+  | `SyntaxError of string * int * int * string]
 [@@deriving sexp_of]
 
 type parse_value_error =
@@ -25,7 +25,7 @@ type inter_error =
 
 let to_string_hum = function
   | `NoInput -> "No input to parse"
-  | `SyntaxError(file, line, col) -> Printf.sprintf "Syntax error in namespace %s at line %i column %i" file (line + 1) col
+  | `SyntaxError(file, line, col, descr) -> Printf.sprintf "Syntax error in namespace %s at line %i column %i: %s" file (line + 1) col descr
   | `UnsupportedValueAST -> "Can't parse it as value"
   | `UnexpectedDependencies d -> Printf.sprintf "External dependencies are not supported here (%s)" (String.concat ~sep:", " d)
   | `UnboundVar(bind, {Ast.pstart}) ->
