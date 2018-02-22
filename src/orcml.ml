@@ -9,6 +9,8 @@ type compile_error = Errors.compile_error
 
 type inter_error = Errors.inter_error
 
+type error = [ parse_error | compile_error ]
+
 let error_to_string_hum = Errors.to_string_hum
 
 type ast = Ast.e
@@ -56,20 +58,21 @@ module Value = struct
   include Inter.Value
 end
 
-type ir1 = Ir1.e
-let sexp_of_ir1 = Ir1.sexp_of_e
-
-let parse = Syntax.parse
-
-let parse_ns = Syntax.parse_ns
+module Repository = Repository
 
 let parse_value = Syntax.parse_value
 
-let translate = Ir1.translate
+let compile ~repository code =
+  let open Result.Let_syntax in
+  let%bind parsed = Syntax.parse code in
+  let (_, ir1) = Ir1.translate parsed in
+  Compiler.compile ~repository ir1
 
-let translate_no_deps = Ir1.translate_no_deps
-
-let compile = Compiler.compile
+let compile_module ~repository ~name code =
+  let open Result.Let_syntax in
+  let%map parsed = Syntax.parse_ns ~filename:name code in
+  let (_, ir1) = Ir1.translate parsed in
+  Compiler.compile_module ~repository ~name ir1
 
 type bc = Inter.bc
 let sexp_of_bc = Inter.sexp_of_bc

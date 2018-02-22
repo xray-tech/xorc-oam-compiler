@@ -1,20 +1,7 @@
 open Common
 
 module I = Inter0
-
-type unit = {
-  is_closure : bool;
-  ns : string;
-  ident : string;
-  ctx : ctx option ref;                (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
-  params : string list;
-  body : Ir1.e }
-and binding =
-  | BindVar
-  | BindCoeffect
-  | BindFun of unit
-  | BindNs of (string * string)
-and ctx = (string * binding) list [@@deriving sexp_of]
+open Repository
 
 let list_index l v ~f =
   let rec index acc = function
@@ -57,7 +44,7 @@ let compile_unit_equal a b =
   | _ -> false
 
 type state = {
-  deps : unit list;
+  repository: Repository.t;
   mutable ffi_in_use : string list;
   mutable repo : (string * string * int * I.t array) list;
   mutable compile_queue : unit list;
@@ -87,8 +74,7 @@ let get_import_label state (ns, ident) =
   with_return (fun r ->
       let rec f i = function
         | [] ->
-          (match List.find state.deps ~f:(fun {ns = ns'; ident = ident'} ->
-               String.equal ns' ns && String.equal ident' ident) with
+          (match Repository.get state.repository ns ident with
            | None -> r.return None
            | Some(unit) ->
              state.compile_queue <- state.compile_queue @ [unit];
@@ -367,40 +353,15 @@ let compile_fun state {ns; ident; is_closure; ctx; params; body} =
                                   state} body in
   (size + List.length params + ctx_vars ctx', f)
 
-let rec prepare_dep ctx ns = function
-  | Ir1.ENS ->
-    List.filter_map ctx ~f:(function
-        | (_, BindFun unit) -> Some unit
-        | _ -> None)
-  | Ir1.EFix(fs, (e, _)) ->
-    let binds = List.map fs ~f:(fun (ident, params, body) ->
-        (ident, BindFun {ns;
-                         ident;
-                         is_closure = false;
-                         ctx = ref None;
-                         params; body})) in
-    let ctx' = binds @ ctx in
-    List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
-    prepare_dep ctx' ns e
-  | ERefer(ns', fs, (e, _)) ->
-    let binds = (List.map fs ~f:(fun name ->
-        (name, BindNs(ns', name)))) in
-    prepare_dep (binds @ ctx) ns e
-  | _ -> assert false
-
 let init_ctx = [("Coeffect", BindCoeffect)]
-
-let prepare_deps deps =
-  List.concat_map deps ~f:(fun (ns, (e, _)) ->
-      prepare_dep init_ctx ns e)
 
 let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let compile ~deps e =
+let compile ~repository e =
   with_return (fun r ->
-      let state = { deps = prepare_deps deps;
+      let state = { repository = repository;
                     repo = [];
                     ffi_in_use = [];
                     compile_queue = [{ns = "";
@@ -433,3 +394,29 @@ let compile ~deps e =
       let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, body) ->
           (size, body)) in
       Ok({I.ffi = List.rev state.ffi_in_use; code}))
+
+let rec compile_module' ctx mod_ = function
+  | Ir1.ENS ->
+    List.filter_map ctx ~f:(function
+        | (_, BindFun unit) -> Some unit
+        | _ -> None)
+  | Ir1.EFix(fs, (e, _)) ->
+    let binds = List.map fs ~f:(fun (ident, params, body) ->
+        (ident, BindFun {ns = mod_;
+                         ident;
+                         is_closure = false;
+                         ctx = ref None;
+                         params; body})) in
+    let ctx' = binds @ ctx in
+    List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
+    compile_module' ctx' mod_ e
+  | ERefer(mod_', fs, (e, _)) ->
+    let binds = (List.map fs ~f:(fun name ->
+        (name, BindNs(mod_', name)))) in
+    compile_module' (binds @ ctx) mod_ e
+  | _ -> assert false
+
+
+let compile_module ~repository ~name (e, _) =
+  compile_module' init_ctx name e
+  |> List.iter ~f:(Repository.set repository)

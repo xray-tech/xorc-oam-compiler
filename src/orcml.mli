@@ -32,8 +32,6 @@ module Value : sig
   include Comparator.S with type t := t
 end
 
-type ir1 [@@deriving sexp_of]
-
 type parse_error =
   [ | `NoInput
     | `SyntaxError of string * int * int * string]
@@ -42,32 +40,21 @@ type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
-type no_deps_error =
-  [ `UnexpectedDependencies of string list ]
-
 type compile_error =
   [ `UnboundVar of string * Ast.pos
   | `UnknownReferedFunction of string * string ]
+
+type error = [ parse_error | compile_error ]
 
 type inter_error =
   [ `UnknownFFI of string]
 
 val error_to_string_hum : [< parse_error
                           | parse_value_error
-                          | no_deps_error
                           | compile_error
                           | inter_error
                           | `BadFormat ] -> string
 
-val parse : string -> (ast, [> parse_error]) Result.t
-
-val parse_ns : filename:string -> string -> (ast, [> parse_error]) Result.t
-
-val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
-
-val translate : ast -> string list * ir1
-
-val translate_no_deps : ast -> (ir1, [> no_deps_error]) Result.t
 
 type bc [@@deriving sexp_of, compare]
 
@@ -83,7 +70,17 @@ module Env : sig
   val register_ffi : string -> (Value.t array -> prim_res) -> unit
 end
 
-val compile : deps:(string * ir1) list -> ir1 -> (bc, [> compile_error]) Result.t
+module Repository : sig
+  type t
+
+  val create : unit -> t
+end
+
+val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
+
+val compile : repository:Repository.t -> string -> (bc, [> error]) Result.t
+
+val compile_module : repository:Repository.t -> name:string -> string -> (unit, [> error]) Result.t
 
 type coeffect = int * Value.t
 type instance

@@ -15,8 +15,9 @@ let read_file_or_stdin = function
   | None -> Reader.contents (Lazy.force Reader.stdin)
   | Some(f) -> Reader.file_contents f
 
-module type NSLoader = sig
+module type ModuleLoader = sig
   val load : string -> string option Deferred.t
+  val all_modules : unit -> string list Deferred.t
 end
 
 let list_position l ~f =
@@ -26,32 +27,19 @@ let list_position l ~f =
     | _::xs -> step (acc + 1) xs in
   step 0 l
 
-let compile_namespaces (module NSLoader : NSLoader) init_queue =
-  let compiled = ref [] in
-  let is_already_compiled ns =
-    List.find !compiled ~f:(fun (ns', _) -> String.equal ns ns') |> Option.is_some in
-  let analyze filename code =
-    let open Result.Let_syntax in
-    let%map parsed = Orcml.parse_ns ~filename code in
-    debug "Parsed NS:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
-    Orcml.translate parsed in
-  let rec compile_loop = function
-    | [] ->
-      Ok() |> return
-    | ns::queue when is_already_compiled ns ->
-      compile_loop queue
-    | ns::queue ->
-      match%bind NSLoader.load ns with
-      | None -> Error(`CantLoadNS ns) |> return
+
+let compile_modules (module Loader : ModuleLoader) modules =
+  let repository = Orcml.Repository.create () in
+  let rec step = function
+    | [] -> return (Ok repository)
+    | mod_::xs ->
+      match%bind Loader.load mod_ with
+      | None -> Error(`CantLoadNS mod_) |> return
       | Some(code) ->
-        analyze ns code |> function
-        | Error(err) -> Error(err) |> return
-        | Ok((deps, e)) ->
-          compile_loop deps >>=? fun () ->
-          compiled := (ns, e)::!compiled;
-          compile_loop queue in
-  compile_loop init_queue >>=? (fun () ->
-      return (Ok !compiled))
+        match Orcml.compile_module ~repository ~name:mod_ code with
+        | Error _ as err -> return err
+        | Ok(()) -> step xs in
+  step modules
 
 let optional_file_contents path =
   Monitor.try_with (fun () -> Reader.file_contents path >>| Option.some )
@@ -68,18 +56,31 @@ let fs path =
     let load ns =
       let ns' = String.Search_pattern.(replace_all (create "\\.") ~in_:ns ~with_:"/") ^ ".orc" in
       optional_file_contents (Filename.concat path ns')
-  end : NSLoader)
+    (* TODO nested directories *)
+    let all_modules () =
+      let%bind dirs = Sys.ls_dir path in
+      Deferred.List.filter_map dirs ~f:(fun n ->
+          let%map is_file = Sys.is_file_exn ~follow_symlinks:false n in
+          match Filename.split_extension n with
+          | (mod_, Some("orc")) -> Some(mod_)
+          | _ -> None)
+  end : ModuleLoader)
 
 let multiloader loaders =
   (module struct
-    let load ns = Deferred.List.find_map loaders ~f:(fun (module Loader : NSLoader) ->
+    let load ns = Deferred.List.find_map loaders ~f:(fun (module Loader : ModuleLoader) ->
         Loader.load ns)
-  end : NSLoader)
+
+    let all_modules () =
+      Deferred.List.concat_map loaders ~f:(fun (module Loader : ModuleLoader) ->
+          Loader.all_modules ())
+  end : ModuleLoader)
 
 let empty_loader =
   (module struct
     let load _ns = return None
-  end : NSLoader)
+    let all_modules () = return []
+  end : ModuleLoader)
 
 let implicit_prelude =
   "refer from core (abs, signum, min, max, (+), (-), (*), (/), (%), (**), (=), (/=),
@@ -95,25 +96,19 @@ let implicit_prelude =
      any, all, sum, product, and, or, minimum, maximum)"
 
 let compile_source loader prelude prog =
+  let (module Loader : ModuleLoader) = loader in
   let prog' = if prelude
     then implicit_prelude ^ prog
     else prog in
-  let analyzed =
-    let open Result.Let_syntax in
-    let%map parsed = Orcml.parse prog' in
-    debug "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum);
-    Orcml.translate parsed in
-  match analyzed with
-  | Error(err) -> Error(err) |> return
-  | Ok((deps, ir)) ->
-    debug "Translated:\n%s" (Orcml.sexp_of_ir1 ir |> Sexp.to_string_hum);
-    compile_namespaces loader deps
-    >>=? fun deps ->
-    match Orcml.compile ~deps ir with
-    | Error _ as err -> return err
+  let%bind modules = Loader.all_modules () in
+  match%map compile_modules loader modules with
+  | Error(err) -> Error(err)
+  | Ok(repository) ->
+    match Orcml.compile ~repository prog' with
+    | Error _ as err -> err
     | Ok(bc) ->
       debug "Compiled:\n%s" (Orcml.sexp_of_bc bc |> Sexp.to_string_hum);
-      return (Ok bc)
+      Ok bc
 
 let compile_bc prog =
   let (_, packed) = Msgpck.String.read prog in
