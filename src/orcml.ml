@@ -62,15 +62,15 @@ let parse_value = Syntax.parse_value
 
 let compile ?(prelude = []) ~repository code =
   let open Result.Let_syntax in
-  let%bind parsed = Syntax.parse code in
+  let%bind (parsed, comments) = Syntax.parse code in
   let (_, ir1) = Ir1.translate parsed in
-  Compiler.compile ~prelude ~repository ir1
+  Compiler.compile ~prelude ~comments ~repository ir1
 
 let compile_module ~repository ~name code =
   let open Result.Let_syntax in
-  let%map parsed = Syntax.parse_module ~filename:name code in
+  let%map (parsed, comments) = Syntax.parse_module ~filename:name code in
   let (_, ir1) = Ir1.translate parsed in
-  Compiler.compile_module ~repository ~name ir1
+  Compiler.compile_module ~comments ~repository ~name ir1
 
 type bc = Inter.bc
 let sexp_of_bc = Inter.sexp_of_bc

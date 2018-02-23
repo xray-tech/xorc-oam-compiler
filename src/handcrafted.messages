@@ -220,10 +220,7 @@ prog: INCLUDE STRING WILDCARD
 ## decl 
 ##
 
-Ill-formed declaration.
-At this point, one of the following is expected:
-  '#' followed with an expression; or
-  an expression
+<YOUR SYNTAX ERROR MESSAGE HERE>
 
 prog: LAMBDA LEFT_BRACK IDENT COMMA WILDCARD 
 ##
@@ -2310,7 +2307,7 @@ prog: TRUE WILDCARD
 ## expr 
 ##
 
-Ill-formed expression. Operator is expected
+<YOUR SYNTAX ERROR MESSAGE HERE>
 
 prog: WILDCARD 
 ##

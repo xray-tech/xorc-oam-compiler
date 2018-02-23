@@ -29,15 +29,18 @@ let report checkpoint =
   in
   message
 
+type comments = (string * Ast.pos) list [@@deriving sexp_of]
+
 let parse_with_error checkpoint fname lexbuf =
+  let comments = ref [] in
   let supplier () =
     let open Lexer in
     let ante_position = lexbuf.pos in
-    let token = Lexer.token lexbuf in
+    let token = Lexer.token (fun comment pos -> comments := (comment, pos)::!comments) lexbuf in
     let post_position = lexbuf.pos
     in (token, ante_position, post_position) in
   let module I = Parser.MenhirInterpreter in
-  let succeed res = Ok(res)
+  let succeed res = Ok (res, !comments)
   and fail checkpoint =
     let pos = lexbuf.Lexer.pos in
     Error(`SyntaxError(fname, pos.pos_lnum, (pos.pos_cnum - pos.pos_bol + 1), report checkpoint))
@@ -47,8 +50,8 @@ let parse_with_error checkpoint fname lexbuf =
 let parse_prog lexbuf =
   parse_with_error (Parser.Incremental.prog lexbuf.Lexer.pos) "" lexbuf
   |> Result.bind ~f:(function
-      | Some(v) -> Ok(v)
-      | None -> Error(`NoInput))
+      | (Some(v), comments) -> Ok(v, comments)
+      | (None, _) -> Error(`NoInput))
 
 let parse s =
   Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
@@ -61,8 +64,8 @@ let parse_module ~filename s =
   let fold_decls decl e =
     (Ast.EDecl(decl, e), Ast.dummy) in
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_string s) in
-  let%map res = parse_with_error (Parser.Incremental.orc_module lexbuf.Lexer.pos) filename lexbuf in
-  List.fold_right res ~init:(Ast.EModule, Ast.dummy) ~f:fold_decls
+  let%map (res, comments) = parse_with_error (Parser.Incremental.orc_module lexbuf.Lexer.pos) filename lexbuf in
+  (List.fold_right res ~init:(Ast.EModule, Ast.dummy) ~f:fold_decls, comments)
 
 let value_from_ast e =
   with_return (fun r ->
@@ -78,8 +81,7 @@ let value_from_ast e =
         | _ -> Error(`UnsupportedValueAST) |> r.return in
       Ok(f e))
 
-
 let parse_value s =
   Lexer.create_lexbuf (Sedlexing.Utf8.from_string s)
   |> parse_prog
-  |> Result.bind ~f:value_from_ast
+  |> Result.bind ~f:(fun (res, _comments) -> value_from_ast res)

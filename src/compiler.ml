@@ -359,7 +359,7 @@ let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let compile ~prelude ~repository e =
+let compile ~repository ~prelude ~comments e =
   with_return (fun r ->
       let init_ctx' = init_ctx @ List.map prelude ~f:(fun (mod_, ident) ->
           (ident, BindMod(mod_, ident))) in
@@ -418,6 +418,6 @@ let rec compile_module' ctx orc_module = function
     compile_module' (binds @ ctx) orc_module e
   | _ -> assert false
 
-let compile_module ~repository ~name (e, _) =
+let compile_module ~repository ~name ~comments (e, _) =
   compile_module' init_ctx name e
   |> List.iter ~f:(Repository.set repository)

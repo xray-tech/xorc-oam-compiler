@@ -7,7 +7,7 @@ module Lexing = struct
     let open Sexp in
     List [Atom "pos";
           Atom pos_fname;
-          Atom (Int.to_string (pos_lnum + 1));
+          Atom (Int.to_string pos_lnum);
           Atom (Int.to_string (pos_cnum - pos_bol))]
 
   let compare_position a b =
