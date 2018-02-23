@@ -62,11 +62,11 @@ module Repository = Repository
 
 let parse_value = Syntax.parse_value
 
-let compile ~repository code =
+let compile ?(prelude = []) ~repository code =
   let open Result.Let_syntax in
   let%bind parsed = Syntax.parse code in
   let (_, ir1) = Ir1.translate parsed in
-  Compiler.compile ~repository ir1
+  Compiler.compile ~prelude ~repository ir1
 
 let compile_module ~repository ~name code =
   let open Result.Let_syntax in

@@ -78,7 +78,7 @@ end
 
 val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
 
-val compile : repository:Repository.t -> string -> (bc, [> error]) Result.t
+val compile : ?prelude:(string * string) list -> repository:Repository.t -> string -> (bc, [> error]) Result.t
 
 val compile_module : repository:Repository.t -> name:string -> string -> (unit, [> error]) Result.t
 

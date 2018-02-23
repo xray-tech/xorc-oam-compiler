@@ -359,15 +359,17 @@ let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
-let compile ~repository e =
+let compile ~prelude ~repository e =
   with_return (fun r ->
+      let init_ctx' = init_ctx @ List.map prelude ~f:(fun (mod_, ident) ->
+          (ident, BindMod(mod_, ident))) in
       let state = { repository = repository;
                     repo = [];
                     ffi_in_use = [];
                     compile_queue = [{orc_module = "";
                                       ident = "'main";
                                       is_closure = false;
-                                      ctx = ref (Some init_ctx);
+                                      ctx = ref (Some init_ctx');
                                       params = [];
                                       body = e}]} in
       let compile_unit unit =

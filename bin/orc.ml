@@ -83,28 +83,32 @@ let empty_loader =
   end : ModuleLoader)
 
 let implicit_prelude =
-  "refer from core (abs, signum, min, max, (+), (-), (*), (/), (%), (**), (=), (/=),
-     (:>), (>=), (<:), (<=), (||), (&&), (~), (:), Ift, Iff, ceil, floor, sqrt, Let,
-     Rwait, Println)
-   refer from idioms (curry, curry3, uncurry, uncurry3, flip, constant, defer, defer2,
-     ignore, ignore2, compose, while, repeat, fork, forkMap, seq, seqMap, join,
-     joinMap, alt, altMap, por, pand)
-   refer from list (each, map, reverse, filter, head, tail, init, last, empty, index,
-     append, foldl, foldl1, foldr, foldr1, afold, zipWith, zip, unzip, concat,
-     length, take, drop, member, merge, mergeBy, sort, sortBy, mergeUnique,
-     mergeUniqueBy, sortUnique, sortUniqueBy, group, groupBy, rangeBy, range,
-     any, all, sum, product, and, or, minimum, maximum)"
+  [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
+             ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
+             "floor"; "sqrt"; "Let"; "Rwait"; "Println"]);
+   ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
+               "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
+               "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";
+               "pand"]);
+   ("list", ["each"; "map"; "reverse"; "filter"; "head"; "tail"; "init"; "last";
+             "empty"; "index"; "append"; "foldl"; "foldl1"; "foldr"; "foldr1";
+             "afold"; "zipWith"; "zip"; "unzip"; "concat"; "length"; "take"; "drop";
+             "member"; "merge"; "mergeBy"; "sort"; "sortBy"; "mergeUnique";
+             "mergeUniqueBy"; "sortUnique"; "sortUniqueBy"; "group"; "groupBy";
+             "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
+             "minimum"; "maximum"])]
 
-let compile_source loader prelude prog =
+let compile_source loader include_prelude prog =
   let (module Loader : ModuleLoader) = loader in
-  let prog' = if prelude
-    then implicit_prelude ^ prog
-    else prog in
+  let prelude = if include_prelude
+    then List.concat_map implicit_prelude ~f:(fun (mod_, idents) ->
+      List.map idents ~f:(fun ident -> (mod_, ident)))
+    else [] in
   let%bind modules = Loader.all_modules () in
   match%map compile_modules loader modules with
   | Error(err) -> Error(err)
   | Ok(repository) ->
-    match Orcml.compile ~repository prog' with
+    match Orcml.compile ~prelude ~repository prog with
     | Error _ as err -> err
     | Ok(bc) ->
       debug "Compiled:\n%s" (Orcml.sexp_of_bc bc |> Sexp.to_string_hum);
