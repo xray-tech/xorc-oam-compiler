@@ -1,6 +1,6 @@
 B ../_build/default/ide
 B ../_build/default/src
-FLG -ppx '/Users/prepor/lab/orcml/_build/default/.ppx/js_of_ocaml-ppx+ppx_jane+ppx_driver.runner/ppx.exe --as-ppx -ite-check'
+FLG -ppx '/Users/prepor/work/orcml/_build/default/.ppx/js_of_ocaml-ppx+ppx_jane+ppx_driver.runner/ppx.exe --as-ppx -ite-check'
 FLG -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs -w -8-9
 PKG async_js
 PKG async_kernel
@@ -43,6 +43,7 @@ PKG re
 PKG re.posix
 PKG sedlex
 PKG sexplib
+PKG sexplib.0
 PKG stdio
 PKG stringext
 PKG typerep
@@ -53,4 +54,5 @@ PKG uri
 PKG uutf
 PKG variantslib
 PKG virtual_dom
+S .
 S ../src

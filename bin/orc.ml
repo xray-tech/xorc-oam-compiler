@@ -58,9 +58,8 @@ let fs path =
       optional_file_contents (Filename.concat path mod_')
     (* TODO nested directories *)
     let all_modules () =
-      let%bind dirs = Sys.ls_dir path in
-      Deferred.List.filter_map dirs ~f:(fun n ->
-          let%map is_file = Sys.is_file_exn ~follow_symlinks:false n in
+      let%map dirs = Sys.ls_dir path in
+      List.filter_map dirs ~f:(fun n ->
           match Filename.split_extension n with
           | (mod_, Some("orc")) -> Some(mod_)
           | _ -> None)

@@ -9,10 +9,6 @@ type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
-type no_deps_error =
-  [ `UnexpectedDependencies of string list ]
-[@@deriving sexp_of]
-
 type compile_error =
   [ `UnboundVar of string * Ast.pos
   | `UnknownReferedFunction of string * string ]

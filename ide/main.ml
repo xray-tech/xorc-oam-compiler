@@ -97,7 +97,7 @@ let map_coeffects coeffects =
 let run program (model : Model.t) bc =
   match Orcml.inter bc with
   | Error(err) -> with_error (Orcml.error_to_string_hum err) model
-  | Ok(inter) -> 
+  | Ok(inter) ->
   match Orcml.run inter with
   | Error(err) ->
     with_error (Error.to_string_hum err) model
@@ -116,19 +116,8 @@ let get_code (model : Model.t) =
 
 let run_code (model : Model.t) =
   let code = get_code model in
-  let compiled =
-    let open Result.Let_syntax in
-    let with_common_error =
-      Result.map_error ~f:(fun err -> (err :> [ Orcml.parse_error
-                                              | Orcml.no_deps_error
-                                              | Orcml.compile_error])) in
-    let%bind parsed = Orcml.parse code
-                      |> with_common_error in
-    debug (sprintf "Parsed:\n%s" (Orcml.sexp_of_ast parsed |> Sexp.to_string_hum));
-    let%bind ir1 = Orcml.translate_no_deps parsed
-                   |> with_common_error in
-    Orcml.compile ~deps:[] ir1
-    |> with_common_error in
+  let repository = Orcml.Repository.create () in
+  let compiled = Orcml.compile ~repository code in
   (match compiled with
    | Error(err) ->
      with_error (Orcml.error_to_string_hum err) model

@@ -3,8 +3,6 @@ type parse_error = Errors.parse_error
 
 type parse_value_error = Errors.parse_value_error
 
-type no_deps_error = Errors.no_deps_error
-
 type compile_error = Errors.compile_error
 
 type inter_error = Errors.inter_error
