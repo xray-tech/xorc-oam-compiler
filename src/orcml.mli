@@ -36,7 +36,7 @@ type ir1 [@@deriving sexp_of]
 
 type parse_error =
   [ | `NoInput
-    | `SyntaxError of string * int * int]
+    | `SyntaxError of string * int * int * string]
 
 type parse_value_error =
   [ parse_error
