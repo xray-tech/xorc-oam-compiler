@@ -70,7 +70,7 @@ let compile ~repository code =
 
 let compile_module ~repository ~name code =
   let open Result.Let_syntax in
-  let%map parsed = Syntax.parse_ns ~filename:name code in
+  let%map parsed = Syntax.parse_module ~filename:name code in
   let (_, ir1) = Ir1.translate parsed in
   Compiler.compile_module ~repository ~name ir1
 

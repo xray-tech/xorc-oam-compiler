@@ -60,13 +60,13 @@
 %nonassoc high
 
 %start <Ast.e option> prog
-%start <Ast.decl list> ns
+%start <Ast.decl list> orc_module
 %%
 prog:
   | v = expr; EOF { Some v }
   | EOF           { None   } ;
 
-ns:
+orc_module:
   | l = decl*; EOF { l };
 
 expr:
@@ -136,8 +136,8 @@ decl:
   | SIG name=IDENT t_ps=type_params? args=arg_types DOUBLE_COLON ret=ty
     { (DSig(name, ((optional_list t_ps), args, ret)),
        make_pos $startpos $endpos) }
-  | REFER ns=namespace LEFT_PAREN idents=separated_list(COMMA, ident_or_op) RIGHT_PAREN
-    { (DRefer(ns, idents),
+  | REFER mod_=mod_name LEFT_PAREN idents=separated_list(COMMA, ident_or_op) RIGHT_PAREN
+    { (DRefer(mod_, idents),
        make_pos $startpos $endpos) }
   | IMPORT t=IDENT n=IDENT EQ def=STRING
     { match import_decl t n def with
@@ -177,7 +177,7 @@ arg_types: LEFT_PAREN l=separated_list(COMMA, ty) RIGHT_PAREN { l }
 type_args: LEFT_BRACK l=separated_nonempty_list(COMMA, ty) RIGHT_BRACK { l }
 type_params: LEFT_BRACK l=separated_nonempty_list(COMMA, IDENT) RIGHT_BRACK { l }
 
-namespace: l=separated_nonempty_list(DOT, IDENT) { String.concat "." l }
+mod_name: l=separated_nonempty_list(DOT, IDENT) { String.concat "." l }
 
 pattern:
   | name=IDENT { (PVar(name), make_pos $startpos $endpos) }

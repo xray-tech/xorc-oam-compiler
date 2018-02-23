@@ -79,7 +79,7 @@ type e' =
   | ELambda of string list * p list * ty option * e
   | EHasType of e * ty
   | EOverrideType of e * ty
-  | ENS                         (* special mark for Namespace end *)
+  | EModule                         (* special mark for module end *)
 and decl' =
   | DVal of p * e
   | DDef of ident * string list * p list * ty option * e option  * e

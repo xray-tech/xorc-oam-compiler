@@ -56,13 +56,13 @@ let parse s =
 
 (* We implicity convert list of declaration to the normal AST with stop as final
    node *)
-let parse_ns ~filename s =
+let parse_module ~filename s =
   let open Result.Let_syntax in
   let fold_decls decl e =
     (Ast.EDecl(decl, e), Ast.dummy) in
   let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_string s) in
-  let%map res = parse_with_error Parser.ns (Parser.Incremental.ns lexbuf.Lexer.pos) filename lexbuf in
-  List.fold_right res ~init:(Ast.ENS, Ast.dummy) ~f:fold_decls
+  let%map res = parse_with_error Parser.orc_module (Parser.Incremental.orc_module lexbuf.Lexer.pos) filename lexbuf in
+  List.fold_right res ~init:(Ast.EModule, Ast.dummy) ~f:fold_decls
 
 let value_from_ast e =
   with_return (fun r ->

@@ -34,7 +34,7 @@ let compile_modules (module Loader : ModuleLoader) modules =
     | [] -> return (Ok repository)
     | mod_::xs ->
       match%bind Loader.load mod_ with
-      | None -> Error(`CantLoadNS mod_) |> return
+      | None -> Error(`CantLoadMod mod_) |> return
       | Some(code) ->
         match Orcml.compile_module ~repository ~name:mod_ code with
         | Error _ as err -> return err
@@ -53,9 +53,9 @@ let file_contents path =
 
 let fs path =
   (module struct
-    let load ns =
-      let ns' = String.Search_pattern.(replace_all (create "\\.") ~in_:ns ~with_:"/") ^ ".orc" in
-      optional_file_contents (Filename.concat path ns')
+    let load mod_ =
+      let mod_' = String.Search_pattern.(replace_all (create "\\.") ~in_:mod_ ~with_:"/") ^ ".orc" in
+      optional_file_contents (Filename.concat path mod_')
     (* TODO nested directories *)
     let all_modules () =
       let%bind dirs = Sys.ls_dir path in
@@ -68,8 +68,8 @@ let fs path =
 
 let multiloader loaders =
   (module struct
-    let load ns = Deferred.List.find_map loaders ~f:(fun (module Loader : ModuleLoader) ->
-        Loader.load ns)
+    let load mod_ = Deferred.List.find_map loaders ~f:(fun (module Loader : ModuleLoader) ->
+        Loader.load mod_)
 
     let all_modules () =
       Deferred.List.concat_map loaders ~f:(fun (module Loader : ModuleLoader) ->
@@ -78,7 +78,7 @@ let multiloader loaders =
 
 let empty_loader =
   (module struct
-    let load _ns = return None
+    let load _mod = return None
     let all_modules () = return []
   end : ModuleLoader)
 
@@ -147,7 +147,7 @@ let dump_flag =
   flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
 
 let error_to_string_hum = function
-  | `CantLoadNS ns -> (sprintf "Can't load namespace %s" ns)
+  | `CantLoadMod mod_ -> (sprintf "Can't load module %s" mod_)
   | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
     Orcml.error_to_string_hum other
 

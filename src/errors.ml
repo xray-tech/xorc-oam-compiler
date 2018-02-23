@@ -32,7 +32,7 @@ let to_string_hum = function
     Printf.sprintf "Unbound variable %s in file %s at line %i column %i" bind pstart.pos_fname (pstart.pos_lnum + 1) (pstart.pos_cnum - pstart.pos_bol + 1)
   | `BadFormat -> "Binary message is bad formatted"
   | `UnknownFFI def -> Printf.sprintf "Unsupported FFI call %s" def
-  | `UnknownReferedFunction(ns, ident) -> Printf.sprintf "Unknown refered function %s:%s" ns ident
+  | `UnknownReferedFunction(mod_, ident) -> Printf.sprintf "Unknown refered function %s:%s" mod_ ident
 
 
 let foo () = Error(`Foo)

@@ -14,7 +14,7 @@ type e' =
   | EStop
   | EFix of (string * string list * e) list * e
   | ERefer of string * string list * e
-  | ENS
+  | EModule
 and e = e' * Ast.e [@@deriving sexp_of]
 
 let fresh = ref 0
@@ -327,7 +327,7 @@ let rec translate' ((e, pos) as ast) =
     assert false
   | EDecl((DAlias(_), _), e) | EHasType(e, _) | EOverrideType(e, _) ->
     translate' e
-  | ENS -> (ENS, ast)
+  | EModule -> (EModule, ast)
 
 and deflate e k =
   match e with

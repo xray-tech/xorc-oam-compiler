@@ -14,7 +14,7 @@ let ctx_vars ctx  =
   let rec find acc = function
     | [] -> acc
     | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun _)::xs | (_,BindCoeffect)::xs | (_, BindNs(_))::xs ->
+    | (_, BindFun _)::xs | (_,BindCoeffect)::xs | (_, BindMod(_))::xs ->
       find acc xs in
   find 0 ctx
 
@@ -38,8 +38,8 @@ let len = List.length
 
 let compile_unit_equal a b =
   match (a, b) with
-  | ({ns; ident}, {ns = ns'; ident = ident'})
-    when String.equal ns' ns && String.equal ident' ident ->
+  | ({orc_module; ident}, {orc_module = mod'; ident = ident'})
+    when String.equal mod' orc_module && String.equal ident' ident ->
     true
   | _ -> false
 
@@ -50,10 +50,10 @@ type state = {
   mutable compile_queue : unit list;
 }
 
-let repo_index state ns ident =
+let repo_index state mod_ ident =
   let rec f = function
     | [] -> None
-    | (ns', ident', _, _)::xs when String.equal ns' ns && String.equal ident' ident ->
+    | (mod_', ident', _, _)::xs when String.equal mod_' mod_ && String.equal ident' ident ->
       Some(len xs)
     | _::xs -> f xs in
   f state.repo
@@ -63,26 +63,26 @@ let get_label state unit =
     | [] ->
       state.compile_queue <- state.compile_queue @ [unit];
       len state.repo + i
-    | {ns; ident}::_ when String.equal ns unit.ns && String.equal ident unit.ident ->
+    | {orc_module; ident}::_ when String.equal orc_module unit.orc_module && String.equal ident unit.ident ->
       len state.repo + i
     | _::xs -> f (i + 1) xs in
   match repo_index state "" unit.ident with
   | Some(i) -> i
   | None -> f 0 state.compile_queue
 
-let get_import_label state (ns, ident) =
+let get_import_label state (mod_, ident) =
   with_return (fun r ->
       let rec f i = function
         | [] ->
-          (match Repository.get state.repository ns ident with
+          (match Repository.get state.repository mod_ ident with
            | None -> r.return None
            | Some(unit) ->
              state.compile_queue <- state.compile_queue @ [unit];
              len state.repo + i)
-        | {ns = ns'; ident = ident'}::_ when String.equal ns' ns && String.equal ident' ident ->
+        | {orc_module = mod_'; ident = ident'}::_ when String.equal mod_' mod_ && String.equal ident' ident ->
           len state.repo + i
         | _::xs -> f (i+1) xs in
-      match repo_index state ns ident with
+      match repo_index state mod_ ident with
       | Some(i) -> Some(i)
       | None -> Some(f 0 state.compile_queue))
 
@@ -126,7 +126,7 @@ let free_vars init e =
       (if_out_of_scope target) @ (List.concat_map params ~f:if_out_of_scope)
     | EFFI(_, params) ->
       List.concat_map params ~f:if_out_of_scope
-    | EConst _ | EStop | ENS -> [] in
+    | EConst _ | EStop | EModule -> [] in
   step (List.map init ~f:(fun ident -> (ident, BindVar))) e
 
 let closure_vars ctx pos vars =
@@ -139,7 +139,7 @@ let closure_vars ctx pos vars =
       Ok filtered)
 
 type env = {
-  ns : string;
+  orc_module: string;
   current_fun : string;
   ctx : ctx;
   shift : int;
@@ -147,7 +147,7 @@ type env = {
   state : state;
 }
 
-exception NS of ctx
+exception Module of ctx
 
 (* Here we determine which functions are closures
    Function is closure if:
@@ -186,13 +186,13 @@ let compile_e env e =
           (match ctx_find ident with
            | (_, BindFun unit) when env.tail_call &&
                                     String.equal env.current_fun unit.ident &&
-                                    String.equal env.ns unit.ns ->
+                                    String.equal env.orc_module unit.orc_module ->
              let c = get_label env.state unit in
              (0, [I.TailCall(I.TFun(c), Array.of_list args')])
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
              (0, [I.Call(I.TFun(c), Array.of_list args')])
-           |  (_, BindNs f) ->
+           |  (_, BindMod f) ->
              let c = get_import_label' f in
              (0, [I.Call(I.TFun(c), Array.of_list args')])
            (* TODO tail call of closures *)
@@ -206,7 +206,7 @@ let compile_e env e =
           List.find args ~f:(fun arg ->
               match ctx_find arg with
               | (_, BindFun(_))
-              | (_, BindNs(_) | (_, BindCoeffect)) -> true
+              | (_, BindMod(_) | (_, BindCoeffect)) -> true
               | (_, BindVar) -> false)
           |> Option.is_some in
         let preprocess_args args e_info k =
@@ -223,7 +223,7 @@ let compile_e env e =
             | [] -> k (List.rev acc) in
           f [] args in
         match e with
-        | ENS -> raise (NS env.ctx)
+        | EModule -> raise (Module env.ctx)
         | EIdent x ->
           (* Stdio.eprintf "--LOOKUP %s: %s\n" x (sexp_of_ctx ctx |> Sexp.to_string_hum); *)
           (match ctx_find x with
@@ -233,7 +233,7 @@ let compile_e env e =
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
              (0, [I.Label(c)])
-           | (_, BindNs f) ->
+           | (_, BindMod f) ->
              let c = get_import_label' f in
              (0, [I.Label(c)])
            | (_, BindCoeffect) -> raise Util.TODO)
@@ -289,7 +289,7 @@ let compile_e env e =
           let binds = List.map2_exn fs closures ~f:(fun (ident, params, body) (_, is_closure) ->
               if is_closure
               then (ident, BindVar)
-              else (ident, BindFun {ns = env.ns;
+              else (ident, BindFun {orc_module = env.orc_module;
                                     ident;
                                     is_closure;
                                     ctx = ref None;
@@ -303,7 +303,7 @@ let compile_e env e =
             | BindFun _ ->
               (i, index, acc)
             | BindVar ->
-              let c = get_label env.state {ns = env.ns;
+              let c = get_label env.state {orc_module = env.orc_module;
                                            ident;
                                            is_closure = true;
                                            ctx = ref (Some ctx');
@@ -321,7 +321,7 @@ let compile_e env e =
           else compile_call ident args
         | ERefer(ns, fs, e) ->
           let ctx' = (List.map fs ~f:(fun name ->
-              (name, BindNs(ns, name)))) @ env.ctx in
+              (name, BindMod(ns, name)))) @ env.ctx in
           compile_e' { env with ctx = ctx' } e
         | EFFI(def, args) ->
           if need_preprocess args
@@ -337,7 +337,7 @@ let compile_e env e =
         | EStop -> (0, [I.Stop]) in
       Ok(compile_e' env e))
 
-let compile_fun state {ns; ident; is_closure; ctx; params; body} =
+let compile_fun state {orc_module; ident; is_closure; ctx; params; body} =
   let params' = List.rev_map params ~f:(fun n -> (n, BindVar)) in
   let ctx = Option.value_exn !ctx in
   let ctx' = if is_closure
@@ -346,7 +346,7 @@ let compile_fun state {ns; ident; is_closure; ctx; params; body} =
                                       | _ -> true) in
   let ctx'' = params' @ ctx' in
   let open Result.Let_syntax in
-  let%map (size, f) = compile_e { ns; current_fun = ident;
+  let%map (size, f) = compile_e { orc_module; current_fun = ident;
                                   ctx = ctx'';
                                   tail_call = true;
                                   shift = 0;
@@ -364,7 +364,7 @@ let compile ~repository e =
       let state = { repository = repository;
                     repo = [];
                     ffi_in_use = [];
-                    compile_queue = [{ns = "";
+                    compile_queue = [{orc_module = "";
                                       ident = "'main";
                                       is_closure = false;
                                       ctx = ref (Some init_ctx);
@@ -374,7 +374,7 @@ let compile ~repository e =
         (match compile_fun state unit with
          | Error _ as err -> r.return err
          | Ok(size, ops) ->
-           let x = (unit.ns, unit.ident, size, Array.of_list_rev ops) in
+           let x = (unit.orc_module, unit.ident, size, Array.of_list_rev ops) in
            state.repo <- x::state.repo) in
       let remove_from_queue el =
         let rec f acc = function
@@ -395,27 +395,26 @@ let compile ~repository e =
           (size, body)) in
       Ok({I.ffi = List.rev state.ffi_in_use; code}))
 
-let rec compile_module' ctx mod_ = function
-  | Ir1.ENS ->
+let rec compile_module' ctx orc_module = function
+  | Ir1.EModule ->
     List.filter_map ctx ~f:(function
         | (_, BindFun unit) -> Some unit
         | _ -> None)
   | Ir1.EFix(fs, (e, _)) ->
     let binds = List.map fs ~f:(fun (ident, params, body) ->
-        (ident, BindFun {ns = mod_;
+        (ident, BindFun {orc_module;
                          ident;
                          is_closure = false;
                          ctx = ref None;
                          params; body})) in
     let ctx' = binds @ ctx in
     List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
-    compile_module' ctx' mod_ e
+    compile_module' ctx' orc_module e
   | ERefer(mod_', fs, (e, _)) ->
     let binds = (List.map fs ~f:(fun name ->
-        (name, BindNs(mod_', name)))) in
-    compile_module' (binds @ ctx) mod_ e
+        (name, BindMod(mod_', name)))) in
+    compile_module' (binds @ ctx) orc_module e
   | _ -> assert false
-
 
 let compile_module ~repository ~name (e, _) =
   compile_module' init_ctx name e
