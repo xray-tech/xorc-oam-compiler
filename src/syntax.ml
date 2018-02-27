@@ -32,20 +32,25 @@ let report checkpoint =
 type comments = (string * Ast.pos) list [@@deriving sexp_of]
 
 let parse_with_error checkpoint fname lexbuf =
-  let comments = ref [] in
-  let supplier () =
-    let open Lexer in
-    let ante_position = lexbuf.pos in
-    let token = Lexer.token (fun comment pos -> comments := (comment, pos)::!comments) lexbuf in
-    let post_position = lexbuf.pos
-    in (token, ante_position, post_position) in
-  let module I = Parser.MenhirInterpreter in
-  let succeed res = Ok (res, !comments)
-  and fail checkpoint =
-    let pos = lexbuf.Lexer.pos in
-    Error(`SyntaxError(fname, pos.pos_lnum, (pos.pos_cnum - pos.pos_bol + 1), report checkpoint))
-  in
-  I.loop_handle succeed fail supplier checkpoint
+  with_return (fun r ->
+      let comments = ref [] in
+      let supplier () =
+        let open Lexer in
+        let ante_position = lexbuf.pos in
+        let token = try Lexer.token (fun comment pos -> comments := (comment, pos)::!comments) lexbuf with
+          | Lexer.SyntaxError err ->
+            let pos = ante_position in
+            r.return (Error(`SyntaxError(fname, pos.pos_lnum, (pos.pos_cnum - pos.pos_bol + 1), err)))
+        in
+        let post_position = lexbuf.pos
+        in (token, ante_position, post_position) in
+      let module I = Parser.MenhirInterpreter in
+      let succeed res = Ok (res, !comments)
+      and fail checkpoint =
+        let pos = lexbuf.Lexer.pos in
+        Error(`SyntaxError(fname, pos.pos_lnum, (pos.pos_cnum - pos.pos_bol + 1), report checkpoint))
+      in
+      I.loop_handle succeed fail supplier checkpoint)
 
 let parse_prog lexbuf =
   parse_with_error (Parser.Incremental.prog lexbuf.Lexer.pos) "" lexbuf
