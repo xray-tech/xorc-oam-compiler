@@ -149,6 +149,7 @@ let rec token on_comment lexbuf =
       then (update lexbuf; Buffer.contents buffer)
       else (store(); read_comment buffer (level - 1) lexbuf)
     | eof -> raise (SyntaxError ("Comment is not terminated"))
+    | newline -> new_line lexbuf; store (); read_comment buffer level lexbuf
     | any -> store (); read_comment buffer level lexbuf
     | _ -> assert false
   and read_comment_line buffer lexbuf =
