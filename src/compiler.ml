@@ -188,19 +188,19 @@ let compile_e env e =
                                     String.equal env.current_fun unit.ident &&
                                     String.equal env.orc_module unit.orc_module ->
              let c = get_label env.state unit in
-             (0, [I.TailCall(I.TFun(c), Array.of_list args')])
+             (0, [(I.TailCall(I.TFun(c), Array.of_list args'), pos)])
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
-             (0, [I.Call(I.TFun(c), Array.of_list args')])
+             (0, [(I.Call(I.TFun(c), Array.of_list args'), pos)])
            |  (_, BindMod f) ->
              let c = get_import_label' f in
-             (0, [I.Call(I.TFun(c), Array.of_list args')])
+             (0, [(I.Call(I.TFun(c), Array.of_list args'), pos)])
            (* TODO tail call of closures *)
            | (i, BindVar) ->
-             (0, [I.Call(I.TDynamic(i), Array.of_list args')])
+             (0, [(I.Call(I.TDynamic(i), Array.of_list args'), pos)])
            | (_, BindCoeffect) ->
              (match args' with
-              | [i] -> (0, [I.Coeffect i])
+              | [i] -> (0, [(I.Coeffect i, pos)])
               | _ -> raise Util.TODO)) in
         let need_preprocess args =
           List.find args ~f:(fun arg ->
@@ -232,25 +232,25 @@ let compile_e env e =
              |> compile_e' env
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
-             (0, [I.Label(c)])
+             (0, [(I.Label(c), pos)])
            | (_, BindMod f) ->
              let c = get_import_label' f in
-             (0, [I.Label(c)])
+             (0, [(I.Label(c), pos)])
            | (_, BindCoeffect) -> raise Util.TODO)
-        | EConst v -> (0, [I.Const v])
+        | EConst v -> (0, [(I.Const v, pos)])
         | EParallel(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
           let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
-           I.Parallel(env.shift + len e1' + len e2' - 1,
-                      env.shift + len e2' - 1)
+           (I.Parallel(env.shift + len e1' + len e2' - 1,
+                      env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EOtherwise(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
           let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
-           I.Otherwise(env.shift + len e1' + len e2' - 1,
-                       env.shift + len e2' - 1)
+           (I.Otherwise(env.shift + len e1' + len e2' - 1,
+                       env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EPruning(e1, v, e2) ->
           let (ctx', index) = match v with
@@ -260,9 +260,9 @@ let compile_e env e =
           let (s2, e2') = compile_e' { env with tail_call = false; ctx = ctx' } e2 in
           let (s1, e1') = compile_e' { env with shift = env.shift + len e2'; ctx = ctx'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
-           I.Pruning(env.shift + len e1' + len e2' - 1,
+           (I.Pruning(env.shift + len e1' + len e2' - 1,
                      index,
-                     env.shift + len e2' -1)
+                     env.shift + len e2' -1), pos)
            ::(e1' @ e2'))
         | ESequential(e1, v, e2) ->
           let (ctx', index) = match v with
@@ -271,9 +271,9 @@ let compile_e env e =
           let (s2, e2') = compile_e' { env with ctx = ctx' } e2 in
           let (s1, e1') = compile_e' { env with tail_call = false; shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
-           I.Sequential(env.shift + len e1' + len e2' - 1,
+           (I.Sequential(env.shift + len e1' + len e2' - 1,
                         index,
-                        env.shift + len e2' - 1)
+                        env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EFix(fs, e) ->
           let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
@@ -308,7 +308,7 @@ let compile_e env e =
                                            is_closure = true;
                                            ctx = ref (Some ctx');
                                            params; body} in
-              (i + 2, index + 1, I.Pruning(i - 1, Some(index), i)::I.Closure(c, closure_size)::acc)
+              (i + 2, index + 1, (I.Pruning(i - 1, Some(index), i), pos)::(I.Closure(c, closure_size), pos)::acc)
             | _ -> assert false in
           let init = (env.shift + len body, new_index env.ctx, []) in
           let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
@@ -333,8 +333,8 @@ let compile_e env e =
                 match ctx_find arg with
                 | (i, BindVar) -> i
                 | _ -> assert false) in
-            (0, [I.FFI(get_ffi env.state def, Array.of_list args')])
-        | EStop -> (0, [I.Stop]) in
+            (0, [(I.FFI(get_ffi env.state def, Array.of_list args'), pos)])
+        | EStop -> (0, [(I.Stop, pos)]) in
       Ok(compile_e' env e))
 
 let compile_fun state {orc_module; ident; is_closure; ctx; params; body} =

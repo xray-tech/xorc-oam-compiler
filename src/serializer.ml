@@ -28,7 +28,8 @@ let dump {Inter.ffi; code} =
   let obj = array_to_list_map code ~f:(fun (i, ecode) ->
       M.List ((M.Int i)::
               (M.Int (Array.length ecode))::
-              (List.concat (array_to_list_map ecode ~f:(function
+              (List.concat (array_to_list_map ecode ~f:(fun (op, _) ->
+                   match op with
                    | Inter.Parallel(c1,c2) -> [M.Int 0; M.Int c1; M.Int c2]
                    | Inter.Otherwise(c1,c2) -> [M.Int 1; M.Int c1; M.Int c2]
                    | Inter.Pruning(c1,arg,c2) -> [M.Int 2;
@@ -122,7 +123,8 @@ let load packed =
             | M.String s -> s
             | _ -> bad_format ()) in
         let code = Array.of_list (List.map code_raw ~f:(function
-            | M.List ((M.Int i)::(M.Int _ops)::xs) -> (i, Array.of_list (des_fun xs))
+            | M.List ((M.Int i)::(M.Int _ops)::xs) ->
+              (i, Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.dummy))))
             | _ -> bad_format ())) in
         Ok({Inter.ffi; code})
       | _ -> bad_format ())
@@ -492,7 +494,7 @@ let dump_k {Inter.ffi; code} =
     | Closure(pc, to_copy) -> sprintf "#closure %i %i" pc to_copy
     | Coeffect(arg) -> sprintf "#coeffect %i" arg
     | _ -> "" in
-  let k_op i op =
+  let k_op i (op, _) =
     sprintf "  %i: %s" i (k_op' op) in
   let k_fun i (_, ops) =
     let k_ops = Array.mapi ops ~f:k_op

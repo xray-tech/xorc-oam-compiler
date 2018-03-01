@@ -213,7 +213,8 @@ and tick
          concat2 [pending_stop state p;
                   publish state thread (VConst Ast.Signal)]) in
   let (_, proc) = get_code inter pc in
-  match proc.(c) with
+  let (op, pos) = proc.(c) in
+  match op with
   | Const v ->
     publish state thread (VConst v)
   | Label i ->

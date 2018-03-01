@@ -7,7 +7,7 @@ type pos = unit [@@deriving sexp, compare]
 
 type op = (int * c) [@@deriving sexp, compare]
 
-type t =
+type t' =
   | Parallel of c * c
   | Otherwise of c * c
   | Pruning of c * int option * c
@@ -20,6 +20,7 @@ type t =
   | Const of Ast.const
   | Closure of (int * int)
   | Label of int
+and t = (t' * Ast.pos)
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
@@ -66,13 +67,12 @@ type prim_v =
 type prims = (v array -> prim_v) array
 
 type code = (int * t array) array
-[@@deriving sexp, compare]
+[@@deriving sexp_of, compare]
 
 type bc = {
   ffi : string list;
   code : code;
-} [@@deriving sexp, compare]
-
+} [@@deriving sexp_of, compare]
 
 let rec format_value = function
   | Value v -> format_v v
@@ -95,4 +95,3 @@ let format_env env =
             |> Sequence.map ~f:format_value
             |> Sequence.to_list) in
   "(" ^ String.concat ~sep:", " vs ^ ")"
-
