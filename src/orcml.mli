@@ -134,3 +134,33 @@ module Testkit : sig
     val load_bench_res : Msgpck.t -> (float, [> load_error]) Result.t
   end
 end
+
+
+
+module Debugger : sig
+  type op
+  type stack
+  type pos
+  type state
+  type v =
+    | Value of Value.t
+    | Pending of Value.pending
+  type thread = { id : int;
+                  op : op;
+                  env : v array;
+                  stack : stack;
+                  pos : pos}
+  type threads = thread list
+  type token
+  type action =
+    | PublishedValue of Value.t
+    | NewThread of int
+    | HaltedThread of int
+    | Coeffect of { thread: int; id: int; desc: Value.t }
+    | ValueBinding of { thread: int; value: v; token: token }
+
+  type trace = action list
+  val init : inter -> (state * threads)
+  val tick : state -> thread -> (threads * trace)
+  (* val unblock : state -> (state * threads * trace) *)
+end

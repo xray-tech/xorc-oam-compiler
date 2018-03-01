@@ -3,6 +3,10 @@ type call_target = TFun of int | TDynamic of int [@@deriving sexp, compare]
 
 type c = int [@@deriving sexp, compare]
 
+type pos = unit [@@deriving sexp, compare]
+
+type op = (int * c) [@@deriving sexp, compare]
+
 type t =
   | Parallel of c * c
   | Otherwise of c * c
@@ -31,22 +35,24 @@ and env = env_v array
 and pend_value = PendVal of v | PendStopped | Pend
 and pending = {
   mutable pend_value : pend_value;
-  mutable pend_waiters : token list;
+  mutable pend_waiters : thread list;
 }
 and frame =
   | FPruning of { mutable instances : int;
                   pending : pending }
   | FOtherwise of { mutable first_value : bool;
                     mutable instances : int;
-                    pc : (int * c) }
-  | FSequential of (int option * (int * c))
+                    op : op }
+  | FSequential of (int option * op)
   | FCall of env
   | FResult
 and stack = frame list
-and token = {
-  pc : (int * c);
+and thread = {
+  id : int;
+  op : op;
   env : env;
   stack : stack;
+  pos : pos
 } [@@deriving sexp, compare]
 
 type prim_v =

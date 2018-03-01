@@ -219,7 +219,7 @@ let dump_instance { current_coeffect; blocks } =
     let f = match frame with
       | FPruning { instances; pending } ->
         [M.Int 0; M.Int instances; dedup pendings pending]
-      | FOtherwise { first_value; instances; pc = (pc, c) } ->
+      | FOtherwise { first_value; instances; op = (pc, c) } ->
         [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c]
       | FSequential(i, (pc, c)) ->
         [M.Int 2;
@@ -241,7 +241,7 @@ let dump_instance { current_coeffect; blocks } =
     | Pending x -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
-  and serialize_token { pc = (pc, c); stack; env } =
+  and serialize_token { op = (pc, c); stack; env } =
     M.List [M.Int pc;
             M.Int c;
             M.List (List.map stack ~f:(dedup frames));
@@ -375,7 +375,7 @@ let load_instance packed =
             add_repo frames_repo id (FPruning { instances; pending = repo_or_dummy_pending pending});
             deserialize_frames xs
           | (M.Int id)::(M.Int 1)::(M.Bool first_value)::(M.Int instances)::(M.Int pc)::(M.Int c)::xs ->
-            add_repo frames_repo id (FOtherwise { first_value; instances; pc = (pc, c) });
+            add_repo frames_repo id (FOtherwise { first_value; instances; op = (pc, c) });
             deserialize_frames xs
           | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
             let i' = if Int.equal (-1) i then None else Some(i) in
@@ -388,14 +388,14 @@ let load_instance packed =
             add_repo frames_repo id FResult;
             deserialize_frames xs
           | _ -> bad_format () in
-        let deserialize_token = function
+        let deserialize_thread = function
           | M.List [M.Int pc; M.Int c; M.List frames; M.Int env] ->
             let stack = List.map frames ~f:(function
                 | M.Int id -> repo_find frames_repo id |> Option.value_exn
                 | _ -> bad_format ()) in
-            { pc = (pc, c); stack; env = repo_or_dummy_env env}
+            { op = (pc, c); stack; env = repo_or_dummy_env env; id = -1; pos = ()}
           | _ -> bad_format () in
-        let deserialize_tokens = List.map ~f:deserialize_token in
+        let deserialize_tokens = List.map ~f:deserialize_thread in
         let rec deserialize_pendings = function
           | [] -> ()
           | (M.Int id)::xs ->
@@ -444,7 +444,7 @@ let load_instance packed =
         let rec deserialize_blocks = function
           | [] -> []
           | (M.Int id)::t::xs ->
-            (id, deserialize_token t)::(deserialize_blocks xs)
+            (id, deserialize_thread t)::(deserialize_blocks xs)
           | _ -> bad_format () in
         deserialize_frames frames;
         deserialize_pendings pendings;
