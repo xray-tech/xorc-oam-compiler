@@ -26,13 +26,12 @@ type state = {
 module D = struct
   type pos = unit
   type threads = thread list
-  type token = unit
   type action =
     | PublishedValue of v
     | NewThread of int
     | HaltedThread of int
     | Coeffect of { thread: int; id: int; desc: v }
-    | ValueBinding of { thread: int; value: env_v; token: token }
+    | Error of { thread : int; ffi : string; args : v list}
 
   type trace = action list
 end
@@ -108,7 +107,7 @@ let rec publish state ({id; stack; env} as thread) v =
        | Some i ->
          env.(i) <- Value(v));
       ([{thread with op; stack = stack'}],
-       [D.ValueBinding { thread = id; value = Value v; token = ()}])
+       [])
     | FOtherwise r ->
       r.instances <- r.instances - 1;
       r.first_value <- true;
@@ -119,8 +118,7 @@ let rec publish state ({id; stack; env} as thread) v =
                ([], [D.HaltedThread id])]
     | FPruning ({ pending = { pend_value = PendVal(_) } } as r) ->
       r.instances <- r.instances - 1;
-      ([], [D.ValueBinding { thread = id; value = Value v; token = ()};
-            D.HaltedThread id])
+      ([], [D.HaltedThread id])
     | FPruning { pending = { pend_value = PendStopped } } -> assert false
     | FCall env' ->
       publish state { thread with stack = stack'; env = env' } v
@@ -148,10 +146,10 @@ and halt state ({ id; stack; env} as thread) =
            ([], [D.HaltedThread id])]
 and pending_realize state p v =
   p.pend_value <- PendVal v;
-  concat2_map p.pend_waiters ~f:(fun ({ stack } as thread) ->
+  concat2_map p.pend_waiters ~f:(fun ({ id; stack } as thread) ->
       if is_alive stack
       then tick state thread
-      else ([], []))
+else ([], []))
 and pending_stop state p =
   p.pend_value <- PendStopped;
   concat2_map p.pend_waiters ~f:(fun thread ->
@@ -202,7 +200,11 @@ and tick
        | PrimHalt -> halt state thread
        | PrimUnsupported ->
          (* TODO warning? *)
-         halt state thread
+         let ffi = Env.get_ffi_name inter.env_snapshot index in
+         concat2 [halt state thread;
+                  ([], [D.Error { thread = thread.id;
+                                  ffi;
+                                  args = Array.to_list args'}])]
        | PrimPendingSubscribe p ->
          p.pend_waiters <- thread::p.pend_waiters;
          ([], [])
@@ -264,7 +266,7 @@ and tick
     Array.iteri args ~f:(fun i arg ->
         env.(i) <- env.(arg));
     ([{thread with op = (pc', Array.length f_code - 1)}],
-    call_bindings thread args)
+     call_bindings thread args)
   | Call(TDynamic(i), args) ->
     (match realized i with
      | `Pending p ->

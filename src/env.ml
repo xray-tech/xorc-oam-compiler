@@ -12,7 +12,7 @@ type prim_res = Inter0.prim_v =
 
 type t = {
   ffi_mapping : (string, int) Hashtbl.t;
-  mutable ffi : prim array;
+  mutable ffi : (string * prim) array;
 }
 
 type snapshot = {
@@ -32,11 +32,16 @@ let snapshot ffi =
       Ok { s_ffi = ffi' })
 
 let get_ffi snapshot i =
-  t.ffi.(snapshot.s_ffi.(i))
+  let (_name, impl) = t.ffi.(snapshot.s_ffi.(i)) in
+  impl
 
-let register_ffi def prim =
-  Hashtbl.set t.ffi_mapping ~key:def ~data:(Array.length t.ffi);
-  t.ffi <- Array.append t.ffi [| prim |]
+let get_ffi_name snapshot i =
+  let (name, _impl) = t.ffi.(snapshot.s_ffi.(i)) in
+  name
+
+let register_ffi name prim =
+  Hashtbl.set t.ffi_mapping ~key:name ~data:(Array.length t.ffi);
+  t.ffi <- Array.append t.ffi [| (name, prim) |]
 
 let to_string = function
   | Inter0.VConst(Ast.String x) -> x
@@ -267,4 +272,4 @@ let core = [
       | _ -> PrimUnsupported)]
 
 let () =
-  List.iter core ~f:(fun (def, f) -> register_ffi def f)
+  List.iter core ~f:(fun (name, f) -> register_ffi name f)

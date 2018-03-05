@@ -151,13 +151,12 @@ module Debugger : sig
                   stack : stack;
                   pos : pos}
   type threads = thread list
-  type token
   type action =
     | PublishedValue of Value.t
     | NewThread of int
     | HaltedThread of int
-    | Coeffect of { thread: int; id: int; desc: Value.t }
-    | ValueBinding of { thread: int; value: v; token: token }
+    | Coeffect of { thread : int; id : int; desc : Value.t }
+    | Error of { thread : int; ffi : string; args : Value.t list}
 
   type trace = action list
   val init : inter -> (state * threads)
