@@ -8,7 +8,7 @@ prog: FFI WILDCARD
 ## FFI 
 ##
 
-<YOUR SYNTAX ERROR MESSAGE HERE>
+Ill-formed FFI call. Expected form is `description`(arg1, arg2, ..., argX)
 
 prog: IF TRUE THEN TRUE ELSE TRUE WILDCARD 
 ##
@@ -220,7 +220,10 @@ prog: INCLUDE STRING WILDCARD
 ## decl 
 ##
 
-<YOUR SYNTAX ERROR MESSAGE HERE>
+Ill-formed declaration.
+At this point, one of the following is expected:
+  '#' followed with an expression; or
+  an expression
 
 prog: LAMBDA LEFT_BRACK IDENT COMMA WILDCARD 
 ##
@@ -2307,7 +2310,7 @@ prog: TRUE WILDCARD
 ## expr 
 ##
 
-<YOUR SYNTAX ERROR MESSAGE HERE>
+Ill-formed expression. Operator is expected
 
 prog: WILDCARD 
 ##
@@ -2816,7 +2819,9 @@ orc_module: INCLUDE STRING WILDCARD
 ## decl 
 ##
 
-<YOUR SYNTAX ERROR MESSAGE HERE>
+# TODO
+
+Declaration (def ...) is expected
 
 orc_module: INCLUDE WILDCARD 
 ##
