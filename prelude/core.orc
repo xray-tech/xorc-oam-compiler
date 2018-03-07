@@ -15,7 +15,7 @@ def (&&)(x,y) = `core.and`(x, y)
 def (:)(x,y) = `core.cons`(x, y)
 def (~)(x) = `core.not`(x)
 def Ift(x) = `core.ift`(x)
-def Iff(x) = `core.iff(x) >> `lala`(x)
+def Iff(x) = `core.iff`(x)
 
 def ceil(x) = `core.ceil`(x)
 def floor(x) = `core.floor`(x)
