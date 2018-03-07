@@ -7,9 +7,9 @@ type lexbuf = {
 }
 
 (** Initialize with the null position. *)
-let create_lexbuf ?(file="") buf =
+let create_lexbuf ?(path="") buf =
   let pos = {Lexing.
-              pos_fname = file;
+              pos_fname = path;
               pos_lnum = 0;
               pos_bol = 0;
               pos_cnum = 0}
@@ -124,9 +124,9 @@ let rec token on_comment ({ buf } as lexbuf) =
         | _ -> r.return (Error (pos_with_start (),  "Invalid escape sequence"))
       and ffi buffer =
         match%sedlex buf with
-        | eof -> r.return (Error (pos_with_start (),  "Unclosed ffi"))
+        | eof | newline -> r.return (Error (pos_with_start (),  "Unclosed ffi"))
         | '`' -> Buffer.contents buffer
-        | Plus (Compl ('`')) -> store buffer; ffi buffer
+        | Plus (Compl ('`' | '\n')) -> store buffer; ffi buffer
         | _ -> assert false
       and read_comment buffer level =
         match%sedlex buf with
@@ -148,8 +148,9 @@ let rec token on_comment ({ buf } as lexbuf) =
         let start = lexbuf.pos in
         let comment = reader () in
         let end_ = lexbuf.pos in
-        on_comment comment (Ast.{ pstart = (start.pos_lnum, Ast.lexing_col start);
-                                  pend = (end_.pos_lnum, Ast.lexing_col end_) });
+        let pos = Ast.Pos.{ start = of_lexing start;
+                            finish = of_lexing end_ } in
+        on_comment comment pos;
         step () in
       let token = step () in
       let start' = match !start with

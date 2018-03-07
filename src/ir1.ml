@@ -276,7 +276,7 @@ let rec translate' ((e, pos) as ast) =
   | A.ERecord(pairs) ->
     let (keys, vals) = List.unzip pairs in
     let key_consts = (List.map keys ~f:(fun k ->
-        (A.EConst(A.String k), A.dummy))) in
+        (A.EConst(A.String k), A.Pos.dummy_range))) in
     deflate_many key_consts (fun keys' ->
         deflate_many vals (fun vals' ->
             let args = List.fold2_exn keys' vals' ~init:[] ~f:(fun acc k v ->
@@ -304,16 +304,16 @@ let rec translate' ((e, pos) as ast) =
   | A.EStop -> (EStop, ast)
   | A.ELambda(_, params, _, body) ->
     let n = make_fresh () in
-    let e' = A.EDecl((DDef(n, [], params, None, None, body), A.dummy),
-                     (A.EIdent n, A.dummy)) in
-    translate'((e', A.dummy))
+    let e' = A.EDecl((DDef(n, [], params, None, None, body), A.Pos.dummy_range),
+                     (A.EIdent n, A.Pos.dummy_range)) in
+    translate'((e', A.Pos.dummy_range))
   | A.EDecl((DDef _, _), _) | EDecl((DSig _, _), _) ->
     translate_defs (e, pos)
   | A.EDecl((DVal(p, val_e), _), e) ->
     translate' ((EPruning(e, p, val_e)), pos)
   | A.EFieldAccess(target, field) ->
     deflate target (fun t ->
-        deflate (A.EConst(A.String field), A.dummy) (fun f ->
+        deflate (A.EConst(A.String field), A.Pos.dummy_range) (fun f ->
             (EFFI("core.field-access", [t; f]), ast)))
   | A.EDecl((DRefer(ns, fs), _), e) ->
     deps := ns::!deps;

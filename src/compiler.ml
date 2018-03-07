@@ -29,7 +29,7 @@ let ctx_find' ctx ident =
 
 let ctx_find ctx pos ident =
   match ctx_find' ctx ident with
-  | None -> Error (`UnboundVar (pos.Ast.pstart, ident))
+  | None -> Error (`UnboundVar (pos, ident))
   | Some(v) -> Ok v
 
 let new_index = ctx_vars
@@ -169,8 +169,8 @@ let analyze_functions_graph g =
 
 let compile_e env e =
   with_return (fun r ->
-      let rec compile_e' env (e, (ast_e, pos)) =
-        let ctx_find x = match ctx_find env.ctx pos x with
+      let rec compile_e' env (e, (ast_e, ({Ast.Pos.start = pos} as pos_range))) =
+        let ctx_find x = match ctx_find env.ctx pos_range x with
           | Ok(v) -> v
           | Error(_) as err -> r.return err in
         let get_import_label' (ns, ident) =
@@ -227,7 +227,7 @@ let compile_e env e =
         | EIdent x ->
           (match ctx_find x with
            | (_, BindVar) ->
-             (EFFI ("core.let", [x]), (ast_e, pos))
+             (EFFI ("core.let", [x]), (ast_e, pos_range))
              |> compile_e' env
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
@@ -315,8 +315,8 @@ let compile_e env e =
           (s + (len closures / 2), closures @ body)
         | ECall(ident, args) ->
           if need_preprocess args
-          then preprocess_args args (ast_e, pos) (fun args' ->
-              (ECall(ident, args'), (ast_e, pos)))
+          then preprocess_args args (ast_e, pos_range) (fun args' ->
+              (ECall(ident, args'), (ast_e, pos_range)))
                |> compile_e' env
           else compile_call ident args
         | ERefer(ns, fs, e) ->
@@ -325,8 +325,8 @@ let compile_e env e =
           compile_e' { env with ctx = ctx' } e
         | EFFI(def, args) ->
           if need_preprocess args
-          then preprocess_args args (ast_e, pos) (fun args' ->
-              (EFFI(def, args'), (ast_e, pos)))
+          then preprocess_args args (ast_e, pos_range) (fun args' ->
+              (EFFI(def, args'), (ast_e, pos_range)))
                |> compile_e' env
           else
             let args' = List.map args ~f:(fun arg ->
@@ -397,7 +397,7 @@ let compile ~repository ~prelude ~comments e =
           (size, body)) in
       Ok({I.ffi = List.rev state.ffi_in_use; code}))
 
-let rec compile_module' ctx orc_module = function
+let rec add_module' ctx orc_module = function
   | Ir1.EModule ->
     List.filter_map ctx ~f:(function
         | (_, BindFun unit) -> Some unit
@@ -411,13 +411,13 @@ let rec compile_module' ctx orc_module = function
                          params; body})) in
     let ctx' = binds @ ctx in
     List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
-    compile_module' ctx' orc_module e
+    add_module' ctx' orc_module e
   | ERefer(mod_', fs, (e, _)) ->
     let binds = (List.map fs ~f:(fun name ->
         (name, BindMod(mod_', name)))) in
-    compile_module' (binds @ ctx) orc_module e
+    add_module' (binds @ ctx) orc_module e
   | _ -> assert false
 
-let compile_module ~repository ~name ~comments (e, _) =
-  compile_module' init_ctx name e
+let add_module ~repository ~path ~comments (e, _) =
+  add_module' init_ctx path e
   |> List.iter ~f:(Repository.set repository)

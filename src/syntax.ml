@@ -29,9 +29,9 @@ let report checkpoint =
   in
   message
 
-type comments = (string * Ast.pos) list [@@deriving sexp_of]
+type comments = (string * Ast.Pos.range) list [@@deriving sexp_of]
 
-let parse_with_error checkpoint fname lexbuf =
+let parse_with_error checkpoint lexbuf =
   with_return (fun r ->
       let comments = ref [] in
       let on_comment comment pos = comments := (comment, pos)::!comments in
@@ -39,17 +39,17 @@ let parse_with_error checkpoint fname lexbuf =
         match Lexer.token on_comment lexbuf with
         | Ok(res) -> res
         | Error((pos, err)) ->
-          r.return (Error(`SyntaxError((pos.pos_lnum, Ast.lexing_col pos), err))) in
+          r.return (Error(`SyntaxError(Ast.Pos.of_lexing pos, err))) in
       let module I = Parser.MenhirInterpreter in
       let succeed res = Ok (res, !comments)
       and fail checkpoint =
         let pos = lexbuf.Lexer.pos in
-        Error(`SyntaxError((pos.pos_lnum, Ast.lexing_col pos), report checkpoint))
+        Error(`SyntaxError(Ast.Pos.of_lexing pos, report checkpoint))
       in
       I.loop_handle succeed fail supplier checkpoint)
 
 let parse_prog lexbuf =
-  parse_with_error (Parser.Incremental.prog lexbuf.Lexer.pos) "" lexbuf
+  parse_with_error (Parser.Incremental.prog lexbuf.Lexer.pos) lexbuf
   |> Result.bind ~f:(function
       | (Some(v), comments) -> Ok(v, comments)
       | (None, _) -> Error(`NoInput))
@@ -60,13 +60,13 @@ let parse s =
 
 (* We implicity convert list of declaration to the normal AST with stop as final
    node *)
-let parse_module ~filename s =
+let parse_module ~path s =
   let open Result.Let_syntax in
   let fold_decls decl e =
-    (Ast.EDecl(decl, e), Ast.dummy) in
-  let lexbuf = Lexer.create_lexbuf (Sedlexing.Utf8.from_string s) in
-  let%map (res, comments) = parse_with_error (Parser.Incremental.orc_module lexbuf.Lexer.pos) filename lexbuf in
-  (List.fold_right res ~init:(Ast.EModule, Ast.dummy) ~f:fold_decls, comments)
+    (Ast.EDecl(decl, e), Ast.Pos.dummy_range) in
+  let lexbuf = Lexer.create_lexbuf ~path (Sedlexing.Utf8.from_string s) in
+  let%map (res, comments) = parse_with_error (Parser.Incremental.orc_module lexbuf.Lexer.pos) lexbuf in
+  (List.fold_right res ~init:(Ast.EModule, Ast.Pos.dummy_range) ~f:fold_decls, comments)
 
 let value_from_ast e =
   with_return (fun r ->

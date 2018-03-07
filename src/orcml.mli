@@ -32,16 +32,26 @@ module Value : sig
   include Comparator.S with type t := t
 end
 
+type pos = {
+  path : string;
+  line : int;
+  col : int;
+}
+and range = {
+  start : pos;
+  finish : pos;
+} [@@deriving sexp, compare]
+
 type parse_error =
   [ | `NoInput
-    | `SyntaxError of (int * int) * string]
+    | `SyntaxError of pos * string]
 
 type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
 type compile_error =
-  [ `UnboundVar of (int * int) * string
+  [ `UnboundVar of range * string
   | `UnknownReferedFunction of string * string ]
 
 type error = [ parse_error | compile_error ]
@@ -80,7 +90,7 @@ val parse_value : string -> (Value.t, [> parse_value_error]) Result.t
 
 val compile : ?prelude:(string * string) list -> repository:Repository.t -> string -> (bc, [> error]) Result.t
 
-val compile_module : repository:Repository.t -> name:string -> string -> (unit, [> error]) Result.t
+val add_module : repository:Repository.t -> path:string -> string -> (unit, [> error]) Result.t
 
 type coeffect = int * Value.t
 type instance

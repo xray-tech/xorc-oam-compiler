@@ -1,14 +1,16 @@
-%{ open Ast
-  let make_pos start e =
-    Ast.{ pstart = (start.Lexing.pos_lnum, lexing_col start);
-          pend = (start.Lexing.pos_lnum, lexing_col e) }
-  let pattern_or_wildcard = function
-  | Some x -> x
-  | None -> (PWildcard, dummy)
+%{
+   open Ast
+   let make_pos start e =
+     Pos.{ start = of_lexing start;
+               finish = of_lexing e }
 
-  let optional_list = function
-  | Some l -> l
-  | None -> []
+   let pattern_or_wildcard = function
+   | Some x -> x
+   | None -> (PWildcard, Pos.dummy_range)
+
+   let optional_list = function
+   | Some l -> l
+   | None -> []
 %}
 
 

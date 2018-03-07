@@ -1,4 +1,22 @@
 open Base
+
+type pos = Ast.Pos.t = {
+  path : string;
+  line : int;
+  col : int;
+}
+type range = Ast.Pos.range = {
+  start : pos;
+  finish : pos;
+}
+let sexp_of_pos = Ast.Pos.sexp_of_t
+let pos_of_sexp = Ast.Pos.t_of_sexp
+let compare_pos = Ast.Pos.compare
+
+let sexp_of_range = Ast.Pos.sexp_of_range
+let range_of_sexp = Ast.Pos.range_of_sexp
+let compare_range = Ast.Pos.compare_range
+
 type parse_error = Errors.parse_error
 
 type parse_value_error = Errors.parse_value_error
@@ -68,11 +86,11 @@ let compile ?(prelude = []) ~repository code =
   (* Stdio.printf "----IR1 %s\n" (Ir1.sexp_of_e ir1 |> Sexp.to_string_hum); *)
   Compiler.compile ~prelude ~comments ~repository ir1
 
-let compile_module ~repository ~name code =
+let add_module ~repository ~path code =
   let open Result.Let_syntax in
-  let%map (parsed, comments) = Syntax.parse_module ~filename:name code in
+  let%map (parsed, comments) = Syntax.parse_module ~path code in
   let (_, ir1) = Ir1.translate parsed in
-  Compiler.compile_module ~comments ~repository ~name ir1
+  Compiler.add_module ~comments ~repository ~path ir1
 
 type bc = Inter.bc
 let sexp_of_bc = Inter.sexp_of_bc

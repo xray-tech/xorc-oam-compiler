@@ -124,7 +124,7 @@ let load packed =
             | _ -> bad_format ()) in
         let code = Array.of_list (List.map code_raw ~f:(function
             | M.List ((M.Int i)::(M.Int _ops)::xs) ->
-              (i, Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.dummy))))
+              (i, Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
             | _ -> bad_format ())) in
         Ok({Inter.ffi; code})
       | _ -> bad_format ())

@@ -2,7 +2,7 @@ open Base
 
 type parse_error =
   [ `NoInput
-  | `SyntaxError of (int * int) * string]
+  | `SyntaxError of Ast.Pos.t * string]
 [@@deriving sexp_of]
 
 type parse_value_error =
@@ -10,7 +10,7 @@ type parse_value_error =
   | `UnsupportedValueAST ]
 
 type compile_error =
-  [ `UnboundVar of (int * int) * string
+  [ `UnboundVar of Ast.Pos.range * string
   | `UnknownReferedFunction of string * string ]
 [@@deriving sexp_of]
 
@@ -20,10 +20,10 @@ type inter_error =
 
 let to_string_hum = function
   | `NoInput -> "No input to parse"
-  | `SyntaxError((line, col), descr) -> Printf.sprintf "Syntax error at line %i column %i: %s" line col descr
+  | `SyntaxError({Ast.Pos.line; col}, descr) -> Printf.sprintf "Syntax error at line %i column %i: %s" line col descr
   | `UnsupportedValueAST -> "Can't parse it as value"
   | `UnexpectedDependencies d -> Printf.sprintf "External dependencies are not supported here (%s)" (String.concat ~sep:", " d)
-  | `UnboundVar((line, col), bind) ->
+  | `UnboundVar({ Ast.Pos.start = {line; col} }, bind) ->
     Printf.sprintf "Unbound variable %s at line %i column %i" bind line col
   | `BadFormat -> "Binary message is bad formatted"
   | `UnknownFFI def -> Printf.sprintf "Unsupported FFI call %s" def

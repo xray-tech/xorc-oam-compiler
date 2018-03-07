@@ -3,13 +3,27 @@ open Base
 let lexing_col {Lexing.pos_bol; pos_cnum} =
   pos_cnum - pos_bol
 
-type pos = {
-  pstart : (int * int);
-  pend : (int * int);
-} [@@deriving sexp, compare]
+module Pos = struct
+  type t = {
+    path : string;
+    line : int;
+    col : int;
+  }
+  and range = {
+    start : t;
+    finish : t;
+  } [@@deriving sexp, compare]
 
-let dummy = let z = (0, 0) in
-  { pstart = z; pend = z }
+  let of_lexing ({ Lexing.pos_fname; pos_lnum } as pos) =
+    { path = pos_fname;
+      line = pos_lnum;
+      col = lexing_col pos }
+
+  let dummy = { path = ""; line = 0; col = 0 }
+
+  let dummy_range = { start = dummy; finish = dummy }
+end
+
 
 type const =
   | Int of int
@@ -32,7 +46,7 @@ type p' =
   | PRecord of (string * p) list
   | PAs of p * string
   | PTyped of p * ty
-and p = (p' * pos) [@@deriving sexp_of, compare]
+and p = (p' * Pos.range) [@@deriving sexp_of, compare]
 and ty' =
     | TyVar of string
   | TyApp of string * ty list
@@ -40,7 +54,7 @@ and ty' =
   | TyTuple of ty list
   | TyFun of tyfun
 and tyfun = string list * ty list * ty
-and ty = (ty' * pos)
+and ty = (ty' * Pos.range)
 
 type e' =
   | EOtherwise of e * e
@@ -72,8 +86,8 @@ and decl' =
   | DAlias of ident * string list * ty
   | DRefer of string * ident list
 and constructor = ident * int
-and decl = decl' * pos
-and e = e' * pos [@@deriving sexp_of, compare]
+and decl = decl' * Pos.range
+and e = e' * Pos.range [@@deriving sexp_of, compare]
 
 exception UnsupportedImportType of string
 

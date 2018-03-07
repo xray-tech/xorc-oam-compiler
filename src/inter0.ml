@@ -20,7 +20,7 @@ type t' =
   | Const of Ast.const
   | Closure of (int * int)
   | Label of int
-and t = (t' * Ast.pos)
+and t = (t' * Ast.Pos.t)
 and v =
   | VConst of Ast.const
   | VClosure of int * int * env
