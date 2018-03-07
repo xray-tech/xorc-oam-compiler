@@ -1,6 +1,7 @@
 %{ open Ast
   let make_pos start e =
-    Ast.{ pstart = start; pend = e }
+    Ast.{ pstart = (start.Lexing.pos_lnum, lexing_col start);
+          pend = (start.Lexing.pos_lnum, lexing_col e) }
   let pattern_or_wildcard = function
   | Some x -> x
   | None -> (PWildcard, dummy)

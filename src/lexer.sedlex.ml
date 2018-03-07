@@ -1,41 +1,21 @@
-open Base
+open Common
 open Parser
 
 type lexbuf = {
-  stream : Sedlexing.lexbuf ;
+  buf: Sedlexing.lexbuf ;
   mutable pos : Lexing.position ;
 }
 
 (** Initialize with the null position. *)
-let create_lexbuf ?(file="") stream =
+let create_lexbuf ?(file="") buf =
   let pos = {Lexing.
               pos_fname = file;
               pos_lnum = 0;
               pos_bol = 0;
-              pos_cnum = 0;
-            }
-  in { pos ; stream }
-
-(** Register a new line in the lexer's position. *)
-let new_line lexbuf =
-  let open Lexing in
-  let lcp = lexbuf.pos in
-  lexbuf.pos <-
-    {lcp with
-     pos_lnum = lcp.pos_lnum + 1;
-     pos_bol = lcp.pos_cnum;
-    }
-
-let lexeme { stream; _ } = Sedlexing.Utf8.lexeme stream
-
-exception SyntaxError of string
+              pos_cnum = 0}
+  in { pos ; buf}
 
 (** Update the position with the stream. *)
-let update lexbuf =
-  let new_pos = Sedlexing.lexeme_end lexbuf.stream in
-  let p = lexbuf.pos in
-  lexbuf.pos <- {p with Lexing.pos_cnum = new_pos }
-
 let integer = [%sedlex.regexp? ('1'..'9', Star ('0'..'9')) | '0']
 
 let digit = [%sedlex.regexp? '0'..'9']
@@ -48,121 +28,132 @@ let newline = [%sedlex.regexp? ('\n' | '\r' | "\r\n")]
 
 let id = [%sedlex.regexp? (('a'..'z' | 'A'..'Z' | '_'), Star ('_' | 'a'..'z' | 'A'..'Z' | '0'..'9' | '\''))]
 
-let rec token on_comment lexbuf =
-  let buf = lexbuf.stream in
-  let rec step () =
-    match%sedlex buf with
-    | Plus (Chars " \t\r") -> update lexbuf; step ()
-    | newline -> new_line lexbuf; step ()
-    | eof -> update lexbuf; EOF
-    | "true" -> update lexbuf; TRUE
-    | "false" -> update lexbuf; FALSE
-    | "null" -> update lexbuf; NULL
-    | "signal" -> update lexbuf; SIGNAL
-    | "stop" -> update lexbuf; STOP
-    | "type" -> update lexbuf; TYPE
-    | "val" -> update lexbuf; VAL
-    | "refer from" -> update lexbuf; REFER
-    | "import" -> update lexbuf; IMPORT
-    | "include" -> update lexbuf; INCLUDE
-    | "lambda" -> update lexbuf; LAMBDA
-    | "as" -> update lexbuf; AS
-    | "def" -> update lexbuf; DEF
-    | "sig" -> update lexbuf; SIG
-    | "if" -> update lexbuf; IF
-    | "then" -> update lexbuf; THEN
-    | "else" -> update lexbuf; ELSE
-    | '#' -> update lexbuf; NUMBER_SIGN
-    | '_' -> update lexbuf; WILDCARD
-    | '"' -> update lexbuf; STRING (string (Buffer.create 0) lexbuf)
-    | "{." -> update lexbuf; LEFT_BRACE
-    | ".}" -> update lexbuf; RIGHT_BRACE
-    | "{-" -> comment_token (fun () -> read_comment (Buffer.create 0) 0 lexbuf)
-    | "--" -> comment_token (fun () -> read_comment_line (Buffer.create 0) lexbuf)
-    | "::" -> update lexbuf; DOUBLE_COLON
-    | ":!:" -> update lexbuf; TOVERRIDE
-    | '[' -> update lexbuf; LEFT_BRACK
-    | ']' -> update lexbuf; RIGHT_BRACK
-    | '(' -> update lexbuf; LEFT_PAREN
-    | ')' -> update lexbuf; RIGHT_PAREN
-    | ',' -> update lexbuf; COMMA
-    | ';' -> update lexbuf; SEMICOLON
-    | '<' -> update lexbuf; LESS
-    | '>' -> update lexbuf; MORE
-    | '|' -> update lexbuf; BAR
-    | '.' -> update lexbuf; DOT
-    | '~' -> update lexbuf; NOT (lexeme lexbuf)
-    | '?' -> update lexbuf; DEREFERENCE (lexeme lexbuf)
-    | '+' -> update lexbuf; ADD (lexeme lexbuf)
-    | '-' -> update lexbuf; SUB (lexeme lexbuf)
-    | '=' -> update lexbuf; EQ (lexeme lexbuf)
-    | ":=" -> update lexbuf; ASSIGN (lexeme lexbuf)
-    | "/=" -> update lexbuf; NOT_EQ (lexeme lexbuf)
-    | "<:" -> update lexbuf; LT (lexeme lexbuf)
-    | ":>" -> update lexbuf; GT (lexeme lexbuf)
-    | ">=" -> update lexbuf; GTE (lexeme lexbuf)
-    | "<=" -> update lexbuf; LTE (lexeme lexbuf)
-    | "&&" -> update lexbuf; AND (lexeme lexbuf)
-    | "||" -> update lexbuf; OR (lexeme lexbuf)
-    | '*' -> update lexbuf; MULT (lexeme lexbuf)
-    | '/' -> update lexbuf; DIV (lexeme lexbuf)
-    | '%' -> update lexbuf; MOD (lexeme lexbuf)
-    | "**" -> update lexbuf; POW (lexeme lexbuf)
-    | ':' -> update lexbuf; COLON (lexeme lexbuf)
-    | '`' -> update lexbuf; FFI (ffi (Buffer.create 0) lexbuf)
-    | integer -> update lexbuf; INT (Int.of_string (lexeme lexbuf))
-    | float -> update lexbuf; FLOAT (Float.of_string (lexeme lexbuf))
-    | id -> update lexbuf; IDENT (lexeme lexbuf)
-    | _ -> assert false
-  and string buffer lexbuf =
-    let store () = Buffer.add_string buffer (lexeme lexbuf) in
-    let buf = lexbuf.stream in
-    match%sedlex buf with
-    | eof -> raise (SyntaxError "Unclosed string")
-    | newline -> new_line lexbuf; store(); string buffer lexbuf
-    | '\\' ->  escaped_char buffer lexbuf
-    | '"' -> update lexbuf; Buffer.contents buffer
-    | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store(); string buffer lexbuf
-    | _ -> assert false
-  and escaped_char buffer lexbuf =
-    let store () = Buffer.add_string buffer (lexeme lexbuf) in
-    let buf = lexbuf.stream in
-    match%sedlex buf with
-    | eof -> raise (SyntaxError "Unexpected end of input")
-    | '"' -> store(); string buffer lexbuf
-    | _ -> raise (SyntaxError "Invalid escape sequence")
-  and ffi buffer lexbuf =
-    let store () = Buffer.add_string buffer (lexeme lexbuf) in
-    let buf = lexbuf.stream in
-    match%sedlex buf with
-    | eof -> raise (SyntaxError "Unclosed ffi")
-    | '`' -> update lexbuf; Buffer.contents buffer
-    | Plus (Compl ('`')) -> store(); ffi buffer lexbuf
-    | _ -> assert false
-  and read_comment buffer level lexbuf =
-    let buf = lexbuf.stream in
-    let store () = Buffer.add_string buffer (lexeme lexbuf) in
-    match%sedlex buf with
-    | "{-" -> store(); read_comment buffer (level + 1) lexbuf
-    | "-}" ->
-      if Int.equal level 0
-      then (update lexbuf; Buffer.contents buffer)
-      else (store(); read_comment buffer (level - 1) lexbuf)
-    | eof -> raise (SyntaxError ("Comment is not terminated"))
-    | newline -> new_line lexbuf; store (); read_comment buffer level lexbuf
-    | any -> store (); read_comment buffer level lexbuf
-    | _ -> assert false
-  and read_comment_line buffer lexbuf =
-    let buf = lexbuf.stream in
-    match%sedlex buf with
-    | newline | eof -> update lexbuf; Buffer.contents buffer
-    | any -> Buffer.add_string buffer (lexeme lexbuf); read_comment_line buffer lexbuf
-    | _ -> assert false
-  and comment_token reader =
-    update lexbuf;
-    let start = lexbuf.pos in
-    let comment = reader () in
-    let end_ = lexbuf.pos in
-    on_comment comment (Ast.{ pstart = start; pend = end_ });
-    step () in
-  step ()
+let rec token on_comment ({ buf } as lexbuf) =
+  with_return (fun r ->
+      let lexeme () = Sedlexing.Utf8.lexeme buf in
+      let store buffer = Buffer.add_string buffer (lexeme ()) in
+      let start = ref None in
+      let pos_with_start () =
+        { lexbuf.pos with Lexing.pos_cnum = Sedlexing.lexeme_start buf } in
+      let set_start () =
+        start := Some (pos_with_start ()) in
+      let new_line () =
+        let open Lexing in
+        let lcp = lexbuf.pos in
+        lexbuf.pos <-
+          {lcp with
+           pos_lnum = lcp.pos_lnum + 1;
+           pos_bol = Sedlexing.lexeme_end buf;
+          } in
+      let rec step () =
+        match%sedlex buf with
+        | Plus (Chars " \t\r") -> step ()
+        | newline -> new_line (); step ()
+        | eof -> EOF
+        | "true" -> TRUE
+        | "false" -> FALSE
+        | "null" -> NULL
+        | "signal" -> SIGNAL
+        | "stop" -> STOP
+        | "type" -> TYPE
+        | "val" -> VAL
+        | "refer from" -> REFER
+        | "import" -> IMPORT
+        | "include" -> INCLUDE
+        | "lambda" -> LAMBDA
+        | "as" -> AS
+        | "def" -> DEF
+        | "sig" -> SIG
+        | "if" -> IF
+        | "then" -> THEN
+        | "else" -> ELSE
+        | '#' -> NUMBER_SIGN
+        | '_' -> WILDCARD
+        | '"' -> set_start (); STRING (string (Buffer.create 0))
+        | "{." -> LEFT_BRACE
+        | ".}" -> RIGHT_BRACE
+        | "{-" -> comment_token (fun () -> read_comment (Buffer.create 0) 0)
+        | "--" -> comment_token (fun () -> read_comment_line (Buffer.create 0))
+        | "::" -> DOUBLE_COLON
+        | ":!:" -> TOVERRIDE
+        | '[' -> LEFT_BRACK
+        | ']' -> RIGHT_BRACK
+        | '(' -> LEFT_PAREN
+        | ')' -> RIGHT_PAREN
+        | ',' -> COMMA
+        | ';' -> SEMICOLON
+        | '<' -> LESS
+        | '>' -> MORE
+        | '|' -> BAR
+        | '.' -> DOT
+        | '~' -> NOT (lexeme ())
+        | '?' -> DEREFERENCE (lexeme ())
+        | '+' -> ADD (lexeme ())
+        | '-' -> SUB (lexeme ())
+        | '=' -> EQ (lexeme ())
+        | ":=" -> ASSIGN (lexeme ())
+        | "/=" -> NOT_EQ (lexeme ())
+        | "<:" -> LT (lexeme ())
+        | ":>" -> GT (lexeme ())
+        | ">=" -> GTE (lexeme ())
+        | "<=" -> LTE (lexeme ())
+        | "&&" -> AND (lexeme ())
+        | "||" -> OR (lexeme ())
+        | '*' -> MULT (lexeme ())
+        | '/' -> DIV (lexeme ())
+        | '%' -> MOD (lexeme ())
+        | "**" -> POW (lexeme ())
+        | ':' -> COLON (lexeme ())
+        | '`' -> set_start (); FFI (ffi (Buffer.create 0))
+        | integer -> INT (Int.of_string (lexeme ()))
+        | float -> FLOAT (Float.of_string (lexeme ()))
+        | id -> IDENT (lexeme ())
+        | _ -> assert false
+      and string buffer =
+        match%sedlex buf with
+        | eof -> r.return (Result.Error (pos_with_start (), "Unclosed string"))
+        | newline -> new_line (); store buffer; string buffer
+        | '\\' ->  escaped_char buffer
+        | '"' -> Buffer.contents buffer
+        | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store buffer; string buffer
+        | _ -> assert false
+      and escaped_char buffer =
+        match%sedlex buf with
+        | eof -> r.return (Error (pos_with_start (), "Unexpected end of input"))
+        | '"' -> store buffer; string buffer
+        | _ -> r.return (Error (pos_with_start (),  "Invalid escape sequence"))
+      and ffi buffer =
+        match%sedlex buf with
+        | eof -> r.return (Error (pos_with_start (),  "Unclosed ffi"))
+        | '`' -> Buffer.contents buffer
+        | Plus (Compl ('`')) -> store buffer; ffi buffer
+        | _ -> assert false
+      and read_comment buffer level =
+        match%sedlex buf with
+        | "{-" -> store buffer; read_comment buffer (level + 1)
+        | "-}" ->
+          if Int.equal level 0
+          then (Buffer.contents buffer)
+          else (store buffer; read_comment buffer (level - 1))
+        | eof -> r.return (Error (pos_with_start (),  "Comment is not terminated"))
+        | newline -> new_line (); store buffer; read_comment buffer level
+        | any -> store buffer; read_comment buffer level
+        | _ -> assert false
+      and read_comment_line buffer =
+        match%sedlex buf with
+        | newline | eof -> Buffer.contents buffer
+        | any -> Buffer.add_string buffer (lexeme ()); read_comment_line buffer
+        | _ -> assert false
+      and comment_token reader =
+        let start = lexbuf.pos in
+        let comment = reader () in
+        let end_ = lexbuf.pos in
+        on_comment comment (Ast.{ pstart = (start.pos_lnum, Ast.lexing_col start);
+                                  pend = (end_.pos_lnum, Ast.lexing_col end_) });
+        step () in
+      let token = step () in
+      let start' = match !start with
+        | Some v -> v
+        | None -> pos_with_start () in
+      lexbuf.pos <- { lexbuf.pos with Lexing.pos_cnum = Sedlexing.lexeme_end buf };
+      Ok (token, start', lexbuf.pos))

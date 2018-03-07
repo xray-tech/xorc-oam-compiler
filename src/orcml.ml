@@ -63,7 +63,9 @@ let parse_value = Syntax.parse_value
 let compile ?(prelude = []) ~repository code =
   let open Result.Let_syntax in
   let%bind (parsed, comments) = Syntax.parse code in
+  (* Stdio.printf "----Parsed %s\n" (Ast.sexp_of_e parsed |> Sexp.to_string_hum); *)
   let (_, ir1) = Ir1.translate parsed in
+  (* Stdio.printf "----IR1 %s\n" (Ir1.sexp_of_e ir1 |> Sexp.to_string_hum); *)
   Compiler.compile ~prelude ~comments ~repository ir1
 
 let compile_module ~repository ~name code =

@@ -1,35 +1,14 @@
 open Base
 
-module Lexing = struct
-  include Lexing
-
-  let sexp_of_position {pos_bol; pos_lnum; pos_fname; pos_cnum} =
-    let open Sexp in
-    List [Atom "pos";
-          Atom pos_fname;
-          Atom (Int.to_string pos_lnum);
-          Atom (Int.to_string (pos_cnum - pos_bol))]
-
-  let position_of_sexp v =
-    raise Util.TODO
-
-  let compare_position a b =
-    let {pos_bol; pos_lnum; pos_fname; pos_cnum} = a in
-    let a' = (pos_fname, pos_bol, pos_lnum, pos_cnum) in
-    let {pos_bol; pos_lnum; pos_fname; pos_cnum} = b in
-    let b' = (pos_fname, pos_bol, pos_lnum, pos_cnum) in
-    [%compare: string * int * int * int] a' b'
-end
+let lexing_col {Lexing.pos_bol; pos_cnum} =
+  pos_cnum - pos_bol
 
 type pos = {
-  pstart : Lexing.position;
-  pend : Lexing.position;
+  pstart : (int * int);
+  pend : (int * int);
 } [@@deriving sexp, compare]
 
-let dummy = let z = Lexing.{ pos_bol = 0;
-                             pos_lnum = 0;
-                             pos_fname = "%";
-                             pos_cnum = 0 } in
+let dummy = let z = (0, 0) in
   { pstart = z; pend = z }
 
 type const =

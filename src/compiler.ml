@@ -29,7 +29,7 @@ let ctx_find' ctx ident =
 
 let ctx_find ctx pos ident =
   match ctx_find' ctx ident with
-  | None -> Error (`UnboundVar(ident, pos))
+  | None -> Error (`UnboundVar (pos.Ast.pstart, ident))
   | Some(v) -> Ok v
 
 let new_index = ctx_vars
@@ -97,12 +97,12 @@ let get_ffi state def =
   f state.ffi_in_use
 
 let free_vars init e =
-  let rec step ctx (e, (_ast_e, _pos)) =
+  let rec step ctx (e, (_ast_e, pos)) =
     let open! Ir1 in
     let if_out_of_scope x =
       match ctx_find' ctx x with
       | Some(_) -> []
-      | None -> [x] in
+      | None -> [(pos, x)] in
     match e with
     | EIdent x -> if_out_of_scope x
     | EParallel(e1, e2) | EOtherwise(e1, e2)
@@ -129,13 +129,13 @@ let free_vars init e =
     | EConst _ | EStop | EModule -> [] in
   step (List.map init ~f:(fun ident -> (ident, BindVar))) e
 
-let closure_vars ctx pos vars =
+let closure_vars ctx vars =
   with_return (fun r ->
-      let filtered = List.filter vars ~f:(fun v ->
+      let filtered = List.filter_map vars ~f:(fun (pos, v) ->
           match ctx_find ctx pos v with
           | Error(_) as err -> r.return err
-          | Ok((_, BindVar)) -> true
-          | _ -> false) in
+          | Ok((_, BindVar)) -> Some(v)
+          | _ -> None) in
       Ok filtered)
 
 type env = {
@@ -225,7 +225,6 @@ let compile_e env e =
         match e with
         | EModule -> raise (Module env.ctx)
         | EIdent x ->
-          (* Stdio.eprintf "--LOOKUP %s: %s\n" x (sexp_of_ctx ctx |> Sexp.to_string_hum); *)
           (match ctx_find x with
            | (_, BindVar) ->
              (EFFI ("core.let", [x]), (ast_e, pos))
@@ -243,14 +242,14 @@ let compile_e env e =
           let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
            (I.Parallel(env.shift + len e1' + len e2' - 1,
-                      env.shift + len e2' - 1), pos)
+                       env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EOtherwise(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
           let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
            (I.Otherwise(env.shift + len e1' + len e2' - 1,
-                       env.shift + len e2' - 1), pos)
+                        env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EPruning(e1, v, e2) ->
           let (ctx', index) = match v with
@@ -261,8 +260,8 @@ let compile_e env e =
           let (s1, e1') = compile_e' { env with shift = env.shift + len e2'; ctx = ctx'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
            (I.Pruning(env.shift + len e1' + len e2' - 1,
-                     index,
-                     env.shift + len e2' -1), pos)
+                      index,
+                      env.shift + len e2' -1), pos)
            ::(e1' @ e2'))
         | ESequential(e1, v, e2) ->
           let (ctx', index) = match v with
@@ -272,17 +271,18 @@ let compile_e env e =
           let (s1, e1') = compile_e' { env with tail_call = false; shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2) + (if Option.is_none index then 0 else 1),
            (I.Sequential(env.shift + len e1' + len e2' - 1,
-                        index,
-                        env.shift + len e2' - 1), pos)
+                         index,
+                         env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EFix(fs, e) ->
-          let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
+          let vars = List.map fs ~f:(fun (ident, _, (_, (_, pos))) -> ident) in
           let closure_vars = List.map fs ~f:(fun (ident, params, e) ->
               let all = free_vars (vars @ params) e in
-              let all_plus_fix = free_vars params e in
+              let all_plus_fix = free_vars params e |> List.map ~f:(fun (_, x) -> x) in
+              let all_only_names = all |> List.map ~f:(fun (_, x) -> x) in
               let fix_links = List.filter all_plus_fix ~f:(fun x ->
-                  List.mem all x ~equal:String.equal |> not) in
-              match closure_vars env.ctx pos all with
+                  List.mem all_only_names x ~equal:String.equal |> not) in
+              match closure_vars env.ctx all with
               | Ok v -> (ident, (v, fix_links))
               | Error _ as err -> r.return err) in
           let closures = analyze_functions_graph closure_vars in

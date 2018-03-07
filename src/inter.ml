@@ -311,7 +311,7 @@ and tick
      | `Pending p ->
        p.pend_waiters <- thread::p.pend_waiters;
        ([], [])
-     | `Stopped -> raise Util.TODO
+     | `Stopped -> halt state thread
      | `Value(descr) ->
        let thread' = { thread with env = Array.copy(env)} in
        let coeff_id = instance.current_coeffect in

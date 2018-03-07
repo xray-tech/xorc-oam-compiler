@@ -2,6 +2,13 @@ open! Core
 open! Async
 open! Log.Global
 
+module List = struct
+  include List
+  let safe_sub l ~pos ~len =
+    let llen = List.length l in
+    List.sub l ~pos:(Int.min pos (llen - 1)) ~len:(Int.min len (llen - pos))
+end
+
 let set_logging verbose =
   (if verbose then set_level `Debug);
   let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stderr)) in
@@ -26,7 +33,6 @@ let list_position l ~f =
     | x::_ when f x -> Some(acc)
     | _::xs -> step (acc + 1) xs in
   step 0 l
-
 
 let compile_modules (module Loader : ModuleLoader) modules =
   let repository = Orcml.Repository.create () in
@@ -101,7 +107,7 @@ let compile_source loader include_prelude prog =
   let (module Loader : ModuleLoader) = loader in
   let prelude = if include_prelude
     then List.concat_map implicit_prelude ~f:(fun (mod_, idents) ->
-      List.map idents ~f:(fun ident -> (mod_, ident)))
+        List.map idents ~f:(fun ident -> (mod_, ident)))
     else [] in
   let%bind modules = Loader.all_modules () in
   match%map compile_modules loader modules with
@@ -117,16 +123,14 @@ let compile_bc prog =
   let (_, packed) = Msgpck.String.read prog in
   return (Orcml.Serializer.load packed)
 
-let compile_input prelude includes is_byte_code input =
+let compile_input prelude includes is_byte_code prog =
   let loader = multiloader (List.map includes ~f:fs) in
-  let%bind prog = read_file_or_stdin input in
   if is_byte_code
   then compile_bc prog
   else compile_source loader prelude prog
 
-let make_bytecode prelude includes input =
+let make_bytecode prelude includes prog =
   let loader = multiloader (List.map includes ~f:fs) in
-  let%bind prog = read_file_or_stdin input in
   compile_source loader prelude prog
 
 let prelude_flag =
@@ -149,9 +153,35 @@ let dump_flag =
   let open Command.Param in
   flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
 
-let error_to_string_hum = function
+let msg_with_positions prog msg line col =
+  match prog with
+  | Some(prog) ->
+    let context_before = 5 in
+    let context_after = 3 in
+    (* Including trailing newline *)
+    let lines = String.split_on_chars prog ~on:['\n'] in
+    let from_line = Int.max (line - context_before) 0 in
+    let indexed_lines = List.mapi lines ~f:(fun i x -> (Some(i), x)) in
+    let msg' = String.(make col ' ' ^ "^--- " ^ msg) in
+    let line_width = List.length lines |> Int.to_string |> String.length in
+    let line_format = Scanf.format_from_string ("%" ^ Int.to_string line_width ^ "d: %s") "%d%s" in
+    let res = List.concat
+        [List.sub indexed_lines ~pos:from_line ~len:((Int.min line context_before) + 1);
+         [(None, msg')];
+         List.safe_sub indexed_lines ~pos:(line + 1) ~len:context_after;]
+              |> List.map ~f:(function
+                  | (Some(l), x) -> sprintf line_format l x
+                  | (None, x) -> sprintf "%s  %s" (String.make line_width ' ') x)
+              |> String.concat ~sep:"\n" in
+    "\n" ^ res
+  | None -> msg
+
+let error_to_string_hum prog = function
   | `CantLoadMod mod_ -> (sprintf "Can't load module %s" mod_)
-  | (`NoInput | `SyntaxError _ | `UnboundVar _ | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
+  | `SyntaxError ((line, col), _) | `UnboundVar ((line, col), _) as err ->
+    let msg = Orcml.error_to_string_hum err in
+    msg_with_positions prog msg line col
+  | (`NoInput | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
     Orcml.error_to_string_hum other
 
 let msgpack_format bc =
@@ -172,10 +202,12 @@ let compile =
       and prelude = prelude_flag
       and verbose = verbose_flag in
       let exec () =
-        make_bytecode prelude includes input >>= fun res ->
+        let open Async.Deferred.Let_syntax in
+        let%bind prog = read_file_or_stdin input in
+        let%bind res = make_bytecode prelude includes prog in
         (match res with
          | Error(err) ->
-           error "Can't compile: %s" (error_to_string_hum err);
+           error "Can't compile: %s" (error_to_string_hum (Some prog) err);
            exit 1
          | Ok(bc) ->
            let bc' = if k
@@ -264,15 +296,17 @@ let run_loop state_path unblock res =
   else exit 1
 
 let compile_input_and_deps prelude includes bc input  =
-  compile_input prelude includes bc input >>= fun res ->
+  let%bind prog = read_file_or_stdin input in
+  let prog_for_errors = if bc then None else Some prog in
+  compile_input prelude includes bc prog >>= fun res ->
   (match res with
    | Error(err) ->
-     error "Can't compile: %s" (error_to_string_hum err);
+     error "Can't compile: %s" (error_to_string_hum prog_for_errors err);
      exit 1
    | Ok(bc) ->
      match Orcml.inter bc with
      | Error(err) ->
-       error "Can't make runner: %s" (error_to_string_hum err);
+       error "Can't make runner: %s" (error_to_string_hum prog_for_errors err);
        exit 1
      | Ok(inter) ->
        return inter)
@@ -293,16 +327,20 @@ let exec =
       and dump = dump_flag
       and includes = includes_flag
       and exts = exts_flag
+      and debugger = flag "debugger" no_arg ~doc:"Run with debugger"
       and verbose = verbose_flag in
       let exec () =
         load_exts exts;
         compile_input_and_deps prelude includes bc input
         >>= fun inter ->
-        match Orcml.run inter with
-        | Ok(v) -> run_loop dump (Orcml.unblock inter) v
-        | Error(err) ->
-          error "Runtime error:\n%s" (Error.to_string_hum err);
-          exit 1 in
+        if debugger
+        then Debugger.run inter
+        else
+          match Orcml.run inter with
+          | Ok(v) -> run_loop dump (Orcml.unblock inter) v
+          | Error(err) ->
+            error "Runtime error:\n%s" (Error.to_string_hum err);
+            exit 1 in
       fun () ->
         set_logging verbose;
         exec () |> ignore;
@@ -318,7 +356,7 @@ let load_instance path =
     let (_, packed) = Msgpck.String.read bc_raw in
     match Orcml.Serializer.load_instance packed with
     | Error(err) ->
-      error "Can't parse state file:%s" (error_to_string_hum err);
+      error "Can't parse state file:%s" (error_to_string_hum None err);
       exit 1;
     | Ok(instance) -> return instance
 
@@ -326,7 +364,7 @@ let parse_value v =
   match Orcml.parse_value v with
   | Ok(v') -> return v'
   | Error(err) ->
-    error "Can't parse value:%s" (error_to_string_hum err);
+    error "Can't parse value:%s" (error_to_string_hum (Some v) err);
     exit 1
 
 let unblock =
@@ -373,7 +411,7 @@ let tests_server =
           |> Result.ok_or_failwith with
     | Execute(bc) ->
       let inter = Orcml.inter bc
-                  |> Result.map_error ~f:error_to_string_hum
+                  |> Result.map_error ~f:(error_to_string_hum None)
                   |> Result.ok_or_failwith in
       handle_res (Some inter) (Orcml.run inter)
     | Continue(id, v) ->
@@ -381,7 +419,7 @@ let tests_server =
       handle_res inter res
     | Benchmark(bc, iter) ->
       let inter = Orcml.inter bc
-                  |> Result.map_error ~f:error_to_string_hum
+                  |> Result.map_error ~f:(error_to_string_hum None)
                   |> Result.ok_or_failwith in
       (match Benchmark.latency1 ~style:Benchmark.Nil
                (Int64.of_int iter) Orcml.run inter with

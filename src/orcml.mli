@@ -34,14 +34,14 @@ end
 
 type parse_error =
   [ | `NoInput
-    | `SyntaxError of string * int * int * string]
+    | `SyntaxError of (int * int) * string]
 
 type parse_value_error =
   [ parse_error
   | `UnsupportedValueAST ]
 
 type compile_error =
-  [ `UnboundVar of string * Ast.pos
+  [ `UnboundVar of (int * int) * string
   | `UnknownReferedFunction of string * string ]
 
 type error = [ parse_error | compile_error ]
