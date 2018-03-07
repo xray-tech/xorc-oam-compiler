@@ -3,8 +3,6 @@ type call_target = TFun of int | TDynamic of int [@@deriving sexp, compare]
 
 type c = int [@@deriving sexp, compare]
 
-type pos = unit [@@deriving sexp, compare]
-
 type op = (int * c) [@@deriving sexp, compare]
 
 type t' =
@@ -53,7 +51,7 @@ and thread = {
   op : op;
   env : env;
   stack : stack;
-  pos : pos
+  pos : Ast.Pos.t
 } [@@deriving sexp, compare]
 
 type prim_v =

@@ -128,5 +128,5 @@ module Debugger = struct
                                  pos : pos}
 
   let init = Inter.init
-  let tick = Inter.tick
+  let tick = Inter.debug_tick
 end

@@ -395,7 +395,11 @@ let load_instance packed =
             let stack = List.map frames ~f:(function
                 | M.Int id -> repo_find frames_repo id |> Option.value_exn
                 | _ -> bad_format ()) in
-            { op = (pc, c); stack; env = repo_or_dummy_env env; id = -1; pos = ()}
+            { op = (pc, c);
+              stack;
+              env = repo_or_dummy_env env;
+              id = -1;
+              pos = Ast.Pos.dummy}
           | _ -> bad_format () in
         let deserialize_tokens = List.map ~f:deserialize_thread in
         let rec deserialize_pendings = function

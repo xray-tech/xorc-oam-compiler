@@ -150,7 +150,6 @@ end
 module Debugger : sig
   type op
   type stack
-  type pos
   type state
   type v =
     | Value of Value.t

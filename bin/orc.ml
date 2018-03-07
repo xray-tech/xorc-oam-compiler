@@ -2,13 +2,6 @@ open! Core
 open! Async
 open! Log.Global
 
-module List = struct
-  include List
-  let safe_sub l ~pos ~len =
-    let llen = List.length l in
-    List.sub l ~pos:(Int.min pos (llen - 1)) ~len:(Int.min len (llen - pos))
-end
-
 let set_logging verbose =
   (if verbose then set_level `Debug);
   let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stderr)) in
@@ -22,11 +15,6 @@ let read_file_or_stdin = function
   | None -> Reader.contents (Lazy.force Reader.stdin)
   | Some(f) -> Reader.file_contents f
 
-module type ModuleLoader = sig
-  val load : string -> string option Deferred.t
-  val all_modules : unit -> string list Deferred.t
-end
-
 let list_position l ~f =
   let rec step acc = function
     | [] -> None
@@ -34,7 +22,7 @@ let list_position l ~f =
     | _::xs -> step (acc + 1) xs in
   step 0 l
 
-let add_modules (module Loader : ModuleLoader) modules =
+let add_modules (module Loader : Lib.ModuleLoader) modules =
   let repository = Orcml.Repository.create () in
   let rec step = function
     | [] -> return (Ok repository)
@@ -69,23 +57,23 @@ let fs path =
           match Filename.split_extension n with
           | (mod_, Some("orc")) -> Some(mod_)
           | _ -> None)
-  end : ModuleLoader)
+  end : Lib.ModuleLoader)
 
 let multiloader loaders =
   (module struct
-    let load mod_ = Deferred.List.find_map loaders ~f:(fun (module Loader : ModuleLoader) ->
+    let load mod_ = Deferred.List.find_map loaders ~f:(fun (module Loader : Lib.ModuleLoader) ->
         Loader.load mod_)
 
     let all_modules () =
-      Deferred.List.concat_map loaders ~f:(fun (module Loader : ModuleLoader) ->
+      Deferred.List.concat_map loaders ~f:(fun (module Loader : Lib.ModuleLoader) ->
           Loader.all_modules ())
-  end : ModuleLoader)
+  end : Lib.ModuleLoader)
 
 let empty_loader =
   (module struct
     let load _mod = return None
     let all_modules () = return []
-  end : ModuleLoader)
+  end : Lib.ModuleLoader)
 
 let implicit_prelude =
   [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
@@ -104,7 +92,7 @@ let implicit_prelude =
              "minimum"; "maximum"])]
 
 let compile_source loader include_prelude prog =
-  let (module Loader : ModuleLoader) = loader in
+  let (module Loader : Lib.ModuleLoader) = loader in
   let prelude = if include_prelude
     then List.concat_map implicit_prelude ~f:(fun (mod_, idents) ->
         List.map idents ~f:(fun ident -> (mod_, ident)))
@@ -148,24 +136,7 @@ let dump_flag =
   let open Command.Param in
   flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
 
-let annotate_code ?(before=5) ?(after=3) code line col msg =
-  (* Including trailing newline *)
-  let lines = String.split_on_chars code ~on:['\n'] in
-  let from_line = Int.max (line - before) 0 in
-  let indexed_lines = List.mapi lines ~f:(fun i x -> (Some(i), x)) in
-  let msg' = String.(make col ' ' ^ "^--- " ^ msg) in
-  let line_width = List.length lines |> Int.to_string |> String.length in
-  let line_format = Scanf.format_from_string ("%" ^ Int.to_string line_width ^ "d: %s") "%d%s" in
-  List.concat
-    [List.sub indexed_lines ~pos:from_line ~len:((Int.min line before) + 1);
-     [(None, msg')];
-     List.safe_sub indexed_lines ~pos:(line + 1) ~len:after;]
-  |> List.map ~f:(function
-      | (Some(l), x) -> sprintf line_format l x
-      | (None, x) -> sprintf "%s  %s" (String.make line_width ' ') x)
-  |> String.concat ~sep:"\n"
-
-let error_to_string_hum (module Loader : ModuleLoader) prog = function
+let error_to_string_hum (module Loader : Lib.ModuleLoader) prog = function
   | `CantLoadMod mod_ -> return (sprintf "Can't load module %s" mod_)
   | (`NoInput | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
     return (Orcml.error_to_string_hum other)
@@ -173,11 +144,11 @@ let error_to_string_hum (module Loader : ModuleLoader) prog = function
     let msg = Orcml.error_to_string_hum err in
     match (prog, path) with
     | (Some prog, "")  ->
-      return ("\n" ^ annotate_code prog line col msg)
+      return ("\n" ^ Lib.annotate_code prog line col msg)
     | (None, "") -> return msg
     | (_, path) ->
       match%map Loader.load path with
-      | Some(prog) -> sprintf "\nModule \"%s\":\n\n%s" path (annotate_code prog line col msg)
+      | Some(prog) -> sprintf "\nModule \"%s\":\n\n%s" path (Lib.annotate_code prog line col msg)
       | None -> sprintf "%s\n(Can't find source code for module %s)" msg path
 
 let msgpack_format bc =
@@ -293,9 +264,7 @@ let run_loop state_path unblock res =
   then exit 0
   else exit 1
 
-let compile_input_and_deps prelude includes bc input  =
-  let%bind prog = read_file_or_stdin input in
-  let loader = multiloader (List.map includes ~f:fs) in
+let compile_input_and_deps prelude loader bc prog =
   let prog_for_errors = if bc then None else Some prog in
   compile_input prelude loader bc prog >>= fun res ->
   (match res with
@@ -331,11 +300,16 @@ let exec =
       and debugger = flag "debugger" no_arg ~doc:"Run with debugger"
       and verbose = verbose_flag in
       let exec () =
+        let open Deferred.Let_syntax in
         load_exts exts;
-        compile_input_and_deps prelude includes bc input
+        let%bind prog = read_file_or_stdin input in
+        let loader = multiloader (List.map includes ~f:fs) in
+        compile_input_and_deps prelude loader bc prog
         >>= fun inter ->
         if debugger
-        then Debugger.run inter
+        then
+          let%bind () = Debugger.run loader prog inter in
+          exit 0
         else
           match Orcml.run inter with
           | Ok(v) -> run_loop dump (Orcml.unblock inter) v
@@ -383,7 +357,10 @@ let unblock =
       and includes = includes_flag
       and verbose = verbose_flag in
       let exec () =
-        compile_input_and_deps prelude includes bc input
+        let open Deferred.Let_syntax in
+        let%bind prog = read_file_or_stdin input in
+        let loader = multiloader (List.map includes ~f:fs) in
+        compile_input_and_deps prelude loader bc prog
         >>= fun inter ->
         load_instance load >>= fun instance ->
         parse_value value >>= fun value' ->

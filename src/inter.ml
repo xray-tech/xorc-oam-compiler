@@ -24,7 +24,6 @@ type state = {
 }
 
 module D = struct
-  type pos = unit
   type threads = thread list
   type action =
     | PublishedValue of v
@@ -149,7 +148,7 @@ and pending_realize state p v =
   concat2_map p.pend_waiters ~f:(fun ({ id; stack } as thread) ->
       if is_alive stack
       then tick state thread
-else ([], []))
+      else ([], []))
 and pending_stop state p =
   p.pend_value <- PendStopped;
   concat2_map p.pend_waiters ~f:(fun thread ->
@@ -323,6 +322,13 @@ and tick
     call_ffi target args
   | TailCall(TDynamic(_), _) -> raise Util.TODO
 
+let debug_tick state thread =
+  let update_pos ({ op = (pc, c) } as th) =
+    let (_, proc) = get_code state.inter pc in
+    let (_, pos) = proc.(c) in
+    { th with pos } in
+  let (threads, trace) = tick state thread in
+  (List.map threads ~f:update_pos, trace)
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =
@@ -347,7 +353,7 @@ let init inter =
      op = (0, Array.length e_code - 1);
      env = alloc_env init_env_size;
      stack = [FResult];
-     pos = ()}])
+     pos = Ast.Pos.{ line = 0; col = 0; path = ""}}])
 
 let run_loop state threads =
   let rec step = function
