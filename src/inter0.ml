@@ -5,11 +5,24 @@ type c = int [@@deriving sexp, compare]
 
 type op = (int * c) [@@deriving sexp, compare]
 
+module Var = struct
+  type t = | Generated of int
+           | Handcrafted of { index : int;
+                              ident : string;
+                              pos : Ast.Pos.range }
+  [@@deriving sexp, compare]
+
+  let index = function
+    | Generated i -> i
+    | Handcrafted { index } -> index
+
+end
+
 type t' =
   | Parallel of c * c
   | Otherwise of c * c
-  | Pruning of c * int option * c
-  | Sequential of c * int option * c
+  | Pruning of c * Var.t option * c
+  | Sequential of c * Var.t option * c
   | Call of call_target * int array
   | FFI of int * int array
   | TailCall of call_target * int array
@@ -42,7 +55,7 @@ and frame =
   | FOtherwise of { mutable first_value : bool;
                     mutable instances : int;
                     op : op }
-  | FSequential of (int option * op)
+  | FSequential of (Var.t option * op)
   | FCall of env
   | FResult
 and stack = frame list
@@ -64,7 +77,7 @@ type prim_v =
 
 type prims = (v array -> prim_v) array
 
-type code = (int * t array) array
+type code = (int * Var.t list * t array) array
 [@@deriving sexp_of, compare]
 
 type bc = {

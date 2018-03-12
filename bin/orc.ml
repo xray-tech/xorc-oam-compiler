@@ -253,11 +253,8 @@ let run_loop state_path unblock res =
       Ivar.fill_if_empty stopped true
     | (true, _) -> return ()
   and unblock' id v =
-    match unblock (Moption.get_some_exn minstance) id v with
-    | Error(err) ->
-      error "Error: %s" (Error.sexp_of_t err |> Sexp.to_string_hum);
-      exit 1
-    | Ok(res) -> tick res in
+    let res = unblock (Moption.get_some_exn minstance) id v in
+    tick res in
   tick res |> don't_wait_for;
   let%bind res = Ivar.read stopped in
   if res
@@ -287,6 +284,8 @@ let load_exts exts =
       | Dynlink.Error err -> error "Ext %s load error: %s" ext (Dynlink.error_message err))
 
 let exec =
+  Signal.handle Signal.terminating ~f:(fun _ ->
+    shutdown 0);
   let open Command.Let_syntax in
   Command.basic
     ~summary: "executes orc"
@@ -311,11 +310,8 @@ let exec =
           let%bind () = Debugger.run loader prog inter in
           exit 0
         else
-          match Orcml.run inter with
-          | Ok(v) -> run_loop dump (Orcml.unblock inter) v
-          | Error(err) ->
-            error "Runtime error:\n%s" (Error.to_string_hum err);
-            exit 1 in
+          let res = Orcml.run inter in
+          run_loop dump (Orcml.unblock inter) res in
       fun () ->
         set_logging verbose;
         exec () |> ignore;
@@ -364,11 +360,8 @@ let unblock =
         >>= fun inter ->
         load_instance load >>= fun instance ->
         parse_value value >>= fun value' ->
-        match Orcml.unblock inter instance id value' with
-        | Ok(v) -> run_loop dump (Orcml.unblock inter) v
-        | Error(err) ->
-          error "Runtime error:\n%s" (Error.to_string_hum err);
-          exit 1 in
+        let res = Orcml.unblock inter instance id value' in
+        run_loop dump (Orcml.unblock inter) res in
       fun () ->
         set_logging verbose;
         exec () |> ignore;
@@ -405,13 +398,9 @@ let tests_server =
         write (Serializer.dump_bench_res (wall *. 1000.0));
         server None None
       | _ -> assert false)
-  and handle_res inter = function
-    | Ok(({Orcml.Res.instance} as v)) ->
+  and handle_res inter ({Orcml.Res.instance} as v) =
       write_result v;
-      server inter (Some instance)
-    | Error(err) ->
-      error "Runtime error:\n%s" (Error.to_string_hum err);
-      exit 1 in
+      server inter (Some instance) in
   let open Command.Let_syntax in
   Command.basic
     ~summary: "tests-server. supports TestKit protocol"

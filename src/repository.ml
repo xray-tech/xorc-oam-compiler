@@ -5,7 +5,7 @@ type unit = {
   orc_module : string;
   ident : string;
   ctx : ctx option ref;                (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
-  params : string list;
+  params : Ir1.Var.t list;
   body : Ir1.e }
 and binding =
   | BindVar

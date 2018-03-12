@@ -106,9 +106,9 @@ type inter
 
 val inter : bc -> (inter, [> inter_error]) Result.t
 
-val run :  inter -> Res.t Or_error.t
+val run :  inter -> Res.t
 
-val unblock : inter -> instance -> int -> Value.t -> Res.t Or_error.t
+val unblock : inter -> instance -> int -> Value.t -> Res.t
 
 val is_running : instance -> bool
 

@@ -36,30 +36,38 @@ let print_thread loader prog {D.id; env; pos} =
   print_endline (sprintf "Thread #%d\n\n%s\n\n" id current_position)
 
 let execute loader prog state threads = function
-  | "s" | "step" ->
+  | 's' ->
     (match !threads with
      | [] -> assert false
      | thread::threads' ->
        let (active_threads, trace) = D.tick state thread in
-       let%bind () = Deferred.List.iter trace ~f:print_trace in
+       (* let%bind () = Deferred.List.iter trace ~f:print_trace in *)
        threads := active_threads @ threads';
        return ())
-  | "p" | "print" ->
+  | 'p' ->
     Deferred.List.iter !threads ~f:(print_thread loader prog)
   | _ ->print_endline "Unknown command"
 
 let run loader prog inter =
   let input = Lazy.force Reader.stdin in
+  let%bind () = print_string "\027[?25l" in
+    Shutdown.at_shutdown (fun () ->
+      print_string "\027[?25h"
+    );
+  let input_fd = Fd.stdin () in
+  let%bind terminal = Unix.Terminal_io.tcgetattr input_fd in
+  terminal.Unix.Terminal_io.c_echo <- false;
+terminal.Unix.Terminal_io.c_icanon <- false;
+  let%bind () = Unix.Terminal_io.tcsetattr terminal input_fd ~mode:Unix.Terminal_io.TCSANOW in
   let (state, init_threads) = D.init inter in
   let threads = ref init_threads in
-  let%bind () = print_endline "s(tep) | p(rint)" in
-  let rec step () =
-    let%bind () = print_string "> " in
-    match%bind Reader.read_line input with
+  let rec step i =
+    let%bind () = print_string (sprintf "\r\027[1K> [tick %d] s(tep) | p(rint)" i) in
+    match%bind Reader.read_char input with
     | `Eof -> return ()
-    | `Ok line ->
-      let%bind () = execute loader prog state threads line in
+    | `Ok char ->
+      let%bind () = execute loader prog state threads char in
       if List.length !threads > 0
-      then step ()
+      then step (i + 1)
       else print_endline "Execution finished" in
-  step ()
+  step 0

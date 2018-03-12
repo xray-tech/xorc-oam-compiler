@@ -25,7 +25,7 @@ let deserialize_const = function
 let dump {Inter.ffi; code} =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
-  let obj = array_to_list_map code ~f:(fun (i, ecode) ->
+  let obj = array_to_list_map code ~f:(fun (i, _, ecode) ->
       M.List ((M.Int i)::
               (M.Int (Array.length ecode))::
               (List.concat (array_to_list_map ecode ~f:(fun (op, _) ->
@@ -35,13 +35,13 @@ let dump {Inter.ffi; code} =
                    | Inter.Pruning(c1,arg,c2) -> [M.Int 2;
                                                   M.Int c1;
                                                   (match arg with
-                                                   | Some x -> M.Int x
+                                                   | Some x -> M.Int (Inter.Var.index x)
                                                    | None -> M.Int(-1));
                                                   M.Int c2]
                    | Inter.Sequential(c1,arg,c2) -> [M.Int 3;
                                                      M.Int c1;
                                                      (match arg with
-                                                      | Some x -> M.Int x
+                                                      | Some x -> M.Int (Inter.Var.index x)
                                                       | None -> M.Int(-1));
                                                      M.Int c2]
                    | (Inter.Call(t, args) as x)
@@ -77,10 +77,10 @@ let load packed =
         | ((M.Int 1)::(M.Int c1)::(M.Int c2)::xs) ->
           Inter.Otherwise(c1, c2)::(des_fun xs)
         | ((M.Int 2)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          let arg' = (match arg with -1 -> None | x -> Some(Inter.Var.Generated x)) in
           Inter.Pruning(c1, arg', c2)::(des_fun xs)
         | ((M.Int 3)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          let arg' = (match arg with -1 -> None | x -> Some(Inter.Var.Generated x)) in
           Inter.Sequential(c1, arg', c2)::(des_fun xs)
         | ((M.Int (4 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs)
         | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
@@ -124,7 +124,7 @@ let load packed =
             | _ -> bad_format ()) in
         let code = Array.of_list (List.map code_raw ~f:(function
             | M.List ((M.Int i)::(M.Int _ops)::xs) ->
-              (i, Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
+              (i, [], Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
             | _ -> bad_format ())) in
         Ok({Inter.ffi; code})
       | _ -> bad_format ())
@@ -223,9 +223,9 @@ let dump_instance { current_coeffect; blocks } =
         [M.Int 0; M.Int instances; dedup pendings pending]
       | FOtherwise { first_value; instances; op = (pc, c) } ->
         [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c]
-      | FSequential(i, (pc, c)) ->
+      | FSequential(var, (pc, c)) ->
         [M.Int 2;
-         M.Int (Option.value i ~default: (-1));
+         M.Int (Option.map var ~f:Inter.Var.index |> Option.value ~default: (-1));
          M.Int pc; M.Int c]
       | FCall(env) ->
         [M.Int 3; dedup envs env]
@@ -380,7 +380,7 @@ let load_instance packed =
             add_repo frames_repo id (FOtherwise { first_value; instances; op = (pc, c) });
             deserialize_frames xs
           | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
-            let i' = if Int.equal (-1) i then None else Some(i) in
+            let i' = if Int.equal (-1) i then None else Some(Var.Generated i) in
             add_repo frames_repo id (FSequential(i', (pc, c)));
             deserialize_frames xs
           | (M.Int id)::(M.Int 3)::(M.Int env)::xs ->
@@ -475,9 +475,9 @@ let dump_k {Inter.ffi; code} =
     | Parallel(left, right) -> sprintf "#parallel %i %i" left right
     | Otherwise(left, right) -> sprintf "#otherwise %i %i" left right
     | Sequential(left, None, right) -> sprintf "#sequential %i -1 %i" left right
-    | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left param right
+    | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left (Inter.Var.index param) right
     | Pruning(left, None, right) -> sprintf "#pruning %i -1 %i" left right
-    | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left param right
+    | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left (Inter.Var.index param) right
     | Call(target, args) | TailCall(target, args) ->
       let target' = match target with
         | TFun(i) -> sprintf "#callFun %i" i
@@ -500,7 +500,7 @@ let dump_k {Inter.ffi; code} =
     | _ -> "" in
   let k_op i (op, _) =
     sprintf "  %i: %s" i (k_op' op) in
-  let k_fun i (_, ops) =
+  let k_fun i (_, _, ops) =
     let k_ops = Array.mapi ops ~f:k_op
                 |> Array.to_list
                 |> String.concat ~sep:"\n" in
