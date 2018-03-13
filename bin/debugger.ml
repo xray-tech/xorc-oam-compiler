@@ -100,12 +100,27 @@ let run loader prog inter =
   let threads = ref init_threads in
   let coeffects = ref [] in
   let i = ref 0 in
+  let breakpoints = ref [] in
+  let apply_result prev_threads (active_threads, trace) =
+    let%bind () = Deferred.List.iter trace ~f:print_trace in
+    threads := active_threads @ prev_threads;
+    List.iter trace ~f:(apply_coeffects coeffects);
+    return () in
+  let check_breakpoints {D.pos = {path; line}} =
+    List.find !breakpoints ~f:(fun (path', line') ->
+        String.equal path path' && Int.equal line line')
+    |> Option.is_some in
+  let rec resume () =
+    match !threads with
+    | [] -> return ()
+    | thread::threads' ->
+      i := !i + 1;
+      let (active_threads, trace) = D.tick state thread in
+      let%bind () = apply_result threads' (active_threads, trace) in
+      if List.find active_threads ~f:check_breakpoints |> Option.is_some
+      then return ()
+      else resume () in
   let execute char =
-    let apply_result prev_threads (active_threads, trace) =
-      let%bind () = Deferred.List.iter trace ~f:print_trace in
-      threads := active_threads @ prev_threads;
-      List.iter trace ~f:(apply_coeffects coeffects);
-      return () in
     match char with
     | 's' ->
       (match !threads with
@@ -130,9 +145,20 @@ let run loader prog inter =
            | Some res ->
              i := !i + 1;
              apply_result !threads res)
+    | 'r' ->
+      resume ()
+    | 'b' ->
+      (match%bind ask_string ~label:"\nModule path (empty for main program): " input with
+       | None -> return ()
+       | Some path ->
+         match%bind ask_int ~label:"\nLine number: " input with
+         | `Eof -> return ()
+         | `BadFormat -> print_endline "\nBad formatted line number"
+         | `Value line ->
+           breakpoints := (path, line - 1)::!breakpoints; return ())
     | _ -> print_endline "\nUnknown command" in
   let rec step () =
-    let%bind () = print_string (sprintf "\r\027[1K> s(tep) | p(rint) | c(offect) [step %d] [active coeffects %d]" !i (List.length !coeffects)) in
+    let%bind () = print_string (sprintf "\r\027[1K> s(tep) | p(rint) | c(offect) | b(reakpoint) | r(esume) [step %d] [active coeffects %d]" !i (List.length !coeffects)) in
     match%bind Reader.read_char input with
     | `Eof -> return ()
     | `Ok char ->
