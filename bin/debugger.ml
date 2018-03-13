@@ -7,19 +7,19 @@ module D = Orcml.Debugger
 
 let print_trace = function
   | D.PublishedValue v ->
-    print_endline (sprintf "Published: %s"
+    print_endline (sprintf "\nPublished: %s"
                      (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum))
   | D.NewThread id ->
-    print_endline (sprintf "New thread #%d" id)
+    print_endline (sprintf "\nNew thread #%d" id)
   | D.HaltedThread id ->
-    print_endline (sprintf "Halted #%d" id)
+    print_endline (sprintf "\nHalted #%d" id)
   | D.Coeffect { thread; id; desc; } ->
-    print_endline (sprintf "Coeffect %d (thread #%d): %s" id thread
-                     (Orcml.Value.sexp_of_t desc |> Sexp.to_string_hum))
+    print_endline (sprintf "\nCoeffect %d (thread #%d): %s" id thread
+                     (Orcml.Value.to_string desc))
   | D.Error { thread; ffi; args } ->
-    let args = List.map args ~f:(fun x -> Orcml.Value.sexp_of_t x |> Sexp.to_string_hum)
+    let args = List.map args ~f:(fun x -> Orcml.Value.to_string x)
                |> String.concat ~sep:", " in
-    print_endline (sprintf "Error (thread #%d) while executing `%s`(%s)"
+    print_endline (sprintf "\nError (thread #%d) while executing `%s`(%s)"
                      thread ffi args)
 
 let thread_position (module Loader : Lib.ModuleLoader) prog {Orcml.line; col; path} =
@@ -35,7 +35,7 @@ let thread_env env =
   let pair = function
     | (D.Var.Generated _, _) -> None
     | (D.Var.Handcrafted {ident}, v) ->
-      Some (sprintf "%s -> %s" ident (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum)) in
+      Some (sprintf "%s -> %s" ident (Orcml.Value.to_string v)) in
   Array.to_list env
   |> List.filter_map ~f:pair
   |> String.concat ~sep:"\n"
@@ -51,12 +51,12 @@ let execute loader prog state threads = function
      | [] -> assert false
      | thread::threads' ->
        let (active_threads, trace) = D.tick state thread in
-       (* let%bind () = Deferred.List.iter trace ~f:print_trace in *)
+       let%bind () = Deferred.List.iter trace ~f:print_trace in
        threads := active_threads @ threads';
        return ())
   | 'p' ->
     Deferred.List.iter !threads ~f:(print_thread loader prog)
-  | _ ->print_endline "Unknown command"
+  | _ ->print_endline "\nUnknown command"
 
 let run loader prog inter =
   let input = Lazy.force Reader.stdin in
@@ -72,12 +72,13 @@ terminal.Unix.Terminal_io.c_icanon <- false;
   let (state, init_threads) = D.init inter in
   let threads = ref init_threads in
   let rec step i =
-    let%bind () = print_string (sprintf "\r\027[1K> [tick %d] s(tep) | p(rint)" i) in
+    let%bind () = print_string (sprintf "\r\027[1K> [step %d] s(tep) | p(rint)" i) in
     match%bind Reader.read_char input with
     | `Eof -> return ()
     | `Ok char ->
       let%bind () = execute loader prog state threads char in
+      let i' = match char with 's' -> i + 1 | _ -> i in
       if List.length !threads > 0
-      then step (i + 1)
-      else print_endline "Execution finished" in
+      then step i'
+      else print_endline "\nExecution finished" in
   step 0
