@@ -1,1 +1,2 @@
-def adder(x) = lambda(y) = x + y
+refer from core ((+))
+def double(x) = x + x
