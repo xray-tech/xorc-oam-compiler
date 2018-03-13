@@ -51,7 +51,7 @@ let rec increment_instances = function
   | FPruning(r)::_ -> r.instances <- r.instances + 1
   | _::xs -> increment_instances xs
 
-let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
+let alloc_env len = Array.create ~len (VConst Ast.Null)
 
 let print_debug { code } (pc, c) env  =
   let (size, vars, f) = code.(pc) in
@@ -104,7 +104,7 @@ let rec publish state ({id; stack; env} as thread) v =
       (match var with
        | None -> ()
        | Some var ->
-         env.(Var.index var) <- Value(v));
+         env.(Var.index var) <- v);
       ([{thread with op; stack = stack'}],
        [])
     | FOtherwise r ->
@@ -159,12 +159,12 @@ and tick
   (* print_debug inter (pc, c) env; *)
   let realized arg =
     (match env.(arg) with
-     | Pending ({ pend_value = Pend } as p) ->
+     | VPending ({ pend_value = Pend } as p) ->
        `Pending p
-     | Pending { pend_value = PendStopped } ->
+     | VPending { pend_value = PendStopped } ->
        `Stopped
-     | Pending { pend_value = PendVal(v) }
-     | Value(v) -> `Value v) in
+     | VPending { pend_value = PendVal(v) }
+     | v -> `Value v) in
   let realized_multi args =
     let args' = Array.map args ~f:realized in
     if Array.find args' ~f:(function
@@ -239,7 +239,7 @@ and tick
                            pending;} in
     (match var with
      | None -> ()
-     | Some var -> env.(Var.index var) <- Pending pending);
+     | Some var -> env.(Var.index var) <- VPending pending);
     let new_id = new_thread_id state in
     ([{id = new_id; op = (pc, c2); stack = (frame::stack); env; pos = thread.pos};
       {thread with op = (pc, c1) }],

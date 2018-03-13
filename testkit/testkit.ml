@@ -103,7 +103,7 @@ let prelude = List.map implicit_core ~f:(fun ident -> ("core", ident))
 let defered_repository =
   let repository = Orcml.Repository.create () in
   let%map code = Reader.file_contents "prelude/core.orc" in
-  Orcml.compile_module ~repository ~name:"core" code
+  Orcml.add_module ~repository ~path:"core" code
   |> Result.map_error ~f:(fun _ -> "Core compilation error")
   |> Result.ok_or_failwith;
   repository

@@ -151,12 +151,9 @@ module Debugger : sig
   type op
   type stack
   type state
-  type v =
-    | Value of Value.t
-    | Pending of Value.pending
   type thread = { id : int;
                   op : op;
-                  env : v array;
+                  env : Value.t array;
                   stack : stack;
                   pos : pos}
   type threads = thread list

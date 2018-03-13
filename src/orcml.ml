@@ -117,13 +117,12 @@ module Testkit = Testkit
 
 module Debugger = struct
   include Inter.D
-  type v = Inter.env_v = | Value of Value.t| Pending of Value.pending
   type op = Inter.op
   type state = Inter.state
   type stack = Inter.stack
   type thread = Inter.thread = { id : int;
                                  op : op;
-                                 env : v array;
+                                 env : Value.t array;
                                  stack : stack;
                                  pos : pos}
 

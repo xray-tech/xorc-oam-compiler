@@ -15,7 +15,6 @@ module Var = struct
   let index = function
     | Generated i -> i
     | Handcrafted { index } -> index
-
 end
 
 type t' =
@@ -41,9 +40,7 @@ and v =
   | VRecord of (string * v) list
   | VRef of v ref
   | VPending of pending
-and env_v =
-  | Value of v | Pending of pending
-and env = env_v array
+and env = v array
 and pend_value = PendVal of v | PendStopped | Pend
 and pending = {
   mutable pend_value : pend_value;
@@ -85,10 +82,7 @@ type bc = {
   code : code;
 } [@@deriving sexp_of, compare]
 
-let rec format_value = function
-  | Value v -> format_v v
-  | Pending p -> format_pending p
-and format_pending = function
+let rec format_pending = function
   | { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
   | { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
 and format_v = function
@@ -103,6 +97,6 @@ and format_v = function
 
 let format_env env =
   let vs = (Array.to_sequence env
-            |> Sequence.map ~f:format_value
+            |> Sequence.map ~f:format_v
             |> Sequence.to_list) in
   "(" ^ String.concat ~sep:", " vs ^ ")"

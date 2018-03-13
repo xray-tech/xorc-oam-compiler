@@ -238,9 +238,7 @@ let dump_instance { current_coeffect; blocks } =
       | PendVal v -> (M.Int 1)::(dump_value v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
-  and serialize_env_v = function
-    | Value x -> M.List ((M.Int 0)::(dump_value x))
-    | Pending x -> M.List [M.Int 1; dedup pendings x]
+  and serialize_env_v x = M.List (dump_value x)
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
   and serialize_token { op = (pc, c); stack; env } =
@@ -263,12 +261,11 @@ let dump_instance { current_coeffect; blocks } =
         List.iter pend_waiters ~f:walk_token)
   and walk_v = function
     | VClosure(_,_,env) -> walk_env env
+    | VPending(pending) -> walk_pending pending
     | _ -> ()
   and walk_env env =
     on_new envs env (fun () ->
-        Array.iter env ~f:(function
-            | Value v -> walk_v v
-            | Pending p -> walk_pending p))
+        Array.iter env ~f:walk_v)
   and walk_frame frame =
     on_new frames frame (fun () ->
         match frame with
@@ -317,7 +314,7 @@ let load_instance packed =
         | None -> let v = ref (VConst Ast.Null) in
           add_repo refs_repo id v;
           v in
-      let dummy_env len = Array.create ~len (Value (VConst Ast.Null)) in
+      let dummy_env len = Array.create ~len (VConst Ast.Null) in
       match packed with
       | M.List [M.Int current_coeffect;
                 M.List frames;
@@ -421,13 +418,11 @@ let load_instance packed =
             deserialize_pendings xs'
           | _ -> bad_format () in
         let deserialize_env_value = function
-          | M.List ((M.Int 0)::xs) ->
+          | M.List xs ->
             (match load_value xs with
              | Error _ as err -> r.return err
              | Ok((v, _)) ->
-               Value v)
-          | M.List [M.Int 1; M.Int pending] ->
-            Pending (repo_or_dummy_pending pending)
+               v)
           | _ -> bad_format () in
         let rec deserialize_envs = function
           | [] -> ()
