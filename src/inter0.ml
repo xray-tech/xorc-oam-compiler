@@ -3,15 +3,27 @@ type call_target = TFun of int | TDynamic of int [@@deriving sexp, compare]
 
 type c = int [@@deriving sexp, compare]
 
-type pos = unit [@@deriving sexp, compare]
-
 type op = (int * c) [@@deriving sexp, compare]
+
+module Var = struct
+  type t = | Generated of int
+           | Handcrafted of { index : int;
+                              ident : string;
+                              pos : Ast.Pos.range }
+  [@@deriving sexp, compare]
+
+  let dummy = Generated 0
+
+  let index = function
+    | Generated i -> i
+    | Handcrafted { index } -> index
+end
 
 type t' =
   | Parallel of c * c
   | Otherwise of c * c
-  | Pruning of c * int option * c
-  | Sequential of c * int option * c
+  | Pruning of c * Var.t option * c
+  | Sequential of c * Var.t option * c
   | Call of call_target * int array
   | FFI of int * int array
   | TailCall of call_target * int array
@@ -30,9 +42,7 @@ and v =
   | VRecord of (string * v) list
   | VRef of v ref
   | VPending of pending
-and env_v =
-  | Value of v | Pending of pending
-and env = env_v array
+and env = (Var.t * v) array
 and pend_value = PendVal of v | PendStopped | Pend
 and pending = {
   mutable pend_value : pend_value;
@@ -44,7 +54,7 @@ and frame =
   | FOtherwise of { mutable first_value : bool;
                     mutable instances : int;
                     op : op }
-  | FSequential of (int option * op)
+  | FSequential of (Var.t option * op)
   | FCall of env
   | FResult
 and stack = frame list
@@ -53,7 +63,7 @@ and thread = {
   op : op;
   env : env;
   stack : stack;
-  pos : pos
+  pos : Ast.Pos.t
 } [@@deriving sexp, compare]
 
 type prim_v =
@@ -66,7 +76,7 @@ type prim_v =
 
 type prims = (v array -> prim_v) array
 
-type code = (int * t array) array
+type code = (int * Var.t list * t array) array
 [@@deriving sexp_of, compare]
 
 type bc = {
@@ -74,10 +84,7 @@ type bc = {
   code : code;
 } [@@deriving sexp_of, compare]
 
-let rec format_value = function
-  | Value v -> format_v v
-  | Pending p -> format_pending p
-and format_pending = function
+let rec format_pending = function
   | { pend_value = PendVal v} -> Printf.sprintf "(Pending %s)" (format_v v)
   | { pend_value = v} -> sexp_of_pend_value v |> Sexp.to_string_hum
 and format_v = function
@@ -92,6 +99,6 @@ and format_v = function
 
 let format_env env =
   let vs = (Array.to_sequence env
-            |> Sequence.map ~f:format_value
+            |> Sequence.map ~f:format_v
             |> Sequence.to_list) in
   "(" ^ String.concat ~sep:", " vs ^ ")"

@@ -25,7 +25,7 @@ let deserialize_const = function
 let dump {Inter.ffi; code} =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
-  let obj = array_to_list_map code ~f:(fun (i, ecode) ->
+  let obj = array_to_list_map code ~f:(fun (i, _, ecode) ->
       M.List ((M.Int i)::
               (M.Int (Array.length ecode))::
               (List.concat (array_to_list_map ecode ~f:(fun (op, _) ->
@@ -35,13 +35,13 @@ let dump {Inter.ffi; code} =
                    | Inter.Pruning(c1,arg,c2) -> [M.Int 2;
                                                   M.Int c1;
                                                   (match arg with
-                                                   | Some x -> M.Int x
+                                                   | Some x -> M.Int (Inter.Var.index x)
                                                    | None -> M.Int(-1));
                                                   M.Int c2]
                    | Inter.Sequential(c1,arg,c2) -> [M.Int 3;
                                                      M.Int c1;
                                                      (match arg with
-                                                      | Some x -> M.Int x
+                                                      | Some x -> M.Int (Inter.Var.index x)
                                                       | None -> M.Int(-1));
                                                      M.Int c2]
                    | (Inter.Call(t, args) as x)
@@ -77,10 +77,10 @@ let load packed =
         | ((M.Int 1)::(M.Int c1)::(M.Int c2)::xs) ->
           Inter.Otherwise(c1, c2)::(des_fun xs)
         | ((M.Int 2)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          let arg' = (match arg with -1 -> None | x -> Some(Inter.Var.Generated x)) in
           Inter.Pruning(c1, arg', c2)::(des_fun xs)
         | ((M.Int 3)::(M.Int c1)::(M.Int arg)::(M.Int c2)::xs) ->
-          let arg' = (match arg with -1 -> None | x -> Some(x)) in
+          let arg' = (match arg with -1 -> None | x -> Some(Inter.Var.Generated x)) in
           Inter.Sequential(c1, arg', c2)::(des_fun xs)
         | ((M.Int (4 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs)
         | ((M.Int (5 as i))::(M.Int t)::(M.Int t_arg)::(M.List args)::xs) ->
@@ -124,7 +124,7 @@ let load packed =
             | _ -> bad_format ()) in
         let code = Array.of_list (List.map code_raw ~f:(function
             | M.List ((M.Int i)::(M.Int _ops)::xs) ->
-              (i, Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
+              (i, [], Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
             | _ -> bad_format ())) in
         Ok({Inter.ffi; code})
       | _ -> bad_format ())
@@ -223,9 +223,9 @@ let dump_instance { current_coeffect; blocks } =
         [M.Int 0; M.Int instances; dedup pendings pending]
       | FOtherwise { first_value; instances; op = (pc, c) } ->
         [M.Int 1; M.Bool first_value; M.Int instances; M.Int pc; M.Int c]
-      | FSequential(i, (pc, c)) ->
+      | FSequential(var, (pc, c)) ->
         [M.Int 2;
-         M.Int (Option.value i ~default: (-1));
+         M.Int (Option.map var ~f:Inter.Var.index |> Option.value ~default: (-1));
          M.Int pc; M.Int c]
       | FCall(env) ->
         [M.Int 3; dedup envs env]
@@ -238,9 +238,7 @@ let dump_instance { current_coeffect; blocks } =
       | PendVal v -> (M.Int 1)::(dump_value v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
-  and serialize_env_v = function
-    | Value x -> M.List ((M.Int 0)::(dump_value x))
-    | Pending x -> M.List [M.Int 1; dedup pendings x]
+  and serialize_env_v (_, x) = M.List (dump_value x)
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
   and serialize_token { op = (pc, c); stack; env } =
@@ -263,12 +261,11 @@ let dump_instance { current_coeffect; blocks } =
         List.iter pend_waiters ~f:walk_token)
   and walk_v = function
     | VClosure(_,_,env) -> walk_env env
+    | VPending(pending) -> walk_pending pending
     | _ -> ()
   and walk_env env =
     on_new envs env (fun () ->
-        Array.iter env ~f:(function
-            | Value v -> walk_v v
-            | Pending p -> walk_pending p))
+        Array.iter env ~f:(fun (_, v) -> walk_v v))
   and walk_frame frame =
     on_new frames frame (fun () ->
         match frame with
@@ -317,7 +314,7 @@ let load_instance packed =
         | None -> let v = ref (VConst Ast.Null) in
           add_repo refs_repo id v;
           v in
-      let dummy_env len = Array.create ~len (Value (VConst Ast.Null)) in
+      let dummy_env len = Array.create ~len (Var.dummy, VConst Ast.Null) in
       match packed with
       | M.List [M.Int current_coeffect;
                 M.List frames;
@@ -380,7 +377,7 @@ let load_instance packed =
             add_repo frames_repo id (FOtherwise { first_value; instances; op = (pc, c) });
             deserialize_frames xs
           | (M.Int id)::(M.Int 2)::(M.Int i)::(M.Int pc)::(M.Int c)::xs ->
-            let i' = if Int.equal (-1) i then None else Some(i) in
+            let i' = if Int.equal (-1) i then None else Some(Var.Generated i) in
             add_repo frames_repo id (FSequential(i', (pc, c)));
             deserialize_frames xs
           | (M.Int id)::(M.Int 3)::(M.Int env)::xs ->
@@ -395,7 +392,11 @@ let load_instance packed =
             let stack = List.map frames ~f:(function
                 | M.Int id -> repo_find frames_repo id |> Option.value_exn
                 | _ -> bad_format ()) in
-            { op = (pc, c); stack; env = repo_or_dummy_env env; id = -1; pos = ()}
+            { op = (pc, c);
+              stack;
+              env = repo_or_dummy_env env;
+              id = -1;
+              pos = Ast.Pos.dummy}
           | _ -> bad_format () in
         let deserialize_tokens = List.map ~f:deserialize_thread in
         let rec deserialize_pendings = function
@@ -417,13 +418,11 @@ let load_instance packed =
             deserialize_pendings xs'
           | _ -> bad_format () in
         let deserialize_env_value = function
-          | M.List ((M.Int 0)::xs) ->
+          | M.List xs ->
             (match load_value xs with
              | Error _ as err -> r.return err
              | Ok((v, _)) ->
-               Value v)
-          | M.List [M.Int 1; M.Int pending] ->
-            Pending (repo_or_dummy_pending pending)
+               (Var.dummy, v))
           | _ -> bad_format () in
         let rec deserialize_envs = function
           | [] -> ()
@@ -471,9 +470,9 @@ let dump_k {Inter.ffi; code} =
     | Parallel(left, right) -> sprintf "#parallel %i %i" left right
     | Otherwise(left, right) -> sprintf "#otherwise %i %i" left right
     | Sequential(left, None, right) -> sprintf "#sequential %i -1 %i" left right
-    | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left param right
+    | Sequential(left, Some(param), right) -> sprintf "#sequential %i %i %i" left (Inter.Var.index param) right
     | Pruning(left, None, right) -> sprintf "#pruning %i -1 %i" left right
-    | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left param right
+    | Pruning(left, Some(param), right) -> sprintf "#pruning %i %i %i" left (Inter.Var.index param) right
     | Call(target, args) | TailCall(target, args) ->
       let target' = match target with
         | TFun(i) -> sprintf "#callFun %i" i
@@ -496,7 +495,7 @@ let dump_k {Inter.ffi; code} =
     | _ -> "" in
   let k_op i (op, _) =
     sprintf "  %i: %s" i (k_op' op) in
-  let k_fun i (_, ops) =
+  let k_fun i (_, _, ops) =
     let k_ops = Array.mapi ops ~f:k_op
                 |> Array.to_list
                 |> String.concat ~sep:"\n" in

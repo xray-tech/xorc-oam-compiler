@@ -3,6 +3,36 @@ include Inter0
 
 module Value = struct
   include (val Comparator.make ~compare:compare_v ~sexp_of_t:sexp_of_v)
+
+  let const_to_string = function
+    | Ast.Int x -> Int.to_string x
+    | Float x -> Float.to_string x
+    | String x -> Printf.sprintf "\"%s\"" x
+    | Signal -> "signal"
+    | Null -> "null"
+    | Bool true -> "true"
+    | Bool false -> "false"
+
+  let rec to_string = function
+    | VConst x -> const_to_string x
+    | VClosure (fun_, _, _) -> Printf.sprintf "<closure #%d>" fun_
+    | VLabel fun_ -> Printf.sprintf "<label #%d>" fun_
+    | VTuple xs ->
+      Printf.sprintf "(%s)" (String.concat ~sep:", " (List.map xs ~f:to_string))
+    | VList xs ->
+      Printf.sprintf "[%s]" (String.concat ~sep:", " (List.map xs ~f:to_string))
+    | VRecord pairs ->
+      let format_pair (k, v) = Printf.sprintf "%s = %s" k (to_string v) in
+      let pairs' = List.map pairs ~f:format_pair in
+      Printf.sprintf "{. %s .}" (String.concat ~sep:", " pairs')
+    | VRef x -> Printf.sprintf "<ref %s>" (to_string !x)
+    | VPending { pend_value; pend_waiters } ->
+      let format_value = function
+        | PendVal x -> to_string x
+        | PendStopped -> "<stopped>"
+        | Pend -> "<waiting>" in
+      Printf.sprintf "<pending value: %s waiters: %d>"
+        (format_value pend_value) (List.length pend_waiters)
 end
 
 type instance = { mutable current_coeffect : int;
@@ -24,7 +54,6 @@ type state = {
 }
 
 module D = struct
-  type pos = unit
   type threads = thread list
   type action =
     | PublishedValue of v
@@ -52,10 +81,10 @@ let rec increment_instances = function
   | FPruning(r)::_ -> r.instances <- r.instances + 1
   | _::xs -> increment_instances xs
 
-let alloc_env len = Array.create ~len (Value (VConst Ast.Null))
+let alloc_env len = Array.create ~len (Var.dummy, (VConst Ast.Null))
 
 let print_debug { code } (pc, c) env  =
-  let (size, f) = code.(pc) in
+  let (size, vars, f) = code.(pc) in
   let op = f.(c) in
   Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
     pc c size
@@ -93,6 +122,11 @@ let new_thread_id state =
   state.thread_id <- id + 1;
   id
 
+let copy_env ~vars ~offset ~to_ ~from ~args =
+  Array.iteri args ~f:(fun i arg ->
+      let (_, v) = from.(arg) in
+      to_.(offset + i) <- (List.nth_exn vars i, v))
+
 let rec publish state ({id; stack; env} as thread) v =
   match stack with
   | [] -> assert false
@@ -101,11 +135,11 @@ let rec publish state ({id; stack; env} as thread) v =
       state.values <- v::state.values;
       ([], [D.PublishedValue v;
             D.HaltedThread id])
-    | FSequential(i, op) ->
-      (match i with
+    | FSequential(var, op) ->
+      (match var with
        | None -> ()
-       | Some i ->
-         env.(i) <- Value(v));
+       | Some var ->
+         env.(Var.index var) <- (var, v));
       ([{thread with op; stack = stack'}],
        [])
     | FOtherwise r ->
@@ -149,7 +183,7 @@ and pending_realize state p v =
   concat2_map p.pend_waiters ~f:(fun ({ id; stack } as thread) ->
       if is_alive stack
       then tick state thread
-else ([], []))
+      else ([], []))
 and pending_stop state p =
   p.pend_value <- PendStopped;
   concat2_map p.pend_waiters ~f:(fun thread ->
@@ -160,12 +194,12 @@ and tick
   (* print_debug inter (pc, c) env; *)
   let realized arg =
     (match env.(arg) with
-     | Pending ({ pend_value = Pend } as p) ->
+     | (_, VPending ({ pend_value = Pend } as p)) ->
        `Pending p
-     | Pending { pend_value = PendStopped } ->
+     | (_, VPending { pend_value = PendStopped }) ->
        `Stopped
-     | Pending { pend_value = PendVal(v) }
-     | Value(v) -> `Value v) in
+     | (_, VPending { pend_value = PendVal(v) })
+     | (_, v) -> `Value v) in
   let realized_multi args =
     let args' = Array.map args ~f:realized in
     if Array.find args' ~f:(function
@@ -214,7 +248,7 @@ and tick
        | PrimPendingStop p ->
          concat2 [pending_stop state p;
                   publish state thread (VConst Ast.Signal)]) in
-  let (_, proc) = get_code inter pc in
+  let (_, _, proc) = get_code inter pc in
   let (op, pos) = proc.(c) in
   match op with
   | Const v ->
@@ -234,37 +268,35 @@ and tick
                              op = (pc, c2); } in
     ([{thread with op = (pc, c1); stack = (frame::stack)}],
      [])
-  | Pruning(c1, i, c2) ->
+  | Pruning(c1, var, c2) ->
     let pending = { pend_value = Pend; pend_waiters = [] } in
     let frame = FPruning { instances = 1;
                            pending;} in
-    (match i with
+    (match var with
      | None -> ()
-     | Some i -> env.(i) <- Pending pending);
+     | Some var -> env.(Var.index var) <- (var, VPending pending));
     let new_id = new_thread_id state in
     ([{id = new_id; op = (pc, c2); stack = (frame::stack); env; pos = thread.pos};
       {thread with op = (pc, c1) }],
      [NewThread new_id])
-  | Sequential(c1, i, c2) ->
-    let frame = FSequential(i, (pc, c2)) in
+  | Sequential(c1, var, c2) ->
+    let frame = FSequential(var, (pc, c2)) in
     ([{ thread with op = (pc, c1); stack = (frame::stack)}],
      [])
   | Closure (pc', to_copy) ->
     publish state thread (VClosure(pc', to_copy, env))
   | Call(TFun(pc'), args) ->
-    let (size, f_code) = get_code inter pc' in
+    let (size, vars, f_code) = get_code inter pc' in
     let env' = alloc_env size in
     let frame = FCall(env) in
-    Array.iteri args ~f:(fun i arg ->
-        env'.(i) <- env.(arg));
+    copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
     ([{thread with op = (pc', Array.length f_code - 1);
                    stack = (frame::stack);
                    env = env'}],
      call_bindings thread args)
   | TailCall(TFun(pc'), args) ->
-    let (_, f_code) = get_code inter pc' in
-    Array.iteri args ~f:(fun i arg ->
-        env.(i) <- env.(arg));
+    let (_, vars, f_code) = get_code inter pc' in
+    copy_env ~offset: 0 ~from:env ~to_:env ~vars ~args;
     ([{thread with op = (pc', Array.length f_code - 1)}],
      call_bindings thread args)
   | Call(TDynamic(i), args) ->
@@ -274,23 +306,21 @@ and tick
        ([], [])
      | `Stopped -> halt state thread
      | `Value(VClosure(pc', to_copy, closure_env)) ->
-       let (size, f_code) = get_code inter pc' in
+       let (size, vars, f_code) = get_code inter pc' in
        let env' = alloc_env size in
        for i = 0 to to_copy - 1 do
          env'.(i) <- closure_env.(i)
        done;
-       Array.iteri args ~f:(fun i arg ->
-           env'.(i + to_copy) <- env.(arg));
+       copy_env ~offset:to_copy ~from:env ~to_:env' ~vars ~args;
        let frame = FCall(env) in
        ([{ thread with op = (pc', Array.length f_code - 1);
                        stack = (frame::stack);
                        env = env'}],
         call_bindings thread args)
      | `Value(VLabel(pc')) ->
-       let (size, f_code) = get_code inter pc' in
+       let (size, vars, f_code) = get_code inter pc' in
        let env' = alloc_env size in
-       Array.iteri args ~f:(fun i arg ->
-           env'.(i) <- env.(arg));
+       copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
        let frame = FCall(env) in
        ([{ thread with op = (pc', Array.length f_code - 1);
                        stack = (frame::stack);
@@ -323,6 +353,13 @@ and tick
     call_ffi target args
   | TailCall(TDynamic(_), _) -> raise Util.TODO
 
+let debug_tick state thread =
+  let update_pos ({ op = (pc, c) } as th) =
+    let (_, _, proc) = get_code state.inter pc in
+    let (_, pos) = proc.(c) in
+    { th with pos } in
+  let (threads, trace) = tick state thread in
+  (List.map threads ~f:update_pos, trace)
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =
@@ -337,7 +374,7 @@ let check_killed ?(ignore_fun=(fun _ -> false)) instance =
 let init inter =
   let instance = { current_coeffect = 0;
                    blocks = [] } in
-  let (init_env_size, e_code) = inter.code.(0) in
+  let (init_env_size, _, e_code) = inter.code.(0) in
   let state = {thread_id = 0;
                inter; instance;
                values = [];
@@ -347,7 +384,7 @@ let init inter =
      op = (0, Array.length e_code - 1);
      env = alloc_env init_env_size;
      stack = [FResult];
-     pos = ()}])
+     pos = Ast.Pos.{ line = 0; col = 0; path = ""}}])
 
 let run_loop state threads =
   let rec step = function
@@ -357,7 +394,7 @@ let run_loop state threads =
       step (threads' @ threads) in
   step threads
 
-let run' inter =
+let run inter =
   let (state, threads) = init inter in
   run_loop state threads;
   let (killed, instance') = check_killed state.instance in
@@ -371,10 +408,8 @@ let inter {ffi; code} =
   let%map env_snapshot = Env.snapshot ffi in
   { code; env_snapshot }
 
-let run inter =
-  Or_error.try_with ~backtrace:true (fun () -> run' inter)
 
-let unblock' inter instance coeffect value =
+let unblock inter instance coeffect value =
   let state = { thread_id = 0;
                 inter; instance;
                 values = [];
@@ -392,10 +427,6 @@ let unblock' inter instance coeffect value =
           coeffects = state.coeffects;
           killed;
           instance = instance'}
-
-let unblock inter instance coeffect value =
-  Or_error.try_with ~backtrace:true (fun () ->
-      unblock' inter instance coeffect value)
 
 let is_running { blocks } =
   not (List.is_empty blocks)
