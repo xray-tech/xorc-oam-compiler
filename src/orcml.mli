@@ -176,5 +176,5 @@ module Debugger : sig
   type trace = action list
   val init : inter -> (state * threads)
   val tick : state -> thread -> (threads * trace)
-  (* val unblock : state -> (state * threads * trace) *)
+  val unblock : state -> int -> Value.t -> (threads * trace) option
 end

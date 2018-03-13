@@ -130,4 +130,5 @@ module Debugger = struct
 
   let init = Inter.init
   let tick = Inter.debug_tick
+  let unblock = Inter.debug_unblock
 end

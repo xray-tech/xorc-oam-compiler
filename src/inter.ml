@@ -73,7 +73,6 @@ module Res = struct
 end
 
 exception TODO
-exception RuntimeError
 
 let rec increment_instances = function
   | [] -> ()
@@ -125,7 +124,10 @@ let new_thread_id state =
 let copy_env ~vars ~offset ~to_ ~from ~args =
   Array.iteri args ~f:(fun i arg ->
       let (_, v) = from.(arg) in
-      to_.(offset + i) <- (List.nth_exn vars i, v))
+      let var = match List.nth vars i with
+        | Some var -> var
+        | None -> Var.dummy in
+      to_.(offset + i) <- (var, v))
 
 let rec publish state ({id; stack; env} as thread) v =
   match stack with
@@ -353,14 +355,6 @@ and tick
     call_ffi target args
   | TailCall(TDynamic(_), _) -> raise Util.TODO
 
-let debug_tick state thread =
-  let update_pos ({ op = (pc, c) } as th) =
-    let (_, _, proc) = get_code state.inter pc in
-    let (_, pos) = proc.(c) in
-    { th with pos } in
-  let (threads, trace) = tick state thread in
-  (List.map threads ~f:update_pos, trace)
-
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =
     if ignore_fun id
@@ -369,7 +363,24 @@ let check_killed ?(ignore_fun=(fun _ -> false)) instance =
     then (killed, block::acc)
     else (id::killed, acc) in
   let (killed, blocks) = List.fold instance.blocks ~init:([], []) ~f in
-  (killed, {instance with blocks})
+  instance.blocks <- blocks;
+  killed
+
+let update_pos state ({ op = (pc, c) } as th) =
+  let (_, _, proc) = get_code state.inter pc in
+  let (_, pos) = proc.(c) in
+  { th with pos }
+
+let debug_tick state thread =
+  let (threads, trace) = tick state thread in
+  (List.map threads ~f:(update_pos state), trace)
+
+let debug_unblock state coeffect value =
+  match List.Assoc.find state.instance.blocks ~equal:Int.equal coeffect with
+  | None -> None
+  | Some(thread) ->
+    let (threads, trace) = publish state thread value in
+    Some (List.map threads ~f:(update_pos state), trace)
 
 let init inter =
   let instance = { current_coeffect = 0;
@@ -397,11 +408,11 @@ let run_loop state threads =
 let run inter =
   let (state, threads) = init inter in
   run_loop state threads;
-  let (killed, instance') = check_killed state.instance in
+  let killed = check_killed state.instance in
   Res.{ values = state.values;
         coeffects = state.coeffects;
         killed;
-        instance = instance' }
+        instance = state.instance}
 
 let inter {ffi; code} =
   let open Result.Let_syntax in
@@ -409,24 +420,26 @@ let inter {ffi; code} =
   { code; env_snapshot }
 
 
-let unblock inter instance coeffect value =
+let unblock inter { current_coeffect; blocks } coeffect value =
+  (* we don't want to mutate original instance *)
+  let instance' = { current_coeffect; blocks } in
   let state = { thread_id = 0;
-                inter; instance;
+                inter; instance = instance';
                 values = [];
                 coeffects = [];} in
-  match List.Assoc.find instance.blocks ~equal:Int.equal coeffect with
+  match List.Assoc.find blocks ~equal:Int.equal coeffect with
   | None -> Res.{ values = [];
                   coeffects = [];
                   killed = [];
-                  instance}
+                  instance = instance'}
   | Some(thread) ->
     let (threads, _) = publish state thread value in
     run_loop state threads;
-    let (killed, instance') = check_killed ~ignore_fun:(fun id -> Int.equal id coeffect) instance in
+    let killed = check_killed ~ignore_fun:(fun id -> Int.equal id coeffect) instance' in
     Res.{ values = state.values;
           coeffects = state.coeffects;
           killed;
-          instance = instance'}
+          instance = state.instance}
 
 let is_running { blocks } =
   not (List.is_empty blocks)
