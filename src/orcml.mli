@@ -29,6 +29,8 @@ module Value : sig
   and pending
   [@@deriving sexp, compare]
 
+  val to_string : t -> string
+
   include Comparator.S with type t := t
 end
 
@@ -148,12 +150,19 @@ end
 
 
 module Debugger : sig
+  module Var : sig
+    type t = | Generated of int
+             | Handcrafted of { index : int;
+                                ident : string;
+                                pos : range }
+  end
+
   type op
   type stack
   type state
   type thread = { id : int;
                   op : op;
-                  env : Value.t array;
+                  env : (Var.t * Value.t) array;
                   stack : stack;
                   pos : pos}
   type threads = thread list

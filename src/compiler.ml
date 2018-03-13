@@ -46,14 +46,14 @@ let compile_unit_equal a b =
 type state = {
   repository: Repository.t;
   mutable ffi_in_use : string list;
-  mutable repo : (string * string * int * I.t array) list;
+  mutable repo : (string * string * int * I.Var.t list * I.t array) list;
   mutable compile_queue : unit list;
 }
 
 let repo_index state mod_ ident =
   let rec f = function
     | [] -> None
-    | (mod_', ident', _, _)::xs when String.equal mod_' mod_ && String.equal ident' ident ->
+    | (mod_', ident', _, _, _)::xs when String.equal mod_' mod_ && String.equal ident' ident ->
       Some(len xs)
     | _::xs -> f xs in
   f state.repo
@@ -360,6 +360,9 @@ let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
 
+let fun_params_with_index params =
+  List.mapi params ~f:Ir1.Var.to_indexed
+
 let compile ~repository ~prelude ~comments e =
   with_return (fun r ->
       let init_ctx' = init_ctx @ List.map prelude ~f:(fun (mod_, ident) ->
@@ -377,7 +380,7 @@ let compile ~repository ~prelude ~comments e =
         (match compile_fun state unit with
          | Error _ as err -> r.return err
          | Ok(size, ops) ->
-           let x = (unit.orc_module, unit.ident, size, Array.of_list_rev ops) in
+           let x = (unit.orc_module, unit.ident, size, fun_params_with_index unit.params, Array.of_list_rev ops) in
            state.repo <- x::state.repo) in
       let remove_from_queue el =
         let rec f acc = function
@@ -394,8 +397,8 @@ let compile ~repository ~prelude ~comments e =
           remove_from_queue unit;
           compile_loop () in
       compile_loop ();
-      let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, body) ->
-          (size, [], body)) in
+      let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, params, body) ->
+          (size, params, body)) in
       Ok({I.ffi = List.rev state.ffi_in_use; code}))
 
 let rec add_module' ctx orc_module = function

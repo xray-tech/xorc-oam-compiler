@@ -12,6 +12,8 @@ module Var = struct
                               pos : Ast.Pos.range }
   [@@deriving sexp, compare]
 
+  let dummy = Generated 0
+
   let index = function
     | Generated i -> i
     | Handcrafted { index } -> index
@@ -40,7 +42,7 @@ and v =
   | VRecord of (string * v) list
   | VRef of v ref
   | VPending of pending
-and env = v array
+and env = (Var.t * v) array
 and pend_value = PendVal of v | PendStopped | Pend
 and pending = {
   mutable pend_value : pend_value;

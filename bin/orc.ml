@@ -218,11 +218,11 @@ let run_loop state_path unblock res =
       on_air := !on_air - 1;
       unblock' id (V.VConst C.Signal)
     | v ->
-      error "Bad type for timeout value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum);
+      error "Bad type for timeout value: %s" (Orcml.Value.to_string v);
       return ()
   and handle_println id r =
     let v = List.Assoc.find_exn r ~equal:String.equal "value" in
-    info "Println: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum);
+    info "Println: %s" (Orcml.Value.to_string v);
     on_air := !on_air - 1;
     unblock' id (V.VConst C.Signal)
   and handlers = [
@@ -236,7 +236,7 @@ let run_loop state_path unblock res =
   and tick {Orcml.Res.values; coeffects; instance} =
     Moption.set_some minstance instance;
     List.iter values ~f:(fun v ->
-        info "Value: %s" (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
+        info "Value: %s" (Orcml.Value.to_string v));
     on_air := !on_air + List.length coeffects;
     List.iter coeffects ~f:(fun (id, v) ->
         match coeffect_handler v with
@@ -244,7 +244,7 @@ let run_loop state_path unblock res =
           handler id pairs |> don't_wait_for
         | None ->
           on_air := !on_air - 1;
-          info "Coeffect: %i -> %s" id (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum));
+          info "Coeffect: %i -> %s" id (Orcml.Value.to_string v));
     match (Orcml.is_running instance, !on_air) with
     | (false, _) ->
       Ivar.fill_if_empty stopped true; return ()

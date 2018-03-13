@@ -31,9 +31,19 @@ let thread_position (module Loader : Lib.ModuleLoader) prog {Orcml.line; col; pa
       | Some(v) -> sprintf "Module %s:\n%s" path (annotate v)
       | None -> "<MISSING SOURCE CODE>")
 
+let thread_env env =
+  let pair = function
+    | (D.Var.Generated _, _) -> None
+    | (D.Var.Handcrafted {ident}, v) ->
+      Some (sprintf "%s -> %s" ident (Orcml.Value.sexp_of_t v |> Sexp.to_string_hum)) in
+  Array.to_list env
+  |> List.filter_map ~f:pair
+  |> String.concat ~sep:"\n"
+
 let print_thread loader prog {D.id; env; pos} =
   let%bind current_position = thread_position loader prog pos in
-  print_endline (sprintf "Thread #%d\n\n%s\n\n" id current_position)
+  let env = thread_env env in
+  print_endline (sprintf "\nThread #%d\n\n%s\n%s\n" id current_position env)
 
 let execute loader prog state threads = function
   | 's' ->
