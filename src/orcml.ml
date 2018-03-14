@@ -80,17 +80,17 @@ let parse_value = Syntax.parse_value
 
 let compile ?(prelude = []) ~repository code =
   let open Result.Let_syntax in
-  let%bind (parsed, comments) = Syntax.parse code in
+  let%bind (parsed, _comments) = Syntax.parse code in
   (* Stdio.printf "----Parsed %s\n" (Ast.sexp_of_e parsed |> Sexp.to_string_hum); *)
   let (_, ir1) = Ir1.translate parsed in
   (* Stdio.printf "----IR1 %s\n" (Ir1.sexp_of_e ir1 |> Sexp.to_string_hum); *)
-  Compiler.compile ~prelude ~comments ~repository ir1
+  Compiler.compile ~prelude ~repository ir1
 
 let add_module ~repository ~path code =
   let open Result.Let_syntax in
-  let%map (parsed, comments) = Syntax.parse_module ~path code in
+  let%map (parsed, _comments) = Syntax.parse_module ~path code in
   let (_, ir1) = Ir1.translate parsed in
-  Compiler.add_module ~comments ~repository ~path ir1
+  Compiler.add_module ~repository ~path ir1
 
 type bc = Inter.bc
 let sexp_of_bc = Inter.sexp_of_bc

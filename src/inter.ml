@@ -83,7 +83,7 @@ let rec increment_instances = function
 let alloc_env len = Array.create ~len (Var.dummy, (VConst Ast.Null))
 
 let print_debug { code } (pc, c) env  =
-  let (size, vars, f) = code.(pc) in
+  let (size, _, f) = code.(pc) in
   let op = f.(c) in
   Stdio.printf "Op (%i:%i:size %i): %s Env: %s\n"
     pc c size
@@ -93,7 +93,8 @@ let print_debug { code } (pc, c) env  =
 let get_code inter pc =
   inter.code.(pc)
 
-let call_bindings {id} args = []
+(* TODO *)
+let call_bindings _ _ = []
 
 let rec is_alive = function
   | [] -> true
@@ -158,7 +159,7 @@ let rec publish state ({id; stack; env} as thread) v =
     | FPruning { pending = { pend_value = PendStopped } } -> assert false
     | FCall env' ->
       publish state { thread with stack = stack'; env = env' } v
-and halt state ({ id; stack; env} as thread) =
+and halt state ({ id; stack } as thread) =
   let rec in_stack = function
     | [] -> ([], [])
     | x::stack' -> match x with
@@ -182,7 +183,7 @@ and halt state ({ id; stack; env} as thread) =
            ([], [D.HaltedThread id])]
 and pending_realize state p v =
   p.pend_value <- PendVal v;
-  concat2_map p.pend_waiters ~f:(fun ({ id; stack } as thread) ->
+  concat2_map p.pend_waiters ~f:(fun ({ stack } as thread) ->
       if is_alive stack
       then tick state thread
       else ([], []))
@@ -251,7 +252,7 @@ and tick
          concat2 [pending_stop state p;
                   publish state thread (VConst Ast.Signal)]) in
   let (_, _, proc) = get_code inter pc in
-  let (op, pos) = proc.(c) in
+  let (op, _) = proc.(c) in
   match op with
   | Const v ->
     publish state thread (VConst v)
