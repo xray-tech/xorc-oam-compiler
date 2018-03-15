@@ -138,9 +138,9 @@ let rec publish state ({id; stack; env} as thread) v =
   | x::stack' -> match x with
     | FResult ->
       state.values <- v::state.values;
-      ([], [D.PublishedValue v;
-            D.HaltedThread id])
+      ([], [D.PublishedValue v])
     | FSequential(var, op) ->
+      increment_instances stack;
       (match var with
        | None -> ()
        | Some var ->
@@ -148,17 +148,12 @@ let rec publish state ({id; stack; env} as thread) v =
       ([{thread with op; stack = stack'}],
        [])
     | FOtherwise r ->
-      r.instances <- r.instances - 1;
       r.first_value <- true;
       publish state { thread with stack = stack' } v
-    | FPruning ({ pending = ({ pend_value = Pend } as p) } as r) ->
-      r.instances <- r.instances - 1;
-      concat2 [pending_realize state p v;
-               ([], [D.HaltedThread id])]
-    | FPruning ({ pending = { pend_value = PendVal(_) } } as r) ->
-      r.instances <- r.instances - 1;
-      ([], [D.HaltedThread id])
-    | FPruning { pending = { pend_value = PendStopped } } -> assert false
+    | FPruning { pending = ({ pend_value = Pend } as p) } ->
+      pending_realize state p v
+    | FPruning { pending = { pend_value = PendVal(_) | PendStopped } } ->
+      ([], [])
     | FCall env' ->
       publish state { thread with stack = stack'; env = env' } v
 and halt state ({ id; stack } as thread) =
@@ -183,6 +178,11 @@ and halt state ({ id; stack } as thread) =
       | _ -> in_stack stack' in
   concat2 [in_stack stack;
            ([], [D.HaltedThread id])]
+and publish_and_halt state thread v =
+  (* execution order is important here! *)
+  let r1 = publish state thread v in
+  let r2 = halt state thread in
+  concat2 [r1; r2]
 and pending_realize state p v =
   p.pend_value <- PendVal v;
   concat2_map p.pend_waiters ~f:(fun ({ stack } as thread) ->
@@ -239,56 +239,56 @@ and tick
       match name with
       | "core.make-pending" ->
         (match args' with
-           | [||] -> publish state thread (VPending { pend_value = Pend; pend_waiters = [] })
-           | _ -> unsupported ())
+         | [||] -> publish_and_halt state thread (VPending { pend_value = Pend; pend_waiters = [] })
+         | _ -> unsupported ())
       | "core.pending-read" ->
         (match args' with
-            | [| VPending { pend_value = PendVal v } |] ->
-              publish state thread v
-            | [| VPending { pend_value = PendStopped } |] ->
-              halt state thread
-            | [| VPending p |] ->
-              p.pend_waiters <- thread::p.pend_waiters;
-              ([], [])
-            | _ -> unsupported ())
+         | [| VPending { pend_value = PendVal v } |] ->
+           publish_and_halt state thread v
+         | [| VPending { pend_value = PendStopped } |] ->
+           halt state thread
+         | [| VPending p |] ->
+           p.pend_waiters <- thread::p.pend_waiters;
+           ([], [])
+         | _ -> unsupported ())
       | "core.realize" ->
         (match args' with
-            | [| VPending ({ pend_value = Pend } as p); v|] ->
-              concat2 [pending_realize state p v;
-                       publish state thread (VConst Ast.Signal)]
-            | [| VPending _; _ |] ->
-              publish state thread (VConst Ast.Signal)
-            | _ -> unsupported ())
+         | [| VPending ({ pend_value = Pend } as p); v|] ->
+           concat2 [pending_realize state p v;
+                    publish_and_halt state thread (VConst Ast.Signal)]
+         | [| VPending _; _ |] ->
+           publish_and_halt state thread (VConst Ast.Signal)
+         | _ -> unsupported ())
       | "core.is-realize" ->
         (match args' with
          | [| VPending { pend_value = PendVal _ } |] ->
-           publish state thread (VConst (Ast.Bool true))
+           publish_and_halt state thread (VConst (Ast.Bool true))
          | [| VPending _ |] ->
-           publish state thread (VConst (Ast.Bool false))
+           publish_and_halt state thread (VConst (Ast.Bool false))
          | _ -> unsupported ())
       | "core.stop-pending" ->
         (match args' with
          | [| VPending ({ pend_value = Pend } as p) |] ->
            concat2 [pending_stop state p;
-                    publish state thread (VConst Ast.Signal)]
+                    publish_and_halt state thread (VConst Ast.Signal)]
          | [| VPending _ |] ->
-           publish state thread (VConst Ast.Signal)
+           publish_and_halt state thread (VConst Ast.Signal)
          | _ -> unsupported ())
       | name ->
         let impl = Env.get_ffi inter.env_snapshot index in
         (* Stdio.eprintf "---CALL %i\n" prim;
          * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
         match impl args' with
-        | PrimVal res -> publish state thread res
+        | PrimVal res -> publish_and_halt state thread res
         | PrimHalt -> halt state thread
         | PrimUnsupported -> unsupported () in
   let (_, _, proc) = get_code inter pc in
   let (op, _) = proc.(c) in
   match op with
   | Const v ->
-    publish state thread (VConst v)
+    publish_and_halt state thread (VConst v)
   | Label i ->
-    publish state thread (VLabel i)
+    publish_and_halt state thread (VLabel i)
   | Stop -> halt state thread
   | Parallel(c1, c2) ->
     increment_instances stack;
@@ -318,7 +318,7 @@ and tick
     ([{ thread with op = (pc, c1); stack = (frame::stack)}],
      [])
   | Closure (pc', to_copy) ->
-    publish state thread (VClosure(pc', to_copy, env))
+    publish_and_halt state thread (VClosure(pc', to_copy, env))
   | Call(TFun(pc'), args) ->
     let (size, vars, f_code) = get_code inter pc' in
     let env' = alloc_env size in
@@ -367,7 +367,7 @@ and tick
           ([], [])
         | `Stopped -> raise Util.TODO
         | `Value(VConst(Ast.Int i)) ->
-          publish state thread (List.nth_exn vs i)
+          publish_and_halt state thread (List.nth_exn vs i)
         | `Value(_) -> raise Util.TODO)
      | `Value(_) -> raise Util.TODO)
   | Coeffect arg ->
@@ -411,7 +411,7 @@ let debug_unblock state coeffect value =
   match List.Assoc.find state.instance.blocks ~equal:Int.equal coeffect with
   | None -> None
   | Some(thread) ->
-    let (threads, trace) = publish state thread value in
+    let (threads, trace) = publish_and_halt state thread value in
     Some (List.map threads ~f:(update_pos state), trace)
 
 let init inter =
@@ -465,7 +465,7 @@ let unblock inter { current_coeffect; blocks } coeffect value =
                   killed = [];
                   instance = instance'}
   | Some(thread) ->
-    let (threads, _) = publish state thread value in
+    let (threads, _) = publish_and_halt state thread value in
     run_loop state threads;
     let killed = check_killed ~ignore_fun:(fun id -> Int.equal id coeffect) instance' in
     Res.{ values = state.values;
