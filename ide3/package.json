@@ -1,0 +1,29 @@
+{
+  "name": "orcide",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "license": "MIT",
+  "scripts": {
+    "build": "webpack --mode production",
+    "watch": "webpack --mode development --watch",
+    "server": "webpack-dev-server"
+  },
+  "devDependencies": {
+    "css-loader": "^0.28.10",
+    "style-loader": "^0.20.3",
+    "typings-for-css-modules-loader": "^1.7.0",
+    "webpack": "^4.1.1",
+    "webpack-cli": "^2.0.12",
+    "webpack-dev-server": "^3.1.1",
+    "webpack-serve": "^0.2.0"
+  },
+  "dependencies": {
+    "@types/codemirror": "^0.0.55",
+    "awesome-typescript-loader": "^4.0.1",
+    "codemirror": "^5.35.0",
+    "rxjs": "^5.5.7",
+    "source-map-loader": "^0.2.3",
+    "ts-loader": "^4.0.1",
+    "typescript": "^2.7.2"
+  }
+}

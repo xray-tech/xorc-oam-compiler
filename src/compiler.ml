@@ -275,7 +275,7 @@ let compile_e env e =
                          env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EFix(fs, e) ->
-          let vars = List.map fs ~f:(fun (ident, _, (_, (_, pos))) -> ident) in
+          let vars = List.map fs ~f:(fun (ident, _, _) -> ident) in
           let closure_vars = List.map fs ~f:(fun (ident, params, e) ->
               let params' = Var.idents params in
               let all = free_vars (vars @ params') e in
@@ -363,7 +363,7 @@ let finalize code =
 let fun_params_with_index params =
   List.mapi params ~f:Ir1.Var.to_indexed
 
-let compile ~repository ~prelude ~comments e =
+let compile ~repository ~prelude e =
   with_return (fun r ->
       let init_ctx' = init_ctx @ List.map prelude ~f:(fun (mod_, ident) ->
           (ident, BindMod(mod_, ident))) in
@@ -422,6 +422,6 @@ let rec add_module' ctx orc_module = function
     add_module' (binds @ ctx) orc_module e
   | _ -> assert false
 
-let add_module ~repository ~path ~comments (e, _) =
+let add_module ~repository ~path (e, _) =
   add_module' init_ctx path e
   |> List.iter ~f:(Repository.set repository)
