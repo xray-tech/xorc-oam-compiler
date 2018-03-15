@@ -230,29 +230,58 @@ and tick
       ([], [])
     | `Stopped -> halt state thread
     | `Values args' ->
-      let impl = Env.get_ffi inter.env_snapshot index in
-      (* Stdio.eprintf "---CALL %i\n" prim;
-       * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
-      (match impl args' with
-       | PrimVal res ->
-         publish state thread res
-       | PrimHalt -> halt state thread
-       | PrimUnsupported ->
-         (* TODO warning? *)
-         let ffi = Env.get_ffi_name inter.env_snapshot index in
-         concat2 [halt state thread;
-                  ([], [D.Error { thread = thread.id;
-                                  ffi;
-                                  args = Array.to_list args'}])]
-       | PrimPendingSubscribe p ->
-         p.pend_waiters <- thread::p.pend_waiters;
-         ([], [])
-       | PrimPendingRealize (p, v) ->
-         concat2 [pending_realize state p v;
-                  publish state thread (VConst Ast.Signal)]
-       | PrimPendingStop p ->
-         concat2 [pending_stop state p;
-                  publish state thread (VConst Ast.Signal)]) in
+      let name = Env.get_ffi_name inter.env_snapshot index in
+      let unsupported () =
+        concat2 [halt state thread;
+                 ([], [D.Error { thread = thread.id;
+                                 ffi = name;
+                                 args = Array.to_list args'}])] in
+      match name with
+      | "core.make-pending" ->
+        (match args' with
+           | [||] -> publish state thread (VPending { pend_value = Pend; pend_waiters = [] })
+           | _ -> unsupported ())
+      | "core.pending-read" ->
+        (match args' with
+            | [| VPending { pend_value = PendVal v } |] ->
+              publish state thread v
+            | [| VPending { pend_value = PendStopped } |] ->
+              halt state thread
+            | [| VPending p |] ->
+              p.pend_waiters <- thread::p.pend_waiters;
+              ([], [])
+            | _ -> unsupported ())
+      | "core.realize" ->
+        (match args' with
+            | [| VPending ({ pend_value = Pend } as p); v|] ->
+              concat2 [pending_realize state p v;
+                       publish state thread (VConst Ast.Signal)]
+            | [| VPending _; _ |] ->
+              publish state thread (VConst Ast.Signal)
+            | _ -> unsupported ())
+      | "core.is-realize" ->
+        (match args' with
+         | [| VPending { pend_value = PendVal _ } |] ->
+           publish state thread (VConst (Ast.Bool true))
+         | [| VPending _ |] ->
+           publish state thread (VConst (Ast.Bool false))
+         | _ -> unsupported ())
+      | "core.stop-pending" ->
+        (match args' with
+         | [| VPending ({ pend_value = Pend } as p) |] ->
+           concat2 [pending_stop state p;
+                    publish state thread (VConst Ast.Signal)]
+         | [| VPending _ |] ->
+           publish state thread (VConst Ast.Signal)
+         | _ -> unsupported ())
+      | name ->
+        let impl = Env.get_ffi inter.env_snapshot index in
+        (* Stdio.eprintf "---CALL %i\n" prim;
+         * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
+        match impl args' with
+        | PrimVal res -> publish state thread res
+        | PrimHalt -> halt state thread
+        | PrimUnsupported -> unsupported () in
   let (_, _, proc) = get_code inter pc in
   let (op, _) = proc.(c) in
   match op with

@@ -75,9 +75,6 @@ module Env : sig
     | PrimVal of Value.t
     | PrimHalt
     | PrimUnsupported
-    | PrimPendingSubscribe of Value.pending
-    | PrimPendingRealize of (Value.pending * Value.t)
-    | PrimPendingStop of Value.pending
 
   val register_ffi : string -> (Value.t array -> prim_res) -> unit
 end

@@ -71,9 +71,6 @@ type prim_v =
   | PrimVal of v
   | PrimHalt
   | PrimUnsupported
-  | PrimPendingSubscribe of pending
-  | PrimPendingRealize of (pending * v)
-  | PrimPendingStop of pending
 
 type prims = (v array -> prim_v) array
 

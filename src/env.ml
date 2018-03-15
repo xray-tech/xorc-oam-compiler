@@ -6,9 +6,6 @@ type prim_res = Inter0.prim_v =
   | PrimVal of Inter0.v
   | PrimHalt
   | PrimUnsupported
-  | PrimPendingSubscribe of Inter0.pending
-  | PrimPendingRealize of (Inter0.pending * Inter0.v)
-  | PrimPendingStop of Inter0.pending
 
 type t = {
   ffi_mapping : (string, int) Hashtbl.t;
@@ -49,6 +46,14 @@ let to_string = function
   | Inter0.VConst(Ast.Float x) -> Float.to_string x
   (* TODO *)
   | _ -> "<value>"
+
+let pseudo_ffi = [ "core.make-pending"; "core.pending-read";
+                   "core.realize"; "core.is-realize";
+                   "core.stop-pending" ]
+
+let () =
+  List.iter pseudo_ffi ~f:(fun x ->
+    register_ffi x (fun _ -> PrimUnsupported))
 
 let core = [
   ("core.let", function
@@ -239,35 +244,6 @@ let core = [
   ("core.set", function
       | [| VRef x; v|] ->
         x := v;
-        PrimVal(VConst Ast.Signal)
-      | _ -> PrimUnsupported);
-  ("core.make-pending", function
-      | [||] -> PrimVal (VPending { pend_value = Pend; pend_waiters = [] })
-      | _ -> PrimUnsupported);
-  ("core.pending-read", function
-      | [| VPending { pend_value = PendVal v } |] ->
-        PrimVal(v)
-      | [| VPending { pend_value = PendStopped } |] ->
-        PrimHalt
-      | [| VPending p |] ->
-        PrimPendingSubscribe p
-      | _ -> PrimUnsupported);
-  ("core.realize", function
-      | [| VPending ({ pend_value = Pend } as p); v|] ->
-        PrimPendingRealize (p, v)
-      | [| VPending _; _ |] ->
-        PrimVal(VConst Ast.Signal)
-      | _ -> PrimUnsupported);
-  ("core.is-realized", function
-      | [| VPending { pend_value = PendVal _ } |] ->
-        PrimVal(VConst (Ast.Bool true))
-      | [| VPending _ |] ->
-        PrimVal(VConst (Ast.Bool false))
-      | _ -> PrimUnsupported);
-  ("core.stop-pending", function
-      | [| VPending ({ pend_value = Pend } as p) |] ->
-        PrimPendingStop p
-      | [| VPending _ |] ->
         PrimVal(VConst Ast.Signal)
       | _ -> PrimUnsupported)]
 
