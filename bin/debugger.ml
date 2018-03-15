@@ -35,7 +35,7 @@ let thread_env env =
   let pair = function
     | (D.Var.Generated _, _) -> None
     | (D.Var.Handcrafted {ident}, v) ->
-      Some (sprintf "%s -> %s" ident (Orcml.Value.to_string v)) in
+      Some (sprintf "%s -> %s" ident (D.v_to_string v)) in
   Array.to_list env
   |> List.filter_map ~f:pair
   |> String.concat ~sep:"\n"

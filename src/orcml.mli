@@ -160,9 +160,13 @@ module Debugger : sig
   type op
   type stack
   type state
+  type v =
+    | Value of Value.t
+    | Pending of Value.pending
+
   type thread = { id : int;
                   op : op;
-                  env : (Var.t * Value.t) array;
+                  env : (Var.t * v) array;
                   stack : stack;
                   pos : pos}
   type threads = thread list
@@ -177,4 +181,6 @@ module Debugger : sig
   val init : inter -> (state * threads)
   val tick : state -> thread -> (threads * trace)
   val unblock : state -> int -> Value.t -> (threads * trace) option
+
+  val v_to_string : v -> string
 end

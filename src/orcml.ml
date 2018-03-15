@@ -122,13 +122,18 @@ module Debugger = struct
   type op = Inter.op
   type state = Inter.state
   type stack = Inter.stack
+  type v = Inter.env_v = | Value of Value.t| Pending of Value.pending
   type thread = Inter.thread = { id : int;
                                  op : op;
-                                 env : (Var.t * Value.t) array;
+                                 env : (Var.t * v) array;
                                  stack : stack;
                                  pos : pos}
 
   let init = Inter.init
   let tick = Inter.debug_tick
   let unblock = Inter.debug_unblock
+
+  let v_to_string = function
+    | Value x -> Inter.Value.to_string x
+    | Pending x -> Inter.Value.pending_to_string x
 end

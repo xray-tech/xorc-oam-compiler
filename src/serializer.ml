@@ -238,7 +238,9 @@ let dump_instance { current_coeffect; blocks } =
       | PendVal v -> (M.Int 1)::(dump_value v)
       | PendStopped -> [M.Int 2] in
     (M.Int id)::v
-  and serialize_env_v (_, x) = M.List (dump_value x)
+  and serialize_env_v = function
+    | (_, Value x) -> M.List ((M.Int 0)::(dump_value x))
+    | (_, Pending x) -> M.List [M.Int 1; dedup pendings x]
   and serialize_env (id, env) =
     [M.Int id; M.List (Array.map env ~f:serialize_env_v |> Array.to_list)]
   and serialize_token { op = (pc, c); stack; env } =
@@ -265,7 +267,9 @@ let dump_instance { current_coeffect; blocks } =
     | _ -> ()
   and walk_env env =
     on_new envs env (fun () ->
-        Array.iter env ~f:(fun (_, v) -> walk_v v))
+        Array.iter env ~f:(function
+            | (_, Value v) -> walk_v v
+            | (_, Pending p) -> walk_pending p))
   and walk_frame frame =
     on_new frames frame (fun () ->
         match frame with
@@ -314,7 +318,7 @@ let load_instance packed =
         | None -> let v = ref (VConst Ast.Null) in
           add_repo refs_repo id v;
           v in
-      let dummy_env len = Array.create ~len (Var.dummy, VConst Ast.Null) in
+      let dummy_env len = Array.create ~len (Var.dummy, Value (VConst Ast.Null)) in
       match packed with
       | M.List [M.Int current_coeffect;
                 M.List frames;
@@ -418,11 +422,13 @@ let load_instance packed =
             deserialize_pendings xs'
           | _ -> bad_format () in
         let deserialize_env_value = function
-          | M.List xs ->
+          | M.List ((M.Int 0)::xs) ->
             (match load_value xs with
              | Error _ as err -> r.return err
              | Ok((v, _)) ->
-               (Var.dummy, v))
+               (Var.dummy, Value v))
+          | M.List [M.Int 1; M.Int pending] ->
+            (Var.dummy, Pending (repo_or_dummy_pending pending))
           | _ -> bad_format () in
         let rec deserialize_envs = function
           | [] -> ()
