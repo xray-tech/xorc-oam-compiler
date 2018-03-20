@@ -33,15 +33,22 @@ declare namespace Orcml {
     type CompileError = NoInputError | SyntaxError | UnboundVarError | UnknownReferedFunction
     function compile(repository: Repository, code: string): Result<ByteCode, CompileError>
 
-    enum Inter {}
     function inter(bc: ByteCode): Result<Inter, UnknownFFI>
 
-    enum Value {}
+    interface Inter {
+        run(): InterResult
+    }
+
+    type Value = number | string | boolean | { signal: true } | { closure: true } | { label: true }
 
     interface InterResult {
         values: [Value]
     }
-    function run(inter: Inter): InterResult
+    
 
-    function valueToString(v: Value): string
+    // function Debugger(inter: Inter) : Debugger
+
+    // interface Debugger {
+    //     function 
+    // }
 }

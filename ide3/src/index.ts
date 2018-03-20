@@ -20,11 +20,9 @@ function unwrap<T,U>(v: Orcml.Result<T,U>): T {
 let repo = Orcml.makeRepository()
 let bc = Orcml.compile(repo, "1 | 2.2 | \"hello world\"")
 let inter = Orcml.inter(unwrap(bc))
-let res = Orcml.run(unwrap(inter))
+let res = unwrap(inter).run()
 
-for (let v of res.values) {
-    console.log("--- value", Orcml.valueToString(v))
-}
+console.log("--- values", res.values)
 class State {
 
 }
