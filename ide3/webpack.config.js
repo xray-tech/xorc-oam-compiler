@@ -1,10 +1,23 @@
+const webpack = require('webpack');
+
 module.exports = {
     mode: 'development',
-    entry: "./src/index.ts",
+    entry: {
+        "app": "./src/index.ts",
+        "editor.worker": 'monaco-editor/esm/vs/editor/editor.worker.js',
+    },
     output: {
-        filename: "bundle.js",
+        filename: "[name].bundle.js",
         path: __dirname + "/dist"
     },
+
+    plugins: [
+        // Ignore require() calls in vs/language/typescript/lib/typescriptServices.js
+        new webpack.IgnorePlugin(
+            /^((fs)|(path)|(os)|(crypto)|(source-map-support))$/,
+            /vs\/language\/typescript\/lib/
+        )
+    ],
     
     devServer: {
         contentBase: [
