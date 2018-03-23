@@ -1,6 +1,7 @@
 /// <reference types="../../_build/default/js/main" />
 
-import "./css/main.css"
+import 'bootstrap';
+import "./css/main.scss"
 import * as monaco from 'monaco-editor';
 
 // Since packaging is done by you, you need
@@ -29,14 +30,11 @@ function unwrap<T, U>(v: Orcml.Result<T, U>): T {
 }
 
 let repo = Orcml.makeRepository()
-let bc = Orcml.compile(repo, "1 | 2.2 | \"hello world\"")
-let inter = Orcml.inter(unwrap(bc))
-let res = unwrap(inter).run()
+// let bc = Orcml.compile(repo, "1 | 2.2 | \"hello world\"")
+// let inter = Orcml.inter(unwrap(bc))
+// let res = unwrap(inter).run()
 
-console.log("--- values", res.values)
-class State {
-
-}
+// console.log("--- values", res.values)
 
 let tokenizer = {
     keywords: [
@@ -132,13 +130,6 @@ let tokenizer = {
                 action: {
                     token: "string.delim",
                     next: "@pop"
-                    // cases: {
-                    //     '$#==$S2': {
-                    //         token: 'string',
-                    //         next: '@pop'
-                    //     },
-                    //     '@default': 'string'
-                    // }
                 }
             }
         ],
@@ -203,10 +194,48 @@ let richEditConfiguration: monaco.languages.LanguageConfiguration = {
 
 monaco.languages.setLanguageConfiguration("orc", richEditConfiguration)
 
-monaco.editor.create(document.getElementById('editor'), {
-    value: 'console.log("Hello, world")',
+let editor = monaco.editor.create(document.getElementById('editor'), {
+    value: `console.log("Hello, world")
+    asd asd asd asd asd asda sd a
+    asd asd asd asd asd asda sd a
+    
+    asdfasdf
+    asdf`,
     minimap: { enabled: false },
     language: "orc",
     autoClosingBrackets: true,
     matchBrackets: true,
+    // scrollbar: { vertical: "hidden" },
+    overviewRulerBorder: false
 });
+
+let runs = Rx.Observable.fromEvent(document.getElementById("run"), "click")
+
+let model = editor.getModel()
+
+runs.subscribe(() => {
+    let code = editor.getValue()
+    let bc = Orcml.compile(repo, code)
+    let inter = Orcml.inter(unwrap(bc))
+    let res = unwrap(inter).run()
+})
+
+
+let changes = new Rx.Observable(function (observer) {
+    let disp = model.onDidChangeContent(e => observer.next(e));
+    () => disp.dispose()
+})
+
+changes.subscribe(x => console.log(x))
+
+let worker = monaco.editor.createWebWorker({ moduleId: "worker", label: "orc" })
+
+monaco.editor.setModelMarkers(model, "linter",
+    [{
+        severity: monaco.Severity.Error,
+        message: "Ooooh",
+        startLineNumber: 2,
+        endLineNumber: 2,
+        startColumn: 5,
+        endColumn: 10
+    }])
