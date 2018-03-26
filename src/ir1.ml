@@ -47,7 +47,7 @@ let make_fresh () =
   "'fresh" ^ (Int.to_string i)
 
 let collect_defs e =
-  let acc = Hashtbl.create (module String) () in
+  let acc = Hashtbl.create (module String) in
   let rec collect_clauses = function
     | (Ast.EDecl((DDef(ident, _, params, _, guard, body), _), e), _) ->
       let clauses = Hashtbl.find_or_add acc ident ~default:(fun () -> []) in

@@ -17,7 +17,7 @@ type snapshot = {
 }
 
 let t =
-  { ffi_mapping = Hashtbl.create (module String) ();
+  { ffi_mapping = Hashtbl.create (module String);
     ffi = [||];}
 
 let snapshot ffi =
