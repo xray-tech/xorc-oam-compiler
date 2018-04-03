@@ -1,0 +1,7 @@
+(executables
+ ((names (main))
+  (libraries (orcml))
+  (preprocess (pps (ppx_jane)))
+  (flags (:standard -w -9))
+  (modes (shared_object))))
+(jbuild_version 1)
