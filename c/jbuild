@@ -1,5 +1,5 @@
 (executables
- ((names (main))
+ ((names (binding))
   (libraries (orcml))
   (preprocess (pps (ppx_jane)))
   (flags (:standard -w -9))
