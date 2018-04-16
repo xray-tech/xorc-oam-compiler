@@ -496,6 +496,7 @@ let dump_k {Inter.ffi; code} =
     | Const(Ast.Int i) -> sprintf "#constInt %i" i
     | Const(Ast.Bool v) -> sprintf "#constBool %b" v
     | Const(Ast.String v) -> sprintf "#constString \"%s\"" v
+    | Const(Ast.Signal) -> sprintf "#constSignal"
     | Closure(pc, to_copy) -> sprintf "#closure %i %i" pc to_copy
     | Coeffect(arg) -> sprintf "#coeffect %i" arg
     | _ -> "" in

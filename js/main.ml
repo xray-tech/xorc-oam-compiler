@@ -14,12 +14,10 @@ let jsify_error err =
 let jsify_result = function
   | Ok v -> object%js
     val ok = Js.some v
-    val error = Js.null
-  end
+  end |> Js.Unsafe.inject
   | Error err -> object%js
-    val ok = Js.null
     val error = Js.some err
-  end
+  end |> Js.Unsafe.inject
 
 let or_error x =
   x
@@ -135,7 +133,7 @@ let () =
             end))
         |> or_error
 
-      val _Debugger = object%js
+      val debugger = object%js
         method init inter =
           let (state, threads) = Debugger.init inter##.original in
           object%js

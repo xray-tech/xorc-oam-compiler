@@ -1,6 +1,6 @@
 /// <reference types="../../_build/default/js/main" />
 
-import 'bootstrap';
+import 'bootstrap'
 import "./css/main.scss"
 import * as monaco from 'monaco-editor';
 
@@ -10,18 +10,38 @@ import * as monaco from 'monaco-editor';
 
 (<any>self).MonacoEnvironment = {
     getWorkerUrl: function (moduleId: string, label: string) {
-        return './editor.worker.bundle.js';
+        if (label == "editorWorkerService") return './editor.worker.bundle.js'
+        else if (label == "orc") return "./app.worker.bundle.js"
+        else {
+            console.log("Can't load worker", moduleId, label);
+        }
     }
 }
-
 import * as Rx from 'rxjs/Rx'
 
 
-function isOk<T, U>(v: Orcml.Result<T, U>): v is { ok: T } {
+function isOk<T, U>(v: OrcmlNS.Result<T, U>): v is { ok: T } {
     return (<{ ok: T }>v).ok !== undefined;
 }
 
-function unwrap<T, U>(v: Orcml.Result<T, U>): T {
+function isError<T, U>(v: OrcmlNS.Result<T, U>): v is { error: U } {
+    return (<{ error: U }>v).error !== undefined;
+}
+
+interface MatchPattern<T, U, R> {
+    Ok: (v: T) => R;
+    Error: (v: U) => R;
+}
+
+function matchResult<T, U, R>(v: OrcmlNS.Result<T, U>, p: MatchPattern<T, U, R>): R {
+    if (isOk(v)) {
+        return p.Ok(v.ok)
+    } else if (isError(v)) {
+        return p.Error(v.error)
+    }
+}
+
+function unwrap<T, U>(v: OrcmlNS.Result<T, U>): T {
     if (isOk(v)) {
         return v.ok
     } else {
@@ -213,12 +233,7 @@ let runs = Rx.Observable.fromEvent(document.getElementById("run"), "click")
 
 let model = editor.getModel()
 
-runs.subscribe(() => {
-    let code = editor.getValue()
-    let bc = Orcml.compile(repo, code)
-    let inter = Orcml.inter(unwrap(bc))
-    let res = unwrap(inter).run()
-})
+
 
 
 let changes = new Rx.Observable(function (observer) {
@@ -226,9 +241,90 @@ let changes = new Rx.Observable(function (observer) {
     () => disp.dispose()
 })
 
-changes.subscribe(x => console.log(x))
+type WorkerReturnType<T> = T extends (...args: any[]) => number;
 
-let worker = monaco.editor.createWebWorker({ moduleId: "worker", label: "orc" })
+type WorkerProxy<T> = {
+    [P in keyof T]: WorkerReturnType<T[P]>;
+}
+
+
+let worker = Rx.Observable.fromPromise(monaco.editor.createWebWorker({ moduleId: "worker", label: "orc" }).getProxy()) as Rx.Observable<WorkerProxy<OrcmlNS.Orcml>>
+
+// class Rx.Observable {
+//     function mapResult(): Rx.Observable<T> {
+//         console.log(self)
+//         return self
+//     }
+// }
+
+function fromRes<T, U>(source: Rx.Observable<OrcmlNS.Result<T, U>>): Rx.Observable<T> {
+    return Rx.Observable.create((observer: Rx.Observer<T>) => {
+        source.subscribe(
+            v => {
+                if (isOk(v)) {
+                    observer.next(v.ok)
+                } else if (isError(v)) {
+                    observer.error(v.error)
+                }
+            },
+            err => observer.error(err),
+            () => observer.complete()
+        )
+    })
+}
+
+type Argument = string | boolean | number;
+
+interface ArgumentPattern<T> {
+    String: (s: string) => T;
+    Boolean: (b: boolean) => T;
+    Number: (n: number) => T;
+}
+
+function matchArgument<T>(p: ArgumentPattern<T>): (a: Argument) => T {
+    return (a: Argument): T => {
+        if (typeof a === 'string') {
+            return p.String(a);
+        } else if (typeof a === 'boolean') {
+            return p.Boolean(a);
+        } else if (typeof a === 'number') {
+            return p.Number(a);
+        }
+
+        throw new Error(`matchArgument: Could not match type ${typeof a}`);
+    };
+}
+
+function okMap<T, U, R>(f: (v: T) => R): (v: OrcmlNS.Result<T, U>) => OrcmlNS.Result<R, U> {
+    return v => {
+        if (isOk(v)) {
+            return { ok: f(v.ok) }
+        } else if (isError(v)) {
+            return v
+        }
+    }
+}
+
+let fromPromise = Rx.Observable.fromPromise
+
+Rx.Observable.combineLatest(worker, runs, (worker, _) => worker)
+    .mergeMap(worker =>
+        fromPromise(worker.compile(repo, model.getValue())))
+    .map(okMap(bc => fromPromise(worker.inter(bc))))
+    .subscribe(
+        v => matchResult(v, {
+            Ok: v => console.log("---Ok Res", v),
+            Error: v => console.log("---Err Log", v)
+        }))
+
+
+// runs.subscribe(() => {
+//     let code = editor.getValue()
+//     let bc = Orcml.compile(repo, code)
+//     let inter = Orcml.inter(unwrap(bc))
+//     let res = unwrap(inter).run()
+// })
+// changes.subscribe(x => console.log(x))
 
 monaco.editor.setModelMarkers(model, "linter",
     [{

@@ -285,7 +285,7 @@ let load_exts exts =
 
 let exec =
   Signal.handle Signal.terminating ~f:(fun _ ->
-    shutdown 0);
+      shutdown 0);
   let open Command.Let_syntax in
   Command.basic
     ~summary: "executes orc"
@@ -399,8 +399,8 @@ let tests_server =
         server None None
       | _ -> assert false)
   and handle_res inter ({Orcml.Res.instance} as v) =
-      write_result v;
-      server inter (Some instance) in
+    write_result v;
+    server inter (Some instance) in
   let open Command.Let_syntax in
   Command.basic
     ~summary: "tests-server. supports TestKit protocol"
@@ -424,3 +424,5 @@ let () =
      ("unblock", unblock);
      ("tests-server", tests_server)]
   |> Command.run
+
+

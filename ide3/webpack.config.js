@@ -4,6 +4,7 @@ module.exports = {
     mode: 'development',
     entry: {
         "app": "./src/index.ts",
+        "app.worker": './src/worker.js',
         "editor.worker": 'monaco-editor/esm/vs/editor/editor.worker.js',
         "json.worker": 'monaco-editor/esm/vs/language/json/json.worker',
     },
@@ -16,7 +17,8 @@ module.exports = {
         // Ignore require() calls in vs/language/typescript/lib/typescriptServices.js
         new webpack.IgnorePlugin(
             /^((fs)|(path)|(os)|(crypto)|(source-map-support))$/,
-            /vs\/language\/typescript\/lib/
+            /vs\/language\/typescript\/lib/,
+            /main\.bc\.js/
         )
     ],
 
