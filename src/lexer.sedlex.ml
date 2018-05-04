@@ -113,7 +113,8 @@ let rec token on_comment ({ buf } as lexbuf) =
         match%sedlex buf with
         | eof -> r.return (Result.Error (pos_with_start (), "Unclosed string"))
         | newline -> new_line (); store buffer; string buffer
-        | '\\' ->  escaped_char buffer
+        | "\\\\" -> Buffer.add_string buffer "\\"; string buffer
+        | '\\' -> escaped_char buffer
         | '"' -> Buffer.contents buffer
         | Plus (Compl ('"' | '\\' | '\r' | '\n')) -> store buffer; string buffer
         | _ -> assert false
