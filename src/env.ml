@@ -8,37 +8,37 @@ type prim_res = Inter0.prim_v =
   | PrimUnsupported
 
 type t = {
-  ffi_mapping : (string, int) Hashtbl.t;
-  mutable ffi : (string * prim) array;
+  ffc_mapping : (string, int) Hashtbl.t;
+  mutable ffc : (string * prim) array;
 }
 
 type snapshot = {
-  s_ffi : int array;
+  s_ffc : int array;
 }
 
 let t =
-  { ffi_mapping = Hashtbl.create (module String);
-    ffi = [||];}
+  { ffc_mapping = Hashtbl.create (module String);
+    ffc = [||];}
 
-let snapshot ffi =
+let snapshot ffc =
   with_return (fun r ->
-      let ffi' = Array.of_list_map ffi ~f:(fun k ->
-          match Hashtbl.find t.ffi_mapping k with
+      let ffc' = Array.of_list_map ffc ~f:(fun k ->
+          match Hashtbl.find t.ffc_mapping k with
           | Some(x) -> x
-          | None -> r.return (Error (`UnknownFFI k))) in
-      Ok { s_ffi = ffi' })
+          | None -> r.return (Error (`UnknownFFC k))) in
+      Ok { s_ffc = ffc' })
 
-let get_ffi snapshot i =
-  let (_name, impl) = t.ffi.(snapshot.s_ffi.(i)) in
+let get_ffc snapshot i =
+  let (_name, impl) = t.ffc.(snapshot.s_ffc.(i)) in
   impl
 
-let get_ffi_name snapshot i =
-  let (name, _impl) = t.ffi.(snapshot.s_ffi.(i)) in
+let get_ffc_name snapshot i =
+  let (name, _impl) = t.ffc.(snapshot.s_ffc.(i)) in
   name
 
-let register_ffi name prim =
-  Hashtbl.set t.ffi_mapping ~key:name ~data:(Array.length t.ffi);
-  t.ffi <- Array.append t.ffi [| (name, prim) |]
+let register_ffc name prim =
+  Hashtbl.set t.ffc_mapping ~key:name ~data:(Array.length t.ffc);
+  t.ffc <- Array.append t.ffc [| (name, prim) |]
 
 let to_string = function
   | Inter0.VConst(Ast.String x) -> x
@@ -47,13 +47,13 @@ let to_string = function
   (* TODO *)
   | _ -> "<value>"
 
-let pseudo_ffi = [ "core.make-pending"; "core.pending-read";
+let pseudo_ffc = [ "core.make-pending"; "core.pending-read";
                    "core.realize"; "core.is-realize";
                    "core.stop-pending" ]
 
 let () =
-  List.iter pseudo_ffi ~f:(fun x ->
-    register_ffi x (fun _ -> PrimUnsupported))
+  List.iter pseudo_ffc ~f:(fun x ->
+    register_ffc x (fun _ -> PrimUnsupported))
 
 let core = [
   ("core.let", function
@@ -248,4 +248,4 @@ let core = [
       | _ -> PrimUnsupported)]
 
 let () =
-  List.iter core ~f:(fun (name, f) -> register_ffi name f)
+  List.iter core ~f:(fun (name, f) -> register_ffc name f)

@@ -15,7 +15,7 @@ type compile_error =
 [@@deriving sexp_of]
 
 type inter_error =
-  [ `UnknownFFI of string ]
+  [ `UnknownFFC of string ]
 [@@deriving sexp_of]
 
 let to_string_hum = function
@@ -26,5 +26,5 @@ let to_string_hum = function
   | `UnboundVar({ Ast.Pos.start = {line; col} }, bind) ->
     Printf.sprintf "Unbound variable %s at line %i column %i" bind line col
   | `BadFormat -> "Binary message is bad formatted"
-  | `UnknownFFI def -> Printf.sprintf "Unsupported FFI call %s" def
+  | `UnknownFFC def -> Printf.sprintf "Unsupported FFC call %s" def
   | `UnknownReferedFunction(mod_, ident) -> Printf.sprintf "Unknown refered function %s:%s" mod_ ident

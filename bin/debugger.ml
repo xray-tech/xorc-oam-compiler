@@ -16,11 +16,11 @@ let print_trace = function
   | D.Coeffect { thread; id; desc; } ->
     print_endline (sprintf "\nCoeffect %d (thread #%d): %s" id thread
                      (Orcml.Value.to_string desc))
-  | D.Error { thread; ffi; args } ->
+  | D.Error { thread; ffc; args } ->
     let args = List.map args ~f:(fun x -> Orcml.Value.to_string x)
                |> String.concat ~sep:", " in
     print_endline (sprintf "\nError (thread #%d) while executing `%s`(%s)"
-                     thread ffi args)
+                     thread ffc args)
 
 let thread_position (module Loader : Lib.ModuleLoader) prog {Orcml.line; col; path} =
   let annotate prog = Lib.annotate_code ~before:1 ~after:1 prog line col "" in
