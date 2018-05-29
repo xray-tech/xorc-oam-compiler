@@ -104,7 +104,7 @@ let rec token on_comment ({ buf } as lexbuf) =
         | '%' -> MOD (lexeme ())
         | "**" -> POW (lexeme ())
         | ':' -> COLON (lexeme ())
-        | '`' -> set_start (); FFI (ffi (Buffer.create 0))
+        | '`' -> set_start (); FFC (ffc (Buffer.create 0))
         | integer -> INT (Int.of_string (lexeme ()))
         | float -> FLOAT (Float.of_string (lexeme ()))
         | id -> IDENT (lexeme ())
@@ -123,11 +123,11 @@ let rec token on_comment ({ buf } as lexbuf) =
         | eof -> r.return (Error (pos_with_start (), "Unexpected end of input"))
         | '"' -> store buffer; string buffer
         | _ -> r.return (Error (pos_with_start (),  "Invalid escape sequence"))
-      and ffi buffer =
+      and ffc buffer =
         match%sedlex buf with
-        | eof | newline -> r.return (Error (pos_with_start (),  "Unclosed ffi"))
+        | eof | newline -> r.return (Error (pos_with_start (),  "Unclosed ffc"))
         | '`' -> Buffer.contents buffer
-        | Plus (Compl ('`' | '\n')) -> store buffer; ffi buffer
+        | Plus (Compl ('`' | '\n')) -> store buffer; ffc buffer
         | _ -> assert false
       and read_comment buffer level =
         match%sedlex buf with

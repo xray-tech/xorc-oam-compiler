@@ -65,7 +65,7 @@ type e' =
   | EIdent of ident
   | EFieldAccess of e * string
   | ECall of e * ty list * e list
-  | EFFI of string * e list
+  | EFFC of string * e list
   | EStop
   | EList of e list
   | ETuple of e list

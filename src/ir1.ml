@@ -31,7 +31,7 @@ type e' =
   | EConst of Ast.const
   | EIdent of string
   | ECall of string * string list
-  | EFFI of string * string list
+  | EFFC of string * string list
   | EStop
   | EFix of (string * Var.t list * e) list * e
   | ERefer of string * string list * e
@@ -84,8 +84,8 @@ let rec translate' ((e, pos) as ast) =
     let call target params =
       (ECall(target, params), ast)
 
-    let ffi target params =
-      (EFFI(target, params), ast)
+    let ffc target params =
+      (EFFC(target, params), ast)
 
     let otherwise left right =
       (EOtherwise(left, right), ast)
@@ -119,24 +119,24 @@ let rec translate' ((e, pos) as ast) =
         DSL.(deflate' (const x) (fun x' ->
             deflate' (call "=" [focus; x']) (fun is_eq ->
                 seqw
-                  (ffi "core.ift" [is_eq])
+                  (ffc "core.ift" [is_eq])
                   (expr ()))))
       | A.PTuple(ps) ->
         DSL.(deflate' (const (A.Int (List.length ps))) (fun arity ->
-            seqw (ffi "core.arity-check" [focus; arity])
+            seqw (ffc "core.arity-check" [focus; arity])
               (unravel_tuple ps 0 focus expr)))
       | A.PCons(head, tail) ->
         let head' = make_fresh () in
         let tail' = make_fresh () in
         DSL.(seq
-               (ffi "core.first" [focus]) (Var.Generated head')
+               (ffc "core.first" [focus]) (Var.Generated head')
                (seq
-                  (ffi "core.rest" [focus]) (Var.Generated tail')
+                  (ffc "core.rest" [focus]) (Var.Generated tail')
                   (unravel head head' (fun () ->
                        unravel tail tail' expr))))
       | A.PList(ps) ->
         DSL.(deflate' (const (A.Int (List.length ps))) (fun size ->
-            seqw (ffi "core.list-check-size" [focus; size])
+            seqw (ffc "core.list-check-size" [focus; size])
               (unravel_list ps focus expr)))
       | A.PRecord(pairs) ->
         unravel_record pairs focus expr
@@ -151,7 +151,7 @@ let rec translate' ((e, pos) as ast) =
         let bind = make_fresh () in
         DSL.(deflate' (const (A.String f)) (fun field ->
             seq
-              (ffi "core.field-access" [focus; field])
+              (ffc "core.field-access" [focus; field])
               (Var.Generated bind)
               (unravel p bind (fun () ->
                    unravel_record pairs' focus expr))))
@@ -162,9 +162,9 @@ let rec translate' ((e, pos) as ast) =
         let head' = make_fresh () in
         let tail' = make_fresh () in
         DSL.(seq
-               (ffi "core.first" [focus]) (Var.Generated head')
+               (ffc "core.first" [focus]) (Var.Generated head')
                (seq
-                  (ffi "core.rest" [focus]) (Var.Generated tail')
+                  (ffc "core.rest" [focus]) (Var.Generated tail')
                   (unravel p head' (fun () ->
                        unravel_list ps' tail' expr))))
     and unravel_tuple ps i focus expr =
@@ -176,7 +176,7 @@ let rec translate' ((e, pos) as ast) =
             seq (call focus [i']) (Var.Generated bind) (unravel p bind (fun () ->
                 unravel_tuple ps' (i + 1) focus expr)))) in
     let on_source () = if List.length !bindings > 0
-      then DSL.ffi "core.make-tuple" (List.map !bindings ~f:(fun (b, _, _) -> b))
+      then DSL.ffc "core.make-tuple" (List.map !bindings ~f:(fun (b, _, _) -> b))
       else DSL.const A.Signal in
     let on_target bridge target =
       if List.length !bindings > 0
@@ -203,12 +203,12 @@ let rec translate' ((e, pos) as ast) =
     let target_binding = make_fresh () in
     DSL.(seq
            (otherwise
-              (seq source (Var.Generated res) (ffi "core.wrap-some" [res]))
-              (ffi "core.get-none" []))
+              (seq source (Var.Generated res) (ffc "core.wrap-some" [res]))
+              (ffc "core.get-none" []))
            (Var.Generated maybe_res)
            (par
-              (seq (ffi "core.unwrap-some" [maybe_res]) (Var.Generated target_binding) (target target_binding))
-              (seqw (ffi "core.is-none" [maybe_res]) else_)))
+              (seq (ffc "core.unwrap-some" [maybe_res]) (Var.Generated target_binding) (target target_binding))
+              (seqw (ffc "core.is-none" [maybe_res]) else_)))
   and translate_clauses defs =
     let rebind_vars vars expr =
       List.fold vars ~init:expr ~f:(fun acc (p, binding) ->
@@ -218,12 +218,12 @@ let rec translate' ((e, pos) as ast) =
     let clause' vars strict else_ guard body =
       let stricted_values = make_fresh () in
       let pattern = Ast.PTuple (List.map strict ~f:(fun (x, _) -> x)) in
-      let values = DSL.ffi "core.make-tuple" (List.map strict ~f:(fun (_, x) -> x)) in
+      let values = DSL.ffc "core.make-tuple" (List.map strict ~f:(fun (_, x) -> x)) in
       let (source, on_target) = translate_pattern (pattern, pos) stricted_values in
       let source' = match guard with
         | Some(v) -> DSL.(let bind = make_fresh () in
                           let guarded = deflate v (fun res ->
-                              (seqw (ffi "core.ift" [res]) (ident bind))) in
+                              (seqw (ffc "core.ift" [res]) (ident bind))) in
                           seq source (Var.Generated bind) (on_target bind (rebind_vars vars guarded)))
         | None -> source in
       let body' = rebind_vars vars body in
@@ -291,10 +291,10 @@ let rec translate' ((e, pos) as ast) =
            (seq source (Var.Generated bridge) (on_target bridge (translate' e2))))
   | A.EList(es) ->
     deflate_many es (fun es' ->
-        (EFFI("core.make-list", es'), ast))
+        (EFFC("core.make-list", es'), ast))
   | A.ETuple(es) ->
     deflate_many es (fun es' ->
-        (EFFI("core.make-tuple", es'), ast))
+        (EFFC("core.make-tuple", es'), ast))
   | A.ERecord(pairs) ->
     let (keys, vals) = List.unzip pairs in
     let key_consts = (List.map keys ~f:(fun k ->
@@ -303,25 +303,25 @@ let rec translate' ((e, pos) as ast) =
         deflate_many vals (fun vals' ->
             let args = List.fold2_exn keys' vals' ~init:[] ~f:(fun acc k v ->
                 k::v::acc) in
-            (EFFI("core.make-record", args), ast) ))
+            (EFFC("core.make-record", args), ast) ))
   | A.ECond(pred, then_, else_) ->
     DSL.(
       deflate pred (fun pred' ->
           par
-            (seqw (ffi "core.ift" [pred']) (translate' then_))
-            (seqw (ffi "core.iff" [pred']) (translate' else_))))
+            (seqw (ffc "core.ift" [pred']) (translate' then_))
+            (seqw (ffc "core.iff" [pred']) (translate' else_))))
   | A.EConst c -> (EConst(c), ast)
   (* special case for unary operator '-' *)
   | A.ECall((EIdent "-", _), _, [arg]) ->
     deflate arg (fun arg' ->
-        (EFFI("core.sub", [arg']), ast))
+        (EFFC("core.sub", [arg']), ast))
   | A.ECall(e, _, args) ->
     deflate e (fun e' ->
         deflate_many args (fun args' ->
             (ECall(e', args'), ast)))
-  | A.EFFI(target, args) ->
+  | A.EFFC(target, args) ->
     deflate_many args (fun args' ->
-        (EFFI(target, args'), ast))
+        (EFFC(target, args'), ast))
 
   | A.EStop -> (EStop, ast)
   | A.ELambda(_, params, _, body) ->
@@ -336,7 +336,7 @@ let rec translate' ((e, pos) as ast) =
   | A.EFieldAccess(target, field) ->
     deflate target (fun t ->
         deflate (A.EConst(A.String field), A.Pos.dummy_range) (fun f ->
-            (EFFI("core.field-access", [t; f]), ast)))
+            (EFFC("core.field-access", [t; f]), ast)))
   | A.EDecl((DRefer(ns, fs), _), e) ->
     deps := ns::!deps;
     (ERefer(ns, fs, translate' e), ast)

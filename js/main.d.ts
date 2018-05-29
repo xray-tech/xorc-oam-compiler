@@ -24,8 +24,8 @@ namespace Orcml {
         msg: string
     }
 
-    interface UnknownFFI {
-        kind: "unknown-ffi",
+    interface UnknownFFC {
+        kind: "unknown-ffc",
         msg: string
     }
 
@@ -44,7 +44,7 @@ namespace Orcml {
     interface Orcml {
         makeRepository(): Repository
         compile(repository: Repository, code: string): Result<ByteCode, CompileError>
-        inter(bc: ByteCode): Result<Inter, UnknownFFI>
+        inter(bc: ByteCode): Result<Inter, UnknownFFC>
 
         debugger: Debugger
     }
@@ -75,7 +75,7 @@ namespace Orcml {
         { newThread: number } |
         { haltedThread: number } |
         { coeffect: number, thread: number, desc: Value } |
-        { ffiError: string, thread: string, args: Value[] }
+        { ffcError: string, thread: string, args: Value[] }
 
     interface Debugger {
         init(inter: Inter): { state: State, threads: Thread[] }
@@ -111,7 +111,7 @@ declare var Orcml: Orcml.Orcml
 // | NewThread of int
 // | HaltedThread of int
 // | Coeffect of { thread : int; id : int; desc : Value.t }
-// | Error of { thread : int; ffi : string; args : Value.t list}
+// | Error of { thread : int; ffc : string; args : Value.t list}
 
 
     // function Debugger(inter: Inter) : Debugger

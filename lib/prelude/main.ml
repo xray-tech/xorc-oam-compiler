@@ -12,11 +12,11 @@ let to_string = function
 
 
 let () =
-  register_ffi "core.let" (function
+  register_ffc "core.let" (function
       | [| |] -> PrimVal(VConst Const.Signal)
       | [| v |] -> PrimVal v
       | vals -> PrimVal(VTuple (Array.to_list vals)));
-  register_ffi "core.plus" (function
+  register_ffc "core.plus" (function
       | [| VConst(Const.Int x); VConst(Const.Int y) |] ->
         PrimVal (VConst(Const.Int(x + y)))
       | [| VConst(Float x); VConst(Const.Float y) |] ->

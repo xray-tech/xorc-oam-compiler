@@ -25,7 +25,7 @@ type t' =
   | Pruning of c * Var.t option * c
   | Sequential of c * Var.t option * c
   | Call of call_target * int array
-  | FFI of int * int array
+  | FFC of int * int array
   | TailCall of call_target * int array
   | Coeffect of int
   | Stop
@@ -78,7 +78,7 @@ type code = (int * Var.t list * t array) array
 [@@deriving sexp_of, compare]
 
 type bc = {
-  ffi : string list;
+  ffc : string list;
   code : code;
 } [@@deriving sexp_of, compare]
 

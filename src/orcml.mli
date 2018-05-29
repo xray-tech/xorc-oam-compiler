@@ -59,7 +59,7 @@ type compile_error =
 type error = [ parse_error | compile_error ]
 
 type inter_error =
-  [ `UnknownFFI of string]
+  [ `UnknownFFC of string]
 
 val error_to_string_hum : [< parse_error
                           | parse_value_error
@@ -76,7 +76,7 @@ module Env : sig
     | PrimHalt
     | PrimUnsupported
 
-  val register_ffi : string -> (Value.t array -> prim_res) -> unit
+  val register_ffc : string -> (Value.t array -> prim_res) -> unit
 end
 
 module Repository : sig
@@ -172,7 +172,7 @@ module Debugger : sig
     | NewThread of int
     | HaltedThread of int
     | Coeffect of { thread : int; id : int; desc : Value.t }
-    | Error of { thread : int; ffi : string; args : Value.t list}
+    | Error of { thread : int; ffc : string; args : Value.t list}
 
   type trace = action list
   val init : inter -> (state * threads)

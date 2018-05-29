@@ -22,7 +22,7 @@ let deserialize_const = function
   | M.Bool x -> Ok(Ast.Bool x)
   | _ -> Error(`BadFormat)
 
-let dump {Inter.ffi; code} =
+let dump {Inter.ffc; code} =
   let array_to_list_map a ~f =
     Array.to_sequence a |> Sequence.map ~f |> Sequence.to_list in
   let obj = array_to_list_map code ~f:(fun (i, _, ecode) ->
@@ -59,13 +59,13 @@ let dump {Inter.ffi; code} =
                    | Inter.Const(v) -> [M.Int 8; serialize_const v]
                    | Inter.Closure(p, to_copy) -> [M.Int 9; M.Int p; M.Int to_copy]
                    | Inter.Label(p) -> [M.Int 10; M.Int p]
-                   | Inter.FFI(target, args) ->
+                   | Inter.FFC(target, args) ->
                      [M.Int 11;
                       M.Int target;
                       M.List (array_to_list_map args ~f:(fun i -> M.Int i))]
                  ))))) in
-  let ffi' = M.List(List.map ffi ~f:(fun x -> M.String x)) in
-  M.List [ffi'; M.List obj]
+  let ffc' = M.List(List.map ffc ~f:(fun x -> M.String x)) in
+  M.List [ffc'; M.List obj]
 
 let load packed =
   with_return (fun r ->
@@ -114,19 +114,19 @@ let load packed =
               | M.Int x -> x
               | _ -> bad_format ())
                       |> Array.of_list in
-          Inter.FFI(target, args')::(des_fun xs)
+          Inter.FFC(target, args')::(des_fun xs)
 
         | _ -> bad_format () in
       match packed with
-      | M.List[M.List ffi_raw; M.List code_raw] ->
-        let ffi = List.map ffi_raw ~f:(function
+      | M.List[M.List ffc_raw; M.List code_raw] ->
+        let ffc = List.map ffc_raw ~f:(function
             | M.String s -> s
             | _ -> bad_format ()) in
         let code = Array.of_list (List.map code_raw ~f:(function
             | M.List ((M.Int i)::(M.Int _ops)::xs) ->
               (i, [], Array.of_list (List.map (des_fun xs) ~f:(fun op -> (op, Ast.Pos.dummy))))
             | _ -> bad_format ())) in
-        Ok({Inter.ffi; code})
+        Ok({Inter.ffc; code})
       | _ -> bad_format ())
 
 open Inter
@@ -468,9 +468,9 @@ let load_no_linker v =
   | Error(`BadFormat) as err -> err
   | Error(`LinkerError _) -> assert false
 
-let dump_k {Inter.ffi; code} =
+let dump_k {Inter.ffc; code} =
   let open Printf in
-  let k_ffi = List.mapi ffi ~f:(fun i def -> sprintf "  %i \"%s\"" i def)
+  let k_ffc = List.mapi ffc ~f:(fun i def -> sprintf "  %i \"%s\"" i def)
               |> String.concat ~sep:"\n" in
   let k_op' = function
     | Parallel(left, right) -> sprintf "#parallel %i %i" left right
@@ -487,11 +487,11 @@ let dump_k {Inter.ffi; code} =
                   |> Array.to_list
                   |> String.concat ~sep:", " in
       sprintf "%s [ %s ]" target' args'
-    | FFI(target, args) ->
+    | FFC(target, args) ->
       let args' = Array.map args ~f:Int.to_string
                   |> Array.to_list
                   |> String.concat ~sep:", " in
-      sprintf "#ffi %i [ %s ]" target args'
+      sprintf "#ffc %i [ %s ]" target args'
     | Stop -> "#stop"
     | Const(Ast.Int i) -> sprintf "#constInt %i" i
     | Const(Ast.Bool v) -> sprintf "#constBool %b" v
@@ -510,4 +510,4 @@ let dump_k {Inter.ffi; code} =
   let k_funs = Array.mapi code ~f:k_fun
                |> Array.to_list
                |> String.concat ~sep:"\n\n" in
-  sprintf "ffi {\n%s\n}\n\n%s\n" k_ffi k_funs
+  sprintf "ffc {\n%s\n}\n\n%s\n" k_ffc k_funs
