@@ -53,21 +53,22 @@ def afold(f, xs) =
   afold(f, afold'(xs))
 
 
--- def cfold[A](lambda (A, A) :: A, List[A]) :: A
--- def cfold(f, []) = stop
--- def cfold(f, [x]) = x
--- def cfold(f, [x,y]) = f(x,y)
--- def cfold(f, L) =
---   val c = Channel[A]()
---   def work(Number, List[A]) :: A
---   def work(i, x:y:rest) =
---     c.put(f(x,y)) >> stop | work(i+1, rest)
---   def work(i, [x]) = c.put(x) >> stop | work(i+1, [])
---   def work(i, []) =
---     if (i <: 2) then c.get()
---     else c.get() >x> c.get() >y>
---        ( c.put(f(x,y)) >> stop | work(i-1,[]) )
---   work(0, L)
+sig cfold[A](lambda (A, A) :: A, List[A]) :: A
+def cfold(f, []) = stop
+def cfold(f, [x]) = x
+def cfold(f, [x,y]) = f(x,y)
+def cfold(f, L) =
+   refer from state (Channel)
+   val c = Channel[A]()
+   sig work(Number, List[A]) :: A
+   def work(i, x:y:rest) =
+     c.put(f(x,y)) >> stop | work(i+1, rest)
+   def work(i, [x]) = c.put(x) >> stop | work(i+1, [])
+   def work(i, []) =
+     if (i <: 2) then c.get()
+     else c.get() >x> c.get() >y>
+        ( c.put(f(x,y)) >> stop | work(i-1,[]) )
+   work(0, L)
 
 def zipWith(_, [], _) = []
 def zipWith(_, _, []) = []
