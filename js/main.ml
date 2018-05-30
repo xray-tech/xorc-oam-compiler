@@ -7,7 +7,7 @@ let jsify_error err =
     | `SyntaxError _ -> "syntax-error"
     | `UnboundVar _ -> "unbound-var"
     | `UnknownReferedFunction _ -> "unknown-refered-funtion"
-    | `UnknownFFI _ -> "unknown-ffi" in
+    | `UnknownFFI _ -> "unknown-ffc" in
   let msg = error_to_string_hum err in
   object%js val kind = kind val msg = msg end
 
@@ -107,9 +107,9 @@ let jsify_action = function
       val thread = thread
       val desc = jsify_value desc
     end |> Js.Unsafe.inject
-  | Error { thread; ffi; args } ->
+  | Error { thread; ffc; args } ->
     object%js
-      val ffiError = Js.string ffi
+      val ffcError = Js.string ffc
       val thread = thread
       val args = Array.of_list args |> Array.map ~f:jsify_value
     end |> Js.Unsafe.inject

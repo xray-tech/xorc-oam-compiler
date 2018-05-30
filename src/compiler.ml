@@ -45,7 +45,7 @@ let compile_unit_equal a b =
 
 type state = {
   repository: Repository.t;
-  mutable ffi_in_use : string list;
+  mutable ffc_in_use : string list;
   mutable repo : (string * string * int * I.Var.t list * I.t array) list;
   mutable compile_queue : unit list;
 }
@@ -86,15 +86,15 @@ let get_import_label state (mod_, ident) =
       | Some(i) -> Some(i)
       | None -> Some(f 0 state.compile_queue))
 
-let get_ffi state def =
+let get_ffc state def =
   let rec f = function
     | [] ->
-      state.ffi_in_use <- def::state.ffi_in_use;
-      len state.ffi_in_use - 1
+      state.ffc_in_use <- def::state.ffc_in_use;
+      len state.ffc_in_use - 1
     | x::xs when String.equal x def ->
       len xs
     | _::xs -> f xs in
-  f state.ffi_in_use
+  f state.ffc_in_use
 
 let free_vars init e =
   let rec step ctx (e, (_ast_e, pos)) =
@@ -124,7 +124,7 @@ let free_vars init e =
       step ctx' e
     | ECall(target, params) ->
       (if_out_of_scope target) @ (List.concat_map params ~f:if_out_of_scope)
-    | EFFI(_, params) ->
+    | EFFC(_, params) ->
       List.concat_map params ~f:if_out_of_scope
     | EConst _ | EStop | EModule -> [] in
   step (List.map init ~f:(fun ident -> (ident, BindVar))) e
@@ -227,7 +227,7 @@ let compile_e env e =
         | EIdent x ->
           (match ctx_find x with
            | (_, BindVar) ->
-             (EFFI ("core.let", [x]), (ast_e, pos_range))
+             (EFFC ("core.let", [x]), (ast_e, pos_range))
              |> compile_e' env
            | (_, BindFun unit) ->
              let c = get_label env.state unit in
@@ -324,17 +324,17 @@ let compile_e env e =
           let ctx' = (List.map fs ~f:(fun name ->
               (name, BindMod(ns, name)))) @ env.ctx in
           compile_e' { env with ctx = ctx' } e
-        | EFFI(def, args) ->
+        | EFFC(def, args) ->
           if need_preprocess args
           then preprocess_args args (ast_e, pos_range) (fun args' ->
-              (EFFI(def, args'), (ast_e, pos_range)))
+              (EFFC(def, args'), (ast_e, pos_range)))
                |> compile_e' env
           else
             let args' = List.map args ~f:(fun arg ->
                 match ctx_find arg with
                 | (i, BindVar) -> i
                 | _ -> assert false) in
-            (0, [(I.FFI(get_ffi env.state def, Array.of_list args'), pos)])
+            (0, [(I.FFC(get_ffc env.state def, Array.of_list args'), pos)])
         | EStop -> (0, [(I.Stop, pos)]) in
       Ok(compile_e' env e))
 
@@ -369,7 +369,7 @@ let compile ~repository ~prelude e =
           (ident, BindMod(mod_, ident))) in
       let state = { repository = repository;
                     repo = [];
-                    ffi_in_use = [];
+                    ffc_in_use = [];
                     compile_queue = [{orc_module = "";
                                       ident = "'main";
                                       is_closure = false;
@@ -399,7 +399,7 @@ let compile ~repository ~prelude e =
       compile_loop ();
       let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, params, body) ->
           (size, params, body)) in
-      Ok({I.ffi = List.rev state.ffi_in_use; code}))
+      Ok({I.ffc = List.rev state.ffc_in_use; code}))
 
 let rec add_module' ctx orc_module = function
   | Ir1.EModule ->

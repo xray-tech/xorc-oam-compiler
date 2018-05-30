@@ -138,7 +138,7 @@ let dump_flag =
 
 let error_to_string_hum (module Loader : Lib.ModuleLoader) prog = function
   | `CantLoadMod mod_ -> return (sprintf "Can't load module %s" mod_)
-  | (`NoInput | `BadFormat | `UnsupportedValueAST | `UnknownFFI _ | `UnknownReferedFunction _) as other ->
+  | (`NoInput | `BadFormat | `UnsupportedValueAST | `UnknownFFC _ | `UnknownReferedFunction _) as other ->
     return (Orcml.error_to_string_hum other)
   | `SyntaxError ({Orcml.line; col; path}, _) | `UnboundVar ({Orcml.start = {line; col; path}}, _) as err ->
     let msg = Orcml.error_to_string_hum err in

@@ -29,7 +29,7 @@
 %token NUMBER_SIGN
 %token COMMA DOT
 %token LESS MORE
-%token <string> FFI
+%token <string> FFC
 %token BAR SEMICOLON
 %token SIG DOUBLE_COLON TOVERRIDE
 %token <string> ASSIGN ADD SUB MULT DIV EQ NOT_EQ GT LT GTE LTE POW MOD AND OR NOT COLON DEREFERENCE
@@ -105,8 +105,8 @@ expr:
   | target=expr t_args=type_args ar=args 
    { (ECall(target, t_args, ar),
       make_pos $startpos $endpos) }
-  | target=FFI ar=args
-   { (EFFI(target, ar),
+  | target=FFC ar=args
+   { (EFFC(target, ar),
       make_pos $startpos $endpos) }
   | e1=expr BAR e2=expr
     { (EParallel(e1, e2),

@@ -23,12 +23,12 @@ let rec to_json = function
   | VClosure _ | VLabel _ -> `String "<fun>"
 
 let () =
-  register_ffi "json.parse" (function
+  register_ffc "json.parse" (function
       | [| VConst(Const.String x) |] ->
         (try PrimVal (to_v (Yojson.Basic.from_string x)) with
          | _ -> PrimHalt)
       | _ -> PrimUnsupported);
-  register_ffi "json.generate" (function
+  register_ffc "json.generate" (function
       | [| x |] ->
         let s = Yojson.Basic.to_string (to_json x) in
         PrimVal(VConst (Const.String s))

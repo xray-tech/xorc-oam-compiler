@@ -62,7 +62,7 @@ module D = struct
     | NewThread of int
     | HaltedThread of int
     | Coeffect of { thread: int; id: int; desc: v }
-    | Error of { thread : int; ffi : string; args : v list}
+    | Error of { thread : int; ffc : string; args : v list}
 
   type trace = action list
 end
@@ -223,18 +223,18 @@ and tick
             values.(i) <- v;
             step (i + 1) in
       step 0 in
-  let call_ffi index args =
+  let call_ffc index args =
     match realized_multi args with
     | `Pending p ->
       p.pend_waiters <- thread::p.pend_waiters;
       ([], [])
     | `Stopped -> halt state thread
     | `Values args' ->
-      let name = Env.get_ffi_name inter.env_snapshot index in
+      let name = Env.get_ffc_name inter.env_snapshot index in
       let unsupported () =
         concat2 [halt state thread;
                  ([], [D.Error { thread = thread.id;
-                                 ffi = name;
+                                 ffc = name;
                                  args = Array.to_list args'}])] in
       match name with
       | "core.make-pending" ->
@@ -275,7 +275,7 @@ and tick
            publish_and_halt state thread (VConst Ast.Signal)
          | _ -> unsupported ())
       | name ->
-        let impl = Env.get_ffi inter.env_snapshot index in
+        let impl = Env.get_ffc inter.env_snapshot index in
         (* Stdio.eprintf "---CALL %i\n" prim;
          * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
         match impl args' with
@@ -383,8 +383,8 @@ and tick
        instance.blocks <- (coeff_id, thread')::instance.blocks;
        instance.current_coeffect <- instance.current_coeffect + 1;
        ([], [D.Coeffect { thread = thread.id; id = coeff_id; desc = descr}]))
-  | FFI(target, args) ->
-    call_ffi target args
+  | FFC(target, args) ->
+    call_ffc target args
   | TailCall(TDynamic(_), _) -> raise Util.TODO
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
@@ -446,9 +446,9 @@ let run inter =
         killed;
         instance = state.instance}
 
-let inter {ffi; code} =
+let inter {ffc; code} =
   let open Result.Let_syntax in
-  let%map env_snapshot = Env.snapshot ffi in
+  let%map env_snapshot = Env.snapshot ffc in
   { code; env_snapshot }
 
 
