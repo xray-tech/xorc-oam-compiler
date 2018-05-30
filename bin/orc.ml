@@ -89,7 +89,11 @@ let implicit_prelude =
              "member"; "merge"; "mergeBy"; "sort"; "sortBy"; "mergeUnique";
              "mergeUniqueBy"; "sortUnique"; "sortUniqueBy"; "group"; "groupBy";
              "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
-             "minimum"; "maximum"])]
+             "minimum"; "maximum"]);
+   ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
+   ("time", ["Rwait"]);
+   ("util", ["for"; "upto"])
+  ]
 
 let compile_source loader include_prelude prog =
   let (module Loader : Lib.ModuleLoader) = loader in

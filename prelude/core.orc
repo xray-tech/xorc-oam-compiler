@@ -25,8 +25,6 @@ def Let(x) = `core.let`(x)
 def Println(x) = Coeffect({. kind = "println", value = x .})
 def Error(x) = Println("Error: " + x)
 
-def Rwait(x) = Coeffect({. kind = "rwait", timeout = x .})
-
 def abs(x) = if x <: 0 then -x else x
 
 def signum(x) =

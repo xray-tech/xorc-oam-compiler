@@ -115,3 +115,7 @@ def (?)(r) = r.read()
 def (:=)(r,v) = r.write(v)
 
 def swap(r,s) = (r?,s?) >(rval,sval)> (r := sval, s := rval) >> signal
+
+def fst((x,_)) = x
+
+def snd((_,y)) = y
