@@ -62,7 +62,7 @@ spec:
         stage('Build image') {
             container('docker') {
                 sh("docker login -u _json_key --password-stdin https://eu.gcr.io < /etc/service-account/xray2poc.json")
-                sh("docker build -t ${image} re")
+                sh("docker build -t ${image} .")
                 sh("docker push ${image}")
             }
         }
