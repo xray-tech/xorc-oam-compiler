@@ -58,12 +58,15 @@ spec:
             userRemoteConfigs: scm.userRemoteConfigs
         ])
         def gitCommit = scmVars.GIT_COMMIT
-        def image = "eu.gcr.io/xray2poc/orc:${gitCommit}"
+        def repository = "eu.gcr.io/xray2poc/orc"
+        def image = "${repository}:${gitCommit}"
         stage('Build image') {
             container('docker') {
                 sh("docker login -u _json_key --password-stdin https://eu.gcr.io < /etc/service-account/xray2poc.json")
                 sh("docker build -t ${image} .")
+                sh("docker tag ${image} ${repository}:latest")
                 sh("docker push ${image}")
+                sh("docker push ${repository}:latest")
             }
         }
 
