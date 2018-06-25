@@ -1,7 +1,7 @@
 (executables
  ((names (orc))
-  (libraries (orcml orcml_testkit benchmark core async async_extended dynlink))
-  (preprocess (pps (ppx_jane)))
+  (libraries (orcml orcml_testkit ppx_static benchmark core async async_extended dynlink))
+  (preprocess (pps (ppx_static ppx_jane)))
   (flags (:standard -w -9))))
 
 (jbuild_version 1)

@@ -75,6 +75,14 @@ let empty_loader =
     let all_modules () = return []
   end : Lib.ModuleLoader)
 
+let static_loader modules =
+  (module struct
+    let load mod_ = return (List.Assoc.find modules ~equal:String.equal mod_)
+    let all_modules () = return (List.map modules ~f:Tuple2.get1)
+  end : Lib.ModuleLoader)
+
+let static_prelude = static_loader [%static_modules_dir "../../prelude"]
+
 let implicit_prelude =
   [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
              ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
@@ -175,8 +183,8 @@ let compile =
       let exec () =
         let open Async.Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (List.map includes ~f:fs) in
         let%bind res = compile_source loader prelude prog  in
+        let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
         (match res with
          | Error(err) ->
            let%bind message = error_to_string_hum loader (Some prog) err in
@@ -306,8 +314,8 @@ let exec =
         let open Deferred.Let_syntax in
         load_exts exts;
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (List.map includes ~f:fs) in
         compile_input_and_deps prelude loader bc prog
+        let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
         >>= fun inter ->
         if debugger
         then
