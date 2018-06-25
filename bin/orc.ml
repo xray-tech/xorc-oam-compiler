@@ -128,9 +128,9 @@ let compile_input prelude loader is_byte_code prog =
   then compile_bc prog
   else compile_source loader prelude prog
 
-let prelude_flag =
+let no_prelude_flag =
   let open Command.Param in
-  flag "-prelude" no_arg ~doc:"Implicity refer whole prelude"
+  flag "-no-prelude" no_arg ~doc:"Do not implicity refer whole prelude"
 
 let includes_flag =
   let open Command.Param in
@@ -178,13 +178,13 @@ let compile =
       and output = flag "-output" (optional file) ~doc:"Output path"
       and k = flag "-k" no_arg ~doc:"Output in K format"
       and includes = includes_flag
-      and prelude = prelude_flag
+      and no_prelude = no_prelude_flag
       and verbose = verbose_flag in
       let exec () =
         let open Async.Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
-        let%bind res = compile_source loader prelude prog  in
         let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
+        let%bind res = compile_source loader (not no_prelude) prog  in
         (match res with
          | Error(err) ->
            let%bind message = error_to_string_hum loader (Some prog) err in
@@ -304,7 +304,7 @@ let exec =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and bc = bc_flag
-      and prelude = prelude_flag
+      and no_prelude = no_prelude_flag
       and dump = dump_flag
       and includes = includes_flag
       and exts = exts_flag
@@ -314,8 +314,8 @@ let exec =
         let open Deferred.Let_syntax in
         load_exts exts;
         let%bind prog = read_file_or_stdin input in
-        compile_input_and_deps prelude loader bc prog
         let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
+        compile_input_and_deps (not no_prelude) loader bc prog
         >>= fun inter ->
         if debugger
         then
@@ -357,7 +357,7 @@ let unblock =
     [%map_open
       let input = anon (maybe ("INPUT" %: file))
       and bc = bc_flag
-      and prelude = prelude_flag
+      and no_prelude = no_prelude_flag
       and dump = dump_flag
       and load = flag "-load" (required file) ~doc:"Serialized state"
       and id = flag "-id" (required int)  ~doc:"Coeffect's id"
@@ -368,7 +368,7 @@ let unblock =
         let open Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
         let loader = multiloader (List.map includes ~f:fs) in
-        compile_input_and_deps prelude loader bc prog
+        compile_input_and_deps (not no_prelude) loader bc prog
         >>= fun inter ->
         load_instance load >>= fun instance ->
         parse_value value >>= fun value' ->
