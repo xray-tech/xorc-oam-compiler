@@ -227,6 +227,18 @@ and tick
             values.(i) <- v;
             step (i + 1) in
       step 0 in
+  let call_tuple vs args =
+    (* TODO log errors *)
+    (match realized args.(0) with
+     | `Pending p ->
+       p.pend_waiters <- thread::p.pend_waiters;
+       ([], [])
+     | `Stopped -> raise Util.TODO
+     | `Value(VConst(Ast.Int i)) ->
+       (match List.nth vs i with
+        | Some v -> publish_and_halt state thread v
+        | None -> halt state thread)
+     | `Value(_) -> halt state thread) in
   let call_ffc index args =
     match realized_multi args with
     | `Pending p ->
@@ -368,16 +380,10 @@ and tick
                        stack = (frame::stack);
                        env = env''}],
         call_bindings thread args)
-     | `Value(VTuple(vs)) ->
-       (match realized args.(0) with
-        | `Pending p ->
-          p.pend_waiters <- thread::p.pend_waiters;
-          ([], [])
-        | `Stopped -> raise Util.TODO
-        | `Value(VConst(Ast.Int i)) ->
-          publish_and_halt state thread (List.nth_exn vs i)
-        | `Value(_) -> raise Util.TODO)
-     | `Value(_) -> raise Util.TODO)
+     | `Value(VTuple(vs)) -> call_tuple vs args
+     | `Value(_) ->
+       (* TODO log error *)
+       halt state thread)
   | Coeffect arg ->
     (match realized arg with
      | `Pending p ->
@@ -393,7 +399,37 @@ and tick
        ([], [D.Coeffect { thread = thread.id; id = coeff_id; desc = descr}]))
   | FFC(target, args) ->
     call_ffc target args
-  | TailCall(TDynamic(_), _) -> raise Util.TODO
+  | TailCall(TDynamic(i), args) ->
+    (match realized i with
+     | `Pending p ->
+       p.pend_waiters <- thread::p.pend_waiters;
+       ([], [])
+     | `Stopped -> halt state thread
+     | `Value(VClosure(pc', to_copy, closure_env)) ->
+       let (size, vars, f_code) = get_code inter pc' in
+       let env' = if size > Array.length env
+         then alloc_env size
+         else env in
+       let env'' = copy_env ~offset:to_copy ~from:env ~to_:env' ~vars ~args in
+       for i = 0 to to_copy - 1 do
+         env''.(i) <- closure_env.(i)
+       done;
+       ([{ thread with op = (pc', Array.length f_code - 1);
+                       env = env''}],
+        call_bindings thread args)
+     | `Value(VLabel(pc')) ->
+       let (size, vars, f_code) = get_code inter pc' in
+       let env' = if size > Array.length env
+         then alloc_env size
+         else env in
+       let env'' = copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args in
+       ([{ thread with op = (pc', Array.length f_code - 1);
+                       env = env''}],
+        call_bindings thread args)
+     | `Value(VTuple(vs)) -> call_tuple vs args
+     | `Value(_) ->
+       (* TODO log error *)
+       halt state thread)
 
 let check_killed ?(ignore_fun=(fun _ -> false)) instance =
   let f (killed, acc) ((id, {stack}) as block) =

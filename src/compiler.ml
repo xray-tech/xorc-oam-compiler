@@ -193,7 +193,8 @@ let compile_e env e =
            |  (_, BindMod f) ->
              let c = get_import_label' f in
              (0, [(I.Call(I.TFun(c), Array.of_list args'), pos)])
-           (* TODO tail call of closures *)
+           | (i, BindVar) when env.tail_call  ->
+             (0, [(I.TailCall(I.TDynamic(i), Array.of_list args'), pos)])
            | (i, BindVar) ->
              (0, [(I.Call(I.TDynamic(i), Array.of_list args'), pos)])
            | (_, BindCoeffect) ->
