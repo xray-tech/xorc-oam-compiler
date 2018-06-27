@@ -294,10 +294,11 @@ and tick
         let impl = Env.get_ffc inter.env_snapshot index in
         (* Stdio.eprintf "---CALL %i\n" prim;
          * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
-        match impl args' with
-        | PrimVal res -> publish_and_halt state thread res
-        | PrimHalt -> halt state thread
-        | PrimUnsupported -> unsupported () in
+        try (match impl args' with
+            | PrimVal res -> publish_and_halt state thread res
+            | PrimHalt -> halt state thread
+            | PrimUnsupported -> unsupported ())
+        with e -> unsupported () in
   let (_, _, proc) = get_code inter pc in
   let (op, _) = proc.(c) in
   match op with
