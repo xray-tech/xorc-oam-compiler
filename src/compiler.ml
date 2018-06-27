@@ -184,9 +184,7 @@ let compile_e env e =
               | (i, BindVar) -> i
               | _ -> assert false) in
           (match ctx_find ident with
-           | (_, BindFun unit) when env.tail_call &&
-                                    String.equal env.current_fun unit.ident &&
-                                    String.equal env.orc_module unit.orc_module ->
+           | (_, BindFun unit) when env.tail_call ->
              let c = get_label env.state unit in
              (0, [(I.TailCall(I.TFun(c), Array.of_list args'), pos)])
            | (_, BindFun unit) ->

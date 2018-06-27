@@ -329,9 +329,13 @@ and tick
                    env = env'}],
      call_bindings thread args)
   | TailCall(TFun(pc'), args) ->
-    let (_, vars, f_code) = get_code inter pc' in
-    copy_env ~offset: 0 ~from:env ~to_:env ~vars ~args;
-    ([{thread with op = (pc', Array.length f_code - 1)}],
+    let (size, vars, f_code) = get_code inter pc' in
+    let env' = if size > Array.length env
+      then alloc_env size
+      else env in
+    copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
+    ([{thread with op = (pc', Array.length f_code - 1);
+                   env = env'}],
      call_bindings thread args)
   | Call(TDynamic(i), args) ->
     (match realized i with
