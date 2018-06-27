@@ -64,6 +64,7 @@ let tests =
        ("floor(3.2)", Check (allof ["3"]));
        ("ceil(3.2)", Check (allof ["4"]));
        ("sqrt(4)", Check (allof ["2.0"]));
+       ("Let(1, 2)", Check (allof ["1"]));
      ]);
    ("comments", [
        ("{- I

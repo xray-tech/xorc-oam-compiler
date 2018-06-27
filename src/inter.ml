@@ -125,12 +125,16 @@ let new_thread_id state =
   id
 
 let copy_env ~vars ~offset ~to_ ~from ~args =
+  let to' = if Array.length to_ < offset + Array.length args
+    then alloc_env (offset + Array.length args)
+    else to_ in
   Array.iteri args ~f:(fun i arg ->
       let (_, v) = from.(arg) in
       let var = match List.nth vars i with
         | Some var -> var
         | None -> Var.dummy in
-      to_.(offset + i) <- (var, v))
+      to'.(offset + i) <- (var, v));
+  to'
 
 let rec publish state ({id; stack; env} as thread) v =
   match stack with
@@ -323,19 +327,19 @@ and tick
     let (size, vars, f_code) = get_code inter pc' in
     let env' = alloc_env size in
     let frame = FCall(env) in
-    copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
+    let env'' = copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args in
     ([{thread with op = (pc', Array.length f_code - 1);
                    stack = (frame::stack);
-                   env = env'}],
+                   env = env''}],
      call_bindings thread args)
   | TailCall(TFun(pc'), args) ->
     let (size, vars, f_code) = get_code inter pc' in
     let env' = if size > Array.length env
       then alloc_env size
       else env in
-    copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
+    let env'' = copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args in
     ([{thread with op = (pc', Array.length f_code - 1);
-                   env = env'}],
+                   env = env''}],
      call_bindings thread args)
   | Call(TDynamic(i), args) ->
     (match realized i with
@@ -346,23 +350,23 @@ and tick
      | `Value(VClosure(pc', to_copy, closure_env)) ->
        let (size, vars, f_code) = get_code inter pc' in
        let env' = alloc_env size in
+       let env'' = copy_env ~offset:to_copy ~from:env ~to_:env' ~vars ~args in
        for i = 0 to to_copy - 1 do
-         env'.(i) <- closure_env.(i)
+         env''.(i) <- closure_env.(i)
        done;
-       copy_env ~offset:to_copy ~from:env ~to_:env' ~vars ~args;
        let frame = FCall(env) in
        ([{ thread with op = (pc', Array.length f_code - 1);
                        stack = (frame::stack);
-                       env = env'}],
+                       env = env''}],
         call_bindings thread args)
      | `Value(VLabel(pc')) ->
        let (size, vars, f_code) = get_code inter pc' in
        let env' = alloc_env size in
-       copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args;
+       let env'' = copy_env ~offset: 0 ~from:env ~to_:env' ~vars ~args in
        let frame = FCall(env) in
        ([{ thread with op = (pc', Array.length f_code - 1);
                        stack = (frame::stack);
-                       env = env'}],
+                       env = env''}],
         call_bindings thread args)
      | `Value(VTuple(vs)) ->
        (match realized args.(0) with
