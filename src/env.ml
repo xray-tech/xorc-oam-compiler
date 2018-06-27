@@ -48,7 +48,7 @@ let to_string = function
   | _ -> "<value>"
 
 let pseudo_ffc = [ "core.make-pending"; "core.pending-read";
-                   "core.realize"; "core.is-realize";
+                   "core.realize"; "core.is-realized";
                    "core.stop-pending" ]
 
 let () =

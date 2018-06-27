@@ -259,7 +259,7 @@ and tick
          | [| VPending _; _ |] ->
            publish_and_halt state thread (VConst Ast.Signal)
          | _ -> unsupported ())
-      | "core.is-realize" ->
+      | "core.is-realized" ->
         (match args' with
          | [| VPending { pend_value = PendVal _ } |] ->
            publish_and_halt state thread (VConst (Ast.Bool true))
