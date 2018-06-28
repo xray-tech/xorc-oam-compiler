@@ -341,7 +341,15 @@ let tests =
         Check (allof ["0"]));
 
        ("def f(x)=if (x<:10000) then (stop|f(x+1)) else stop\n f(0)",
-        Check (allof []))
+        Check (allof []));
+       ("def tailadd(0,n) = n def tailadd(a,b) = tailadd(a-1,b+1) tailadd(40001, 10004)",
+        Check (allof ["50005"]));
+       ("def tailmult(a,b) =
+             def tailm(0,acc) = acc
+             def tailm(a,acc) = tailm(a-1,acc+b)
+             tailm(a,0)
+         tailmult(2, 30003) | tailmult(20002, 4)"),
+       Check (allof ["60006"; "80008"])
      ]);
    ("basic", [
        (* ("1 | 2", Check (allof ["1"; "2"]));
