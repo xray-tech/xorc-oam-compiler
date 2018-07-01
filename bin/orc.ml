@@ -86,7 +86,7 @@ let static_prelude = static_loader [%static_modules_dir "../../prelude"]
 let implicit_prelude =
   [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
              ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
-             "floor"; "sqrt"; "Let"; "Rwait"; "Println"]);
+             "floor"; "sqrt"; "Let"; "Println"]);
    ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
                "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
                "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";
