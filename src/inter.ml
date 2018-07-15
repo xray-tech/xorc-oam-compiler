@@ -136,7 +136,7 @@ let copy_env ~vars ~offset ~to_ ~from ~args =
       to'.(offset + i) <- (var, v));
   to'
 
-let rec publish state ({id; stack; env} as thread) v =
+let rec publish state ({stack; env} as thread) v =
   match stack with
   | [] -> assert false
   | x::stack' -> match x with
@@ -290,7 +290,7 @@ and tick
          | [| VPending _ |] ->
            publish_and_halt state thread (VConst Ast.Signal)
          | _ -> unsupported ())
-      | name ->
+      | _ ->
         let impl = Env.get_ffc inter.env_snapshot index in
         (* Stdio.eprintf "---CALL %i\n" prim;
          * Array.iter args' (fun v -> Stdio.eprintf "--ARG: %s\n" (sexp_of_v v |> Sexp.to_string_hum)); *)
@@ -298,7 +298,7 @@ and tick
             | PrimVal res -> publish_and_halt state thread res
             | PrimHalt -> halt state thread
             | PrimUnsupported -> unsupported ())
-        with e -> unsupported () in
+        with _ -> unsupported () in
   let (_, _, proc) = get_code inter pc in
   let (op, _) = proc.(c) in
   match op with
