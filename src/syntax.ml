@@ -20,12 +20,13 @@ let report checkpoint =
      Then, customize it, based on dynamic information. *)
   let message = try
       Printf.sprintf "%s (error code %d)" (Parser_messages.message s) s
-    with Not_found ->
+    with Not_found_s _ ->
       (* If the state number cannot be found -- which, in principle,
          should not happen, since our list of erroneous states is
          supposed to be complete! -- produce a generic message. *)
       Printf.sprintf "This is an unknown syntax error (%d).\n\
                       Please report this problem to the compiler vendor.\n" s
+
   in
   message
 
