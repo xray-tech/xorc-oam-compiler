@@ -223,7 +223,7 @@ let run_loop state_path unblock res =
        | _ -> None)
     | _ -> None in
   let rec handle_rwait id r =
-    match List.Assoc.find_exn r ~equal:String.equal "timeout" with
+    match List.Assoc.find_exn r ~equal:String.equal "delay" with
     | V.VConst(C.Int(v)) ->
       let timeout = Float.of_int v |> Time.Span.of_ms in
       after timeout >>= fun () ->
