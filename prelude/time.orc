@@ -1,1 +1,1 @@
-def Rwait(x) = Coeffect({. kind = "rwait", timeout = x .})
+def Rwait(x) = Coeffect({. kind = "rwait", delay = x .})
