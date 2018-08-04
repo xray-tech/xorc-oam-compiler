@@ -281,7 +281,6 @@ let tests =
         *            unblock = (1, "\"b\"");
         *            killed = [];
         *            next = Check (allof ["(\"b\", \"a\")"])}}); *)
-
        ("val x = Coeffect(1) | Coeffect(2) x",
         CheckAndResume { values = allof [];
                          unblock = (0, "2");
@@ -379,19 +378,24 @@ let tests =
                                                  next = Check (allof ["6"])}});
        ("def even(x) = if x = 0 then true else odd(x - 1)
          def odd(x) = if x = 0 then false else even(x - 1)
-
          even(101)", Check (allof ["false"]))]);
    ("benchs", [
        ("def fact(n) = if (n :> 0) then n * fact(n-1) else 1
-
-fact(10)",
+         fact(10)",
         Check (allof ["3628800"]));
        ("def fact(x) =
-  def step(n, acc) =
-    if (n :> 0) then step(n-1, n * acc) else acc
-  step(x, 1)
-
-fact(10)",
-        Check (allof ["3628800"]))
-     ])
-  ]
+         def step(n, acc) =
+             if (n :> 0) then step(n-1, n * acc) else acc
+         step(x, 1)
+        fact(10)",
+        Check (allof ["3628800"]))]);
+   ("json", [
+       ("val V = {. llll = null, title = \"Real World OCaml\",
+                  tags = [\"functional programming\", \"ocaml\", \"algorithms\"],
+                  pages = 450, authors = [{. name = \"Jason Hickey\", affiliation = \"Google\" .},
+                  {. name = \"Anil Madhavapeddy\", affiliation = \"Cambridge\" .},
+                  {. name = \"Yaron Minsky\", affiliation = \"Jane Street\" .}], is_online = true .}
+         def ReadJSON(s) = `web.json_parse`(s)
+         def WriteJSON(v) = `web.json_generate`(v)
+         ReadJSON(WriteJSON(V)) = V",
+         Check (allof ["true"]))])]
