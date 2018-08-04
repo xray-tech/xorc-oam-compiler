@@ -100,7 +100,8 @@ let implicit_prelude =
              "minimum"; "maximum"]);
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
    ("time", ["Rwait"]);
-   ("util", ["for"; "upto"])
+   ("util", ["for"; "upto"]);
+   ("web", ["ReadJSON"; "WriteJSON"])
   ]
 
 let compile_source loader include_prelude prog =
