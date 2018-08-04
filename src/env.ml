@@ -69,7 +69,8 @@ let core = [
         PrimVal (VConst(Ast.Float(Float.(of_int x + y))))
       | [| VConst(Float x); VConst(Ast.Int y) |] ->
         PrimVal (VConst(Ast.Float(Float.(x + of_int y))))
-      | [| VConst(Ast.String x); other |] -> PrimVal (VConst(Ast.String(String.concat [x; to_string other])))
+      | [| VConst(Ast.String x); other |] ->
+        PrimVal (VConst(Ast.String(String.concat [x; to_string other])))
       | [| VRecord(pairs1); VRecord(pairs2) |] ->
         let merged = List.fold pairs2 ~init:pairs1 ~f:(fun acc (a, b) ->
             List.Assoc.add acc ~equal:String.equal a b) in
@@ -77,7 +78,8 @@ let core = [
       | _ -> PrimUnsupported);
   ("core.sub", function
       | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int(-x)))
-      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Int(x - y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Int y) |]
+        -> PrimVal (VConst(Ast.Int(x - y)))
       | [| VConst(Ast.Float x) |] ->
         PrimVal (VConst(Ast.Float(Float.(-x))))
       | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
@@ -133,48 +135,64 @@ let core = [
         PrimVal (VConst(Ast.Float(Float.int_pow x y)))
       | _ -> PrimUnsupported);
   ("core.eq", function
-      | [| v1; v2 |] -> PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
+      | [| v1; v2 |] ->
+        PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
       | _ -> PrimUnsupported);
   ("core.not-eq", function
       | [| VConst(v1); VConst(v2) |] ->
         PrimVal (VConst(Ast.Bool (not (Polymorphic_compare.equal v1 v2))))
       | _ -> PrimUnsupported);
   ("core.gt", function
-      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x > y)))
-      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x > y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool(x > y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x > y)))
       | _ -> PrimUnsupported);
   ("core.gte", function
-      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x >= y)))
-      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool(x >= y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x >= y)))
       | _ -> PrimUnsupported);
   ("core.lt", function
-      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x < y)))
-      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool(x < y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x >= y)))
       | _ -> PrimUnsupported);
   ("core.lte", function
-      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] -> PrimVal (VConst(Ast.Bool(x <= y)))
-      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] -> PrimVal (VConst(Ast.Bool Float.(x >= y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool(x <= y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x >= y)))
       | _ -> PrimUnsupported);
   ("core.and", function
-      | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x && y)))
+      | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] ->
+        PrimVal (VConst(Ast.Bool(x && y)))
       | _ -> PrimUnsupported);
   ("core.or", function
-      | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] -> PrimVal (VConst(Ast.Bool(x || y)))
+      | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] ->
+        PrimVal (VConst(Ast.Bool(x || y)))
       | _ -> PrimUnsupported);
   ("core.not", function
-      | [| VConst(Ast.Bool x) |] -> PrimVal (VConst(Ast.Bool(not x)))
+      | [| VConst(Ast.Bool x) |] ->
+        PrimVal (VConst(Ast.Bool(not x)))
       | _ -> PrimUnsupported);
   ("core.floor", function
       | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
-      | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_down x |> Int.of_float)))
+      | [| VConst(Ast.Float x) |] ->
+        PrimVal (VConst(Ast.Int (Float.round_down x |> Int.of_float)))
       | _ -> PrimUnsupported);
   ("core.ceil", function
       | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Int x))
-      | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Int (Float.round_up x |> Int.of_float)))
+      | [| VConst(Ast.Float x) |] ->
+        PrimVal (VConst(Ast.Int (Float.round_up x |> Int.of_float)))
       | _ -> PrimUnsupported);
   ("core.sqrt", function
-      | [| VConst(Ast.Int x) |] -> PrimVal (VConst(Ast.Float (Float.of_int x |> Float.sqrt)))
-      | [| VConst(Ast.Float x) |] -> PrimVal (VConst(Ast.Float (Float.sqrt x)))
+      | [| VConst(Ast.Int x) |] ->
+        PrimVal (VConst(Ast.Float (Float.of_int x |> Float.sqrt)))
+      | [| VConst(Ast.Float x) |] ->
+        PrimVal (VConst(Ast.Float (Float.sqrt x)))
       | _ -> PrimUnsupported);
   ("core.cons", function
       | [| x; VList(xs) |] -> PrimVal (VList(x::xs))
@@ -233,8 +251,8 @@ let core = [
       | _ -> PrimHalt);
   ("core.error", function
       | vals ->
-        Stdio.eprintf "%s\n" ([%sexp_of: Inter0.v array] vals |> Sexp.to_string_hum);
-        PrimHalt);
+        Stdio.eprintf "%s\n" ([%sexp_of: Inter0.v array]
+                                vals |> Sexp.to_string_hum); PrimHalt);
   ("core.make-ref", function
       | [| v |] -> PrimVal (VRef (ref v))
       | _ -> PrimUnsupported);
@@ -245,7 +263,46 @@ let core = [
       | [| VRef x; v|] ->
         x := v;
         PrimVal(VConst Ast.Signal)
-      | _ -> PrimUnsupported)]
+      | _ -> PrimUnsupported);
+]
 
 let () =
   List.iter core ~f:(fun (name, f) -> register_ffc name f)
+
+let rec to_v json =
+  let open Inter0 in
+  match json with
+  | `Null -> VConst(Null)
+  | `Bool x -> VConst(Bool x)
+  | `Float x -> VConst(Float x)
+  | `Int x -> VConst(Int x)
+  | `String x -> VConst(String x)
+  | `List x -> VList (List.map x ~f:to_v)
+  | `Assoc pairs -> VRecord (List.map pairs ~f:(fun (k, v) -> (k, to_v v)))
+
+let rec to_json v =
+  let open Inter0 in
+  match v with
+  | VConst(Null) | VConst(Signal) -> `Null
+  | VConst(Bool x) -> `Bool x
+  | VConst(Int x) -> `Int x
+  | VConst(Float x) -> `Float x
+  | VConst(String x) -> `String x
+  | VList x | VTuple x -> `List (List.map x ~f:to_json)
+  | VRecord pairs -> `Assoc (List.map pairs ~f:(fun (k, v) -> (k, to_json v)))
+  | VClosure _ -> `String "closure"
+  | VLabel _ -> `String "label"
+  | VRef _ -> `String "ref"
+  | VPending _ -> `String "pending"
+
+let () =
+  register_ffc "web.json_parse" (function
+      | [| VConst(String x) |] ->
+        (try PrimVal (to_v (Yojson.Basic.from_string x)) with
+         | _ -> PrimHalt)
+      | _ -> PrimUnsupported);
+  register_ffc "web.json_generate" (function
+      | [| x |] ->
+        let s = Yojson.Basic.to_string (to_json x) in
+        PrimVal(VConst (String s))
+      | _ -> PrimUnsupported)
