@@ -92,7 +92,9 @@ and format_v = function
   | VConst v  -> Ast.sexp_of_const v |> Sexp.to_string_hum
   | VTuple l -> Printf.sprintf "(Tuple %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
   | VList l -> Printf.sprintf "(List %s)" (String.concat ~sep:", " (List.map l ~f:format_v))
-  | VRecord pairs -> Printf.sprintf "(Record %s)" (String.concat ~sep:", " (List.map pairs ~f:(fun (k, v) -> Printf.sprintf "%s: %s" k (format_v v))))
+  | VRecord pairs -> Printf.sprintf "(Record %s)"
+                       (String.concat ~sep:", " (List.map pairs ~f:(fun (k, v) ->
+                            Printf.sprintf "%s: %s" k (format_v v))))
   | VClosure (i, _, _) -> Printf.sprintf "(Closure %i)" i
   | VLabel i -> Printf.sprintf "(Label %i)" i
   | VRef v -> Printf.sprintf "(Ref %s)" (format_v !v)
