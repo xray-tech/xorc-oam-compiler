@@ -295,7 +295,7 @@ let rec to_json v =
   | VRef _ -> `String "ref"
   | VPending _ -> `String "pending"
 
-let _ =
+let () =
   register_ffc "web.json_parse" (function
       | [| VConst(String x) |] ->
         (try PrimVal (to_v (Yojson.Basic.from_string x)) with
