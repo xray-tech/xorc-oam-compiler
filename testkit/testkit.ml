@@ -100,9 +100,9 @@ let implicit_core =
 
 let prelude = List.map implicit_core ~f:(fun ident -> ("core", ident))
 
-let defered_repository =
+let make_repository path =
   let repository = Orcml.Repository.create () in
-  let%map code = Reader.file_contents "prelude/core.orc" in
+  let code = In_channel.read_all path in
   Orcml.add_module ~repository ~path:"core" code
   |> Result.map_error ~f:(fun _ -> "Core compilation error")
   |> Result.ok_or_failwith;
@@ -149,9 +149,8 @@ let with_prog (prog, args) tests f =
         exit code
       | _ -> exit 1
 
-let exec_tests prog tests =
+let exec_tests repository prog tests =
   let results = { success = 0; failed = 0 } in
-  let%bind repository = defered_repository in
   with_prog prog tests (run_test repository results) >>| fun () ->
   info "Success: %i; Failed: %i\n" results.success results.failed;
   if results.failed > 0
@@ -164,6 +163,10 @@ let filter_tests suits =
       List.mem suits ~equal:String.equal suite)
   else Tests.tests
 
+let prelude_flag =
+  let open Command.Param in
+  flag "-prelude" (optional_with_default "prelude/core.orc" string) ~doc: "Path to prelude"
+
 let exec =
   let open Command.Let_syntax in
   Command.basic
@@ -172,18 +175,19 @@ let exec =
       let prog = anon ("PROG" %: string)
       and args = flag "--" escape ~doc:"PROG arguments"
       and suits = flag "-s" (listed string) ~doc: "Run only provided test suites"
+      and prelude_path = prelude_flag
       and verbose = flag "-verbose" no_arg ~doc:"Verbose logging" in
       fun () ->
         (if verbose then Log.Global.set_level `Debug);
         let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
         Log.Global.set_output [output];
         let tests' = filter_tests suits in
-        exec_tests  (prog, Option.value args ~default:[]) tests' |> ignore;
+        let repository = make_repository prelude_path in
+        exec_tests repository (prog, Option.value args ~default:[]) tests' |> ignore;
         Scheduler.go () |> never_returns]
 
-let bench_test n p (code, _checks) =
+let bench_test repository n p (code, _checks) =
   info "Bench program:\n%s" code;
-  let%bind repository = defered_repository in
   let res = Orcml.compile ~prelude ~repository code in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
@@ -205,8 +209,8 @@ let bench_test n p (code, _checks) =
   | Error(err) ->
     fail (Orcml.error_to_string_hum err); return ()
 
-let bench_tests prog n tests =
-  with_prog prog tests (bench_test n) >>= fun () -> exit 0
+let bench_tests prelude_path prog n tests =
+  with_prog prog tests (bench_test prelude_path n) >>= fun () -> exit 0
 
 let benchmark =
   let open Command.Let_syntax in
@@ -216,10 +220,12 @@ let benchmark =
       let prog = anon ("PROG" %: string)
       and n = flag "-n" (optional_with_default 1000 int) ~doc:"Number of iterations"
       and args = flag "--" escape ~doc:"PROG arguments"
+      and prelude_path = prelude_flag
       and suits = flag "-s" (listed string) ~doc:"Run only provided test suites" in
       fun () ->
         let tests' = filter_tests suits in
-        bench_tests (prog, Option.value args ~default:[]) n tests' |> ignore;
+        let repository = make_repository prelude_path in
+        bench_tests repository (prog, Option.value args ~default:[]) n tests' |> ignore;
         Scheduler.go () |> never_returns]
 
 
