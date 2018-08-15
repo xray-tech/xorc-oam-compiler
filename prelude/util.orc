@@ -1,3 +1,7 @@
+def Random(0) = Coeffect({. kind="random", bound=signal .})
+def Random(n) = Coeffect({. kind="random", bound=n .})
+def URandom() = Coeffect({. kind="random", bound=1.0 .})
+
 sig signals(Integer) :: Signal
 def signals(n) = if n :> 0 then (signal | signals(n-1)) else stop
 

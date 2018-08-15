@@ -100,7 +100,7 @@ let implicit_prelude =
              "minimum"; "maximum"]);
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
    ("time", ["Rwait"]);
-   ("util", ["for"; "upto"]);
+   ("util", ["for"; "upto"; "Random"; "URandom"; "UUID"]);
    ("web", ["ReadJSON"; "WriteJSON"])
   ]
 
@@ -206,6 +206,7 @@ let compile =
         Scheduler.go () |> never_returns]
 
 let run_loop state_path unblock res =
+  let _ = Random.self_init () in
   let on_air = ref 0 in
   let stopped = Ivar.create () in
   let minstance = Moption.create () in
@@ -215,7 +216,8 @@ let run_loop state_path unblock res =
     match state_path with
     | Some(state_path) ->
       let msgpck = Orcml.Serializer.dump_instance instance in
-      Writer.save state_path ~contents:(Msgpck.String.to_string msgpck |> Bytes.to_string)
+      Writer.save state_path
+        ~contents:(Msgpck.String.to_string msgpck |> Bytes.to_string)
     | _ -> return () in
   let coeffect_kind = function
     | V.VRecord(pairs) ->
@@ -238,9 +240,21 @@ let run_loop state_path unblock res =
     info "Println: %s" (Orcml.Value.to_string v);
     on_air := !on_air - 1;
     unblock' id (V.VConst C.Signal)
+  and handle_random id r =
+    match List.Assoc.find r ~equal:String.equal "bound" with
+    | Some(V.VConst(C.Int(i))) -> let x = Random.int i in
+      on_air := !on_air - 1;
+      unblock' id (V.VConst(C.Int x))
+    | Some(V.VConst(C.Float(f))) -> let x = Random.float f in
+      on_air := !on_air - 1;
+      unblock' id (V.VConst(C.Float x))
+    | None | Some(_) -> let x = Random.bits () in
+      on_air := !on_air - 1;
+      unblock' id (V.VConst(C.Int x))
   and handlers = [
     ("rwait", handle_rwait);
-    ("println", handle_println)]
+    ("println", handle_println);
+    ("random", handle_random)]
   and coeffect_handler v =
     let open Option.Let_syntax in
     let%bind (kind, pairs) = coeffect_kind v in
@@ -400,7 +414,8 @@ let tests_server =
                   |> Result.ok_or_failwith in
       handle_res (Some inter) (Orcml.run inter)
     | Continue(id, v) ->
-      let res = Orcml.unblock (Option.value_exn inter) (Option.value_exn state) id v in
+      let res = Orcml.unblock (Option.value_exn inter)
+          (Option.value_exn state) id v in
       handle_res inter res
     | Benchmark(bc, iter) ->
       let inter = Orcml.inter bc
@@ -426,7 +441,8 @@ let tests_server =
          >>= function
          | Ok(()) -> Async.return ()
          | Error(err) ->
-           error "Unknown error while tests run:\n%s\n" (Error.to_string_hum err);
+           error "Unknown error while tests run:\n%s\n"
+             (Error.to_string_hum err);
            exit 1)|> don't_wait_for;
         Scheduler.go () |> never_returns
     ]
