@@ -100,11 +100,7 @@ let implicit_prelude =
              "minimum"; "maximum"]);
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
    ("time", ["Rwait"]);
-<<<<<<< HEAD
    ("util", ["for"; "upto"; "Random"; "URandom"]);
-=======
-   ("util", ["for"; "upto"; "Random"; "URandom"; "UUID"]);
->>>>>>> Adding support for Random()
    ("web", ["ReadJSON"; "WriteJSON"])
   ]
 
