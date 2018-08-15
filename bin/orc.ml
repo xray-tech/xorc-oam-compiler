@@ -100,7 +100,7 @@ let implicit_prelude =
              "minimum"; "maximum"]);
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
    ("time", ["Rwait"]);
-   ("util", ["for"; "upto"; "Random"; "URandom"; "UUID"]);
+   ("util", ["for"; "upto"; "Random"; "URandom"]);
    ("web", ["ReadJSON"; "WriteJSON"])
   ]
 
