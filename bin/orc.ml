@@ -98,7 +98,7 @@ let implicit_prelude =
              "mergeUniqueBy"; "sortUnique"; "sortUniqueBy"; "group"; "groupBy";
              "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
              "minimum"; "maximum"]);
-   ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "?"; ":="]);
+   ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "Semaphore"; "?"; ":="]);
    ("time", ["Rwait"]);
    ("util", ["for"; "upto"; "Random"; "URandom"]);
    ("web", ["ReadJSON"; "WriteJSON"])
