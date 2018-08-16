@@ -77,7 +77,7 @@ def Channel() =
     if empty(`core.deref`(queue))
     then signal
     else pendingCreateIfNeedAndRead(emptyWait)
-  {. get = get, put = put, close = close .}
+  {. get = get, getD = getD, put = put, close = close .}
 
 def Counter() =
   refer from core ((+), (-))
