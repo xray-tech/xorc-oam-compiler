@@ -245,7 +245,7 @@ let compile_e env e =
            ::(e1' @ e2'))
         | EOtherwise(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
-          let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
+          let (s1, e1') = compile_e' {env with tail_call = false; shift = env.shift + len e2'} e1 in
           ((Int.max s1 s2),
            (I.Otherwise(env.shift + len e1' + len e2' - 1,
                         env.shift + len e2' - 1), pos)
