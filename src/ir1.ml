@@ -117,7 +117,7 @@ let rec translate' ((e, pos) as ast) =
       | A.PWildcard -> expr ()
       | A.PConst(x) ->
         DSL.(deflate' (const x) (fun x' ->
-            deflate' (call "=" [focus; x']) (fun is_eq ->
+            deflate' (ffc "core.eq" [focus; x']) (fun is_eq ->
                 seqw
                   (ffc "core.ift" [is_eq])
                   (expr ()))))
