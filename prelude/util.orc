@@ -1,4 +1,4 @@
-refer from core ((>=), (+), (=))
+refer from core ((>=), (+))
 
 def Random(0) = Coeffect({. kind="random", bound=signal .})
 def Random(n) = Coeffect({. kind="random", bound=n .})
