@@ -236,6 +236,7 @@ let rec translate' ((e, pos) as ast) =
       | Ast.PVar(_) -> true
       | _ -> false in
     let clause bindings else_ (_, params, guard, body) =
+      (* TODO better errors *)
       let pairs = List.zip_exn params bindings in
       let vars = List.filter pairs ~f:(fun (p, _) -> is_var p) in
       let strict = List.filter pairs ~f:(fun (p, _) -> is_strict p) in

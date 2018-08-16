@@ -329,7 +329,8 @@ let exec =
         let open Deferred.Let_syntax in
         load_exts exts;
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
+        let loader = multiloader (static_prelude::(List.rev_map includes ~f:fs)
+                                  |> List.rev) in
         compile_input_and_deps (not no_prelude) loader bc prog
         >>= fun inter ->
         if debugger
