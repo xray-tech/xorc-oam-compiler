@@ -100,8 +100,15 @@ and format_v = function
   | VRef v -> Printf.sprintf "(Ref %s)" (format_v !v)
   | VPending p -> format_pending p
 
+let format_var = function
+  | Var.Handcrafted { index; ident} -> Printf.sprintf "%i (%s)" index ident
+  | Var.Generated i -> Int.to_string i
+
+let format_value_pair (var, v) =
+  format_var var ^ " -> " ^ format_value v
+
 let format_env env =
   let vs = (Array.to_sequence env
-            |> Sequence.map ~f:format_value
+            |> Sequence.map ~f:format_value_pair
             |> Sequence.to_list) in
   "(" ^ String.concat ~sep:", " vs ^ ")"

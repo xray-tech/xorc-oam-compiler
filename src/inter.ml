@@ -103,8 +103,8 @@ let rec is_alive = function
   | FPruning { pending = { pend_value = PendStopped } }::_
   | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
     false
-  | FPruning { pending = { pend_value = Pend; pend_waiters } }::_ when waiters_are_dead pend_waiters ->
-    false
+  | FPruning { pending = { pend_value = Pend; pend_waiters } }::_ ->
+    not (waiters_are_dead pend_waiters)
   | _::xs -> is_alive xs
 and waiters_are_dead = function
   | [] -> true

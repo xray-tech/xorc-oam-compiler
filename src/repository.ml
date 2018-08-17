@@ -4,11 +4,14 @@ type unit = {
   is_closure : bool;
   orc_module : string;
   ident : string;
-  ctx : ctx option ref;                (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
+  (* ref here is only for recusrive defenitions. ctx of unit could contain unit itself *)
+  ctx : ctx option ref;
+  initial_index: int;
+  parent : unit option;
   params : Ir1.Var.t list;
   body : Ir1.e }
 and binding =
-  | BindVar
+  | BindVar of int
   | BindCoeffect
   | BindFun of unit
   | BindMod of (string * string)
