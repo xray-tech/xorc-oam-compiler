@@ -327,7 +327,7 @@ let tests =
           { values = allof [];
             unblock = (1, "1");
             killed = [0];
-            next = Check (allof ["1"])})]);
+            next = Check (allof ["1"])});]);
    ("tailrec", [
        ("def tailrec(0) = 0 def tailrec(x) = tailrec(x - 1) tailrec(10000)",
         Check (allof ["0"]));
@@ -381,6 +381,26 @@ let tests =
          def odd(x) = if x = 0 then false else even(x - 1)
 
          even(101)", Check (allof ["false"]))]);
+   ("regressions",
+    (* Tricky case. We return closure with unrealized values inside *)
+    [("def closureBuilder() =
+           val s = Coeffect(1) >> 1
+           def closure() = s
+           closure
+         closureBuilder()()",
+      CheckAndResume
+        { values = allof [];
+          unblock = (0, "signal");
+          killed = [];
+          next = Check (allof ["1"])});
+     ("def c1() =
+       def c() = 1
+         c
+       def c2() =
+         def c() = 2
+       c
+       c1()() | c2()()",
+      Check (allof ["1"; "2"]))]);
    ("benchs", [
        ("def fact(n) = if (n :> 0) then n * fact(n-1) else 1
 

@@ -10,36 +10,28 @@ let list_index l v ~f =
     | _::xs -> index (acc + 1) xs in
   index 0 l
 
-let ctx_vars ctx  =
-  let rec find acc = function
-    | [] -> acc
-    | (_, BindVar)::xs -> find (acc + 1) xs
-    | (_, BindFun _)::xs | (_,BindCoeffect)::xs | (_, BindMod(_))::xs ->
-      find acc xs in
-  find 0 ctx
-
 let ctx_find' ctx ident =
-  let rec find acc = function
+  let rec find = function
     | [] -> None
     | (ident', bind)::_ when String.equal ident ident' ->
-      Some(ctx_vars ctx - 1 - acc, bind)
-    | (_, BindVar)::xs -> find (acc + 1) xs
-    | _::xs -> find acc xs in
-  find 0 ctx
+      Some(bind)
+    | _::xs -> find xs in
+  find ctx
 
 let ctx_find ctx pos ident =
   match ctx_find' ctx ident with
   | None -> Error (`UnboundVar (pos, ident))
   | Some(v) -> Ok v
 
-let new_index = ctx_vars
-
 let len = List.length
 
-let compile_unit_equal a b =
+let rec compile_unit_equal a b =
   match (a, b) with
-  | ({orc_module; ident}, {orc_module = mod'; ident = ident'})
+  | ({orc_module; ident; parent = None}, {orc_module = mod'; ident = ident'; parent = None})
     when String.equal mod' orc_module && String.equal ident' ident ->
+    true
+  | ({orc_module; ident; parent = Some(parent)}, {orc_module = mod'; ident = ident'; parent = Some(parent')})
+    when String.equal mod' orc_module && String.equal ident' ident && compile_unit_equal parent parent' ->
     true
   | _ -> false
 
@@ -63,7 +55,7 @@ let get_label state unit =
     | [] ->
       state.compile_queue <- state.compile_queue @ [unit];
       len state.repo + i
-    | {orc_module; ident}::_ when String.equal orc_module unit.orc_module && String.equal ident unit.ident ->
+    | unit'::_ when compile_unit_equal unit unit' ->
       len state.repo + i
     | _::xs -> f (i + 1) xs in
   match repo_index state "" unit.ident with
@@ -109,32 +101,32 @@ let free_vars init e =
     | EPruning(e1, None, e2) | ESequential(e1, None, e2) ->
       step ctx e1 @ step ctx e2
     | EPruning(e1, Some(var), e2) ->
-      let ctx' = (Var.ident var, BindVar)::ctx in
+      let ctx' = (Var.ident var, BindVar 0)::ctx in
       step ctx' e1 @ step ctx e2
     | ESequential(e1, Some(var), e2) ->
-      let ctx' = (Var.ident var, BindVar)::ctx in
+      let ctx' = (Var.ident var, BindVar 0)::ctx in
       step ctx e1 @ step ctx' e2
     | EFix(funs, e) ->
-      let ctx' = (List.map funs ~f:(fun (bind, _, _) -> (bind, BindVar))) @ ctx in
+      let ctx' = (List.map funs ~f:(fun (bind, _, _) -> (bind, BindVar 0))) @ ctx in
       step ctx' e @ (List.concat_map funs ~f:(fun (_, params, e) ->
-          let ctx'' = List.map params ~f:(fun p -> (Var.ident p, BindVar)) @ ctx' in
+          let ctx'' = List.map params ~f:(fun p -> (Var.ident p, BindVar 0)) @ ctx' in
           step ctx'' e))
     | ERefer(_ns, fs, e) ->
-      let ctx' = (List.map fs ~f:(fun n -> (n, BindVar))) @ ctx in
+      let ctx' = (List.map fs ~f:(fun n -> (n, BindVar 0))) @ ctx in
       step ctx' e
     | ECall(target, params) ->
       (if_out_of_scope target) @ (List.concat_map params ~f:if_out_of_scope)
     | EFFC(_, params) ->
       List.concat_map params ~f:if_out_of_scope
     | EConst _ | EStop | EModule -> [] in
-  step (List.map init ~f:(fun ident -> (ident, BindVar))) e
+  step (List.map init ~f:(fun ident -> (ident, BindVar 0))) e
 
 let closure_vars ctx vars =
   with_return (fun r ->
       let filtered = List.filter_map vars ~f:(fun (pos, v) ->
           match ctx_find ctx pos v with
           | Error(_) as err -> r.return err
-          | Ok((_, BindVar)) -> Some(v)
+          | Ok(BindVar _) -> Some(v)
           | _ -> None) in
       Ok filtered)
 
@@ -145,6 +137,8 @@ type env = {
   shift : int;
   tail_call : bool;
   state : state;
+  index : int;
+  unit : unit;
 }
 
 exception Module of ctx
@@ -167,6 +161,14 @@ let analyze_functions_graph g =
   List.map g ~f:(fun (ident, x) ->
       (ident, f [ident] ident x))
 
+let number_of_vars ctx  =
+  let rec find acc = function
+    | [] -> acc
+    | (_, BindVar _)::xs -> find (acc + 1) xs
+    | _::xs ->
+      find acc xs in
+  find 0 ctx
+
 let compile_e env e =
   with_return (fun r ->
       let rec compile_e' env (e, (ast_e, ({Ast.Pos.start = pos} as pos_range))) =
@@ -181,37 +183,37 @@ let compile_e env e =
         let compile_call ident args =
           let args' = List.map args ~f:(fun arg ->
               match ctx_find arg with
-              | (i, BindVar) -> i
+              | BindVar index -> index
               | _ -> assert false) in
           (match ctx_find ident with
-           | (_, BindFun unit) when env.tail_call ->
+           | BindFun unit when env.tail_call ->
              let c = get_label env.state unit in
-             (0, [(I.TailCall(I.TFun(c), Array.of_list args'), pos)])
-           | (_, BindFun unit) ->
+             [(I.TailCall(I.TFun(c), Array.of_list args'), pos)]
+           | BindFun unit ->
              let c = get_label env.state unit in
-             (0, [(I.Call(I.TFun(c), Array.of_list args'), pos)])
-           |  (_, BindMod f) ->
+             [(I.Call(I.TFun(c), Array.of_list args'), pos)]
+           | BindMod f ->
              let c = get_import_label' f in
-             (0, [(I.Call(I.TFun(c), Array.of_list args'), pos)])
-           | (i, BindVar) when env.tail_call  ->
-             (0, [(I.TailCall(I.TDynamic(i), Array.of_list args'), pos)])
-           | (i, BindVar) ->
-             (0, [(I.Call(I.TDynamic(i), Array.of_list args'), pos)])
-           | (_, BindCoeffect) ->
+             [(I.Call(I.TFun(c), Array.of_list args'), pos)]
+           | BindVar i when env.tail_call  ->
+             [(I.TailCall(I.TDynamic(i), Array.of_list args'), pos)]
+           | BindVar index ->
+             [(I.Call(I.TDynamic(index), Array.of_list args'), pos)]
+           | BindCoeffect ->
              (match args' with
-              | [i] -> (0, [(I.Coeffect i, pos)])
+              | [i] -> [(I.Coeffect i, pos)]
               | _ -> raise Util.TODO)) in
         let need_preprocess args =
           List.find args ~f:(fun arg ->
               match ctx_find arg with
-              | (_, BindFun(_))
-              | (_, BindMod(_) | (_, BindCoeffect)) -> true
-              | (_, BindVar) -> false)
+              | BindFun _
+              | BindMod _ | BindCoeffect -> true
+              | BindVar _ -> false)
           |> Option.is_some in
         let preprocess_args args e_info k =
           let deflate arg k =
             match ctx_find arg with
-            | (_, BindVar) -> k arg
+            | BindVar _ -> k arg
             | _ ->
               let f = make_fresh () in
               (EPruning(k f, Some (Var.Generated f), (EIdent(arg), e_info)), e_info) in
@@ -225,39 +227,44 @@ let compile_e env e =
         | EModule -> raise (Module env.ctx)
         | EIdent x ->
           (match ctx_find x with
-           | (_, BindVar) ->
+           | BindVar _ ->
              (EFFC ("core.let", [x]), (ast_e, pos_range))
              |> compile_e' env
-           | (_, BindFun unit) ->
+           | BindFun unit ->
              let c = get_label env.state unit in
-             (0, [(I.Label(c), pos)])
-           | (_, BindMod f) ->
+             (env.index, [(I.Label(c), pos)])
+           | BindMod f ->
              let c = get_import_label' f in
-             (0, [(I.Label(c), pos)])
-           | (_, BindCoeffect) -> raise Util.TODO)
-        | EConst v -> (0, [(I.Const v, pos)])
+             (env.index, [(I.Label(c), pos)])
+           | BindCoeffect -> raise Util.TODO)
+        | EConst v -> (env.index, [(I.Const v, pos)])
         | EParallel(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
           let (s1, e1') = compile_e' {env with shift = env.shift + len e2'} e1 in
-          ((Int.max s1 s2),
+          (Int.max s1 s2,
            (I.Parallel(env.shift + len e1' + len e2' - 1,
                        env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EOtherwise(e1, e2) ->
           let (s2, e2') = compile_e' env e2 in
           let (s1, e1') = compile_e' {env with tail_call = false; shift = env.shift + len e2'} e1 in
-          ((Int.max s1 s2),
+          (Int.max s1 s2,
            (I.Otherwise(env.shift + len e1' + len e2' - 1,
                         env.shift + len e2' - 1), pos)
            ::(e1' @ e2'))
         | EPruning(e1, v, e2) ->
           let (ctx', var) = match v with
             | None -> (env.ctx, None)
-            | Some(v) -> ((Var.ident v, BindVar)::env.ctx, Some(Ir1.Var.to_indexed (new_index env.ctx) v)) in
-          (* FIXME ctx' in right branch? wrong *)
-          let (s2, e2') = compile_e' { env with tail_call = false; ctx = ctx' } e2 in
-          let (s1, e1') = compile_e' { env with shift = env.shift + len e2'; ctx = ctx'} e1 in
-          ((Int.max s1 s2) + (if Option.is_none var then 0 else 1),
+            | Some(v) -> ((Var.ident v, BindVar env.index)::env.ctx,
+                          Some(Ir1.Var.to_indexed env.index v)) in
+          let index' = env.index + (if Option.is_none var then 0 else 1) in
+          let (s2, e2') = compile_e' { env with index = index';
+                                                tail_call = false;
+                                                ctx = env.ctx } e2 in
+          let (s1, e1') = compile_e' { env with index = s2;
+                                                shift = env.shift + len e2';
+                                                ctx = ctx'} e1 in
+          (s1,
            (I.Pruning(env.shift + len e1' + len e2' - 1,
                       var,
                       env.shift + len e2' -1), pos)
@@ -265,10 +272,13 @@ let compile_e env e =
         | ESequential(e1, v, e2) ->
           let (ctx', var) = match v with
             | None -> (env.ctx, None)
-            | Some(v) -> ((Var.ident v, BindVar)::env.ctx, Some(Ir1.Var.to_indexed (new_index env.ctx) v)) in
-          let (s2, e2') = compile_e' { env with ctx = ctx' } e2 in
+            | Some(v) -> ((Var.ident v, BindVar env.index)::env.ctx,
+                          Some(Ir1.Var.to_indexed env.index v)) in
+          let index' = env.index + (if Option.is_none var then 0 else 1) in
+          let (s2, e2') = compile_e' { env with index = index';
+                                                ctx = ctx' } e2 in
           let (s1, e1') = compile_e' { env with tail_call = false; shift = env.shift + len e2'} e1 in
-          ((Int.max s1 s2) + (if Option.is_none var then 0 else 1),
+          (Int.max s1 s2,
            (I.Sequential(env.shift + len e1' + len e2' - 1,
                          var,
                          env.shift + len e2' - 1), pos)
@@ -286,39 +296,48 @@ let compile_e env e =
               | Ok v -> (ident, (v, fix_links))
               | Error _ as err -> r.return err) in
           let closures = analyze_functions_graph closure_vars in
+          let closures_index = ref (number_of_vars env.ctx) in
           let binds = List.map2_exn fs closures ~f:(fun (ident, params, body) (_, is_closure) ->
               if is_closure
-              then (ident, BindVar)
+              then
+                (closures_index := !closures_index + 1;
+                 (ident, BindVar (!closures_index - 1)))
               else (ident, BindFun {orc_module = env.orc_module;
                                     ident;
                                     is_closure;
                                     ctx = ref None;
+                                    initial_index = 0;
+                                    parent = Some env.unit;
                                     params; body})) in
           let ctx' = binds @ env.ctx in
           List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> ());
-          let (s, body) = compile_e' { env with ctx = ctx'} e in
-          let closure_size = ctx_vars ctx' in
-          let make_fun (i, index, acc) (_, bind) (ident, params, body) =
+          let (s, body) = compile_e' { env with index = env.index + !closures_index;
+                                                ctx = ctx'} e in
+          let closure_size = number_of_vars ctx' in
+          let make_fun (i, acc) (_, bind) (ident, params,
+                                           ((_, (_, ({Ast.Pos.start = pos}))) as body)) =
             match bind with
             | BindFun _ ->
-              (i, index, acc)
-            | BindVar ->
+              (i, acc)
+            | BindVar index ->
               let c = get_label env.state {orc_module = env.orc_module;
                                            ident;
                                            is_closure = true;
                                            ctx = ref (Some ctx');
+                                           initial_index = number_of_vars ctx';
+                                           parent = Some env.unit;
                                            params; body} in
-              (i + 2, index + 1, (I.Pruning(i - 1, Some(I.Var.Generated index), i), pos)::(I.Closure(c, closure_size), pos)::acc)
+              (i + 2, (I.Pruning(i - 1, Some(I.Var.Generated index), i), pos)::(I.Closure(c, closure_size), pos)::acc)
             | _ -> assert false in
-          let init = (env.shift + len body, new_index env.ctx, []) in
-          let (_, _, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
-          (s + (len closures / 2), closures @ body)
+          let init = (env.shift + len body, []) in
+          let (_, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
+          (s, closures @ body)
         | ECall(ident, args) ->
           if need_preprocess args
           then preprocess_args args (ast_e, pos_range) (fun args' ->
               (ECall(ident, args'), (ast_e, pos_range)))
                |> compile_e' env
-          else compile_call ident args
+          else (env.index, compile_call ident args)
         | ERefer(ns, fs, e) ->
           let ctx' = (List.map fs ~f:(fun name ->
               (name, BindMod(ns, name)))) @ env.ctx in
@@ -331,36 +350,36 @@ let compile_e env e =
           else
             let args' = List.map args ~f:(fun arg ->
                 match ctx_find arg with
-                | (i, BindVar) -> i
+                | BindVar index -> index
                 | _ -> assert false) in
-            (0, [(I.FFC(get_ffc env.state def, Array.of_list args'), pos)])
-        | EStop -> (0, [(I.Stop, pos)]) in
+            (env.index, [(I.FFC(get_ffc env.state def, Array.of_list args'), pos)])
+        | EStop -> (env.index, [(I.Stop, pos)]) in
       Ok(compile_e' env e))
 
-let compile_fun state {orc_module; ident; is_closure; ctx; params; body} =
-  let params' = List.rev_map params ~f:(fun n -> (Ir1.Var.ident n, BindVar)) in
+let compile_fun state ({orc_module; ident; initial_index; is_closure; ctx; params; body} as unit) =
   let ctx = Option.value_exn !ctx in
+  let params' = List.mapi params ~f:(fun i n -> (Ir1.Var.ident n, BindVar (initial_index + i))) in
+  let params_with_meta = List.mapi params ~f:(fun i n ->
+      Ir1.Var.to_indexed (initial_index + i) n) in
   let ctx' = if is_closure
     then ctx
-    else List.filter ctx ~f:(function | (_, BindVar) -> false
+    else List.filter ctx ~f:(function | (_, BindVar _) -> false
                                       | _ -> true) in
   let ctx'' = params' @ ctx' in
   let open Result.Let_syntax in
-  let%map (size, f) = compile_e { orc_module; current_fun = ident;
-                                  ctx = ctx'';
-                                  tail_call = true;
-                                  shift = 0;
-                                  state} body in
-  (size + List.length params + ctx_vars ctx', f)
+  let%map (last_index, f) = compile_e { orc_module; current_fun = ident;
+                                        ctx = ctx'';
+                                        tail_call = true;
+                                        shift = 0;
+                                        index = initial_index + (List.length params);
+                                        state; unit} body in
+  (last_index, params_with_meta, f)
 
 let init_ctx = [("Coeffect", BindCoeffect)]
 
 let finalize code =
   Array.of_list_map code ~f:(fun (_ident, (s, f)) ->
       (s, Array.of_list_rev f))
-
-let fun_params_with_index params =
-  List.mapi params ~f:Ir1.Var.to_indexed
 
 let compile ~repository ~prelude e =
   with_return (fun r ->
@@ -374,12 +393,14 @@ let compile ~repository ~prelude e =
                                       is_closure = false;
                                       ctx = ref (Some init_ctx');
                                       params = [];
+                                      initial_index = 0;
+                                      parent = None;
                                       body = e}]} in
       let compile_unit unit =
         (match compile_fun state unit with
          | Error _ as err -> r.return err
-         | Ok(size, ops) ->
-           let x = (unit.orc_module, unit.ident, size, fun_params_with_index unit.params, Array.of_list_rev ops) in
+         | Ok(size, params, ops) ->
+           let x = (unit.orc_module, unit.ident, size, params, Array.of_list_rev ops) in
            state.repo <- x::state.repo) in
       let remove_from_queue el =
         let rec f acc = function
@@ -411,6 +432,8 @@ let rec add_module' ctx orc_module = function
                          ident;
                          is_closure = false;
                          ctx = ref None;
+                         initial_index = 0;
+                         parent = None;
                          params; body})) in
     let ctx' = binds @ ctx in
     List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> assert false);
