@@ -38,17 +38,26 @@ let rec compile_unit_equal a b =
 type state = {
   repository: Repository.t;
   mutable ffc_in_use : string list;
-  mutable repo : (string * string * int * I.Var.t list * I.t array) list;
+  mutable repo : (unit * int * I.Var.t list * I.t array) list;
   mutable compile_queue : unit list;
 }
 
-let repo_index state mod_ ident =
+let repo_index state unit =
   let rec f = function
     | [] -> None
-    | (mod_', ident', _, _, _)::xs when String.equal mod_' mod_ && String.equal ident' ident ->
+    | (unit', _, _, _)::xs when compile_unit_equal unit unit' ->
       Some(len xs)
     | _::xs -> f xs in
   f state.repo
+
+let repo_index_external state ns ident =
+  let rec f = function
+    | [] -> None
+    | (unit, _, _, _)::xs
+      when String.equal unit.orc_module ns && String.equal unit.ident ident -> Some(len xs)
+    | _::xs -> f xs in
+  f state.repo
+
 
 let get_label state unit =
   let rec f i = function
@@ -58,7 +67,7 @@ let get_label state unit =
     | unit'::_ when compile_unit_equal unit unit' ->
       len state.repo + i
     | _::xs -> f (i + 1) xs in
-  match repo_index state "" unit.ident with
+  match repo_index state unit with
   | Some(i) -> i
   | None -> f 0 state.compile_queue
 
@@ -74,7 +83,7 @@ let get_import_label state (mod_, ident) =
         | {orc_module = mod_'; ident = ident'}::_ when String.equal mod_' mod_ && String.equal ident' ident ->
           len state.repo + i
         | _::xs -> f (i+1) xs in
-      match repo_index state mod_ ident with
+      match repo_index_external state mod_ ident with
       | Some(i) -> Some(i)
       | None -> Some(f 0 state.compile_queue))
 
@@ -277,7 +286,8 @@ let compile_e env e =
           let index' = env.index + (if Option.is_none var then 0 else 1) in
           let (s2, e2') = compile_e' { env with index = index';
                                                 ctx = ctx' } e2 in
-          let (s1, e1') = compile_e' { env with tail_call = false; shift = env.shift + len e2'} e1 in
+          let (s1, e1') = compile_e' { env with tail_call = false;
+                                                shift = env.shift + len e2'} e1 in
           (Int.max s1 s2,
            (I.Sequential(env.shift + len e1' + len e2' - 1,
                          var,
@@ -296,12 +306,12 @@ let compile_e env e =
               | Ok v -> (ident, (v, fix_links))
               | Error _ as err -> r.return err) in
           let closures = analyze_functions_graph closure_vars in
-          let closures_index = ref (number_of_vars env.ctx) in
+          let index' = ref env.index in
           let binds = List.map2_exn fs closures ~f:(fun (ident, params, body) (_, is_closure) ->
               if is_closure
               then
-                (closures_index := !closures_index + 1;
-                 (ident, BindVar (!closures_index - 1)))
+                (index' := !index' + 1;
+                 (ident, BindVar (!index' - 1)))
               else (ident, BindFun {orc_module = env.orc_module;
                                     ident;
                                     is_closure;
@@ -311,11 +321,10 @@ let compile_e env e =
                                     params; body})) in
           let ctx' = binds @ env.ctx in
           List.iter binds ~f:(function | (_, BindFun { ctx }) -> ctx := Some ctx' | _ -> ());
-          let (s, body) = compile_e' { env with index = env.index + !closures_index;
+          let (s, body) = compile_e' { env with index = env.index + !index';
                                                 ctx = ctx'} e in
-          let closure_size = number_of_vars ctx' in
           let make_fun (i, acc) (_, bind) (ident, params,
-                                           ((_, (_, ({Ast.Pos.start = pos}))) as body)) =
+                                           ((_, (_, ({Ast.Pos.start = pos} as range))) as body)) =
             match bind with
             | BindFun _ ->
               (i, acc)
@@ -324,10 +333,11 @@ let compile_e env e =
                                            ident;
                                            is_closure = true;
                                            ctx = ref (Some ctx');
-                                           initial_index = number_of_vars ctx';
+                                           initial_index = env.index + !index';
                                            parent = Some env.unit;
                                            params; body} in
-              (i + 2, (I.Pruning(i - 1, Some(I.Var.Generated index), i), pos)::(I.Closure(c, closure_size), pos)::acc)
+              (i + 2, (I.Pruning(i - 1, Some(I.Var.Handcrafted {index; ident; pos = range}), i), pos)::
+                      (I.Closure(c, env.index + !index'), pos)::acc)
             | _ -> assert false in
           let init = (env.shift + len body, []) in
           let (_, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
@@ -400,7 +410,7 @@ let compile ~repository ~prelude e =
         (match compile_fun state unit with
          | Error _ as err -> r.return err
          | Ok(size, params, ops) ->
-           let x = (unit.orc_module, unit.ident, size, params, Array.of_list_rev ops) in
+           let x = (unit, size, params, Array.of_list_rev ops) in
            state.repo <- x::state.repo) in
       let remove_from_queue el =
         let rec f acc = function
@@ -417,7 +427,7 @@ let compile ~repository ~prelude e =
           remove_from_queue unit;
           compile_loop () in
       compile_loop ();
-      let code = Array.of_list_rev_map state.repo ~f:(fun (_, _, size, params, body) ->
+      let code = Array.of_list_rev_map state.repo ~f:(fun (_, size, params, body) ->
           (size, params, body)) in
       Ok({I.ffc = List.rev state.ffc_in_use; code}))
 
