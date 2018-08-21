@@ -305,4 +305,10 @@ let _ =
       | [| x |] ->
         let s = Yojson.Basic.to_string (to_json x) in
         PrimVal(VConst (String s))
-      | _ -> PrimUnsupported)
+      | _ -> PrimUnsupported);
+  register_ffc "time.now" (function
+      | [| |] ->
+      let n = Int64.to_float(Mtime_clock.now_ns ()) /. Mtime.s_to_ns in
+        PrimVal(VConst (Float n))
+      | _ -> PrimUnsupported
+  )

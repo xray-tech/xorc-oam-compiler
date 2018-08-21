@@ -99,7 +99,7 @@ let implicit_prelude =
              "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
              "minimum"; "maximum"]);
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "Semaphore"; "?"; ":="]);
-   ("time", ["Rwait"]);
+   ("time", ["Rwait"; "Rclock"]);
    ("util", ["for"; "upto"; "Random"; "URandom"]);
    ("web", ["ReadJSON"; "WriteJSON"])
   ]
