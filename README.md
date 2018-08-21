@@ -59,9 +59,9 @@ jbuilder build testkit/testkit.exe
 ./_build/default/testkit/testkit.exe exec ./_build/default/bin/orc.exe -- tests-server
 ```
 
-## diff Austin
+## Austin TX's implementation
 
-TODO: describe Xorc extensions and differences from Orc Austin 2.1.2
+See the [difference document](https://github.com/xray-tech/xorc-xray-platform/blob/master/language/Compatibility.md) that describes the Xorc extensions and differences from Orc Austin 2.1.2
 
 
 
