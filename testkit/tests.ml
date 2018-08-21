@@ -400,7 +400,21 @@ let tests =
          def c() = 2
        c
        c1()() | c2()()",
-      Check (allof ["1"; "2"]))]);
+      Check (allof ["1"; "2"]));
+     ("def forkjoin([]) = signal
+       def forkjoin(f:rest) = (f(), forkjoin(rest)) >> 3
+
+      def example() = Coeffect(1)
+      forkjoin([example, example])"),
+     CheckAndResume
+       { values = allof [];
+         unblock = (1, "signal");
+         killed = [];
+         next = CheckAndResume
+             { values = allof [];
+               unblock = (0, "signal");
+               killed = [];
+               next = Check (allof ["3"])}}]);
    ("benchs", [
        ("def fact(n) = if (n :> 0) then n * fact(n-1) else 1
 
