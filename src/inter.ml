@@ -166,7 +166,7 @@ and halt state ({ id; stack } as thread) =
     | x::stack' -> match x with
       | FOtherwise {instances = 1 ;
                     first_value = false; op } ->
-        tick state { thread with op; stack = stack' }
+        tick state { thread with op; stack = stack' } true
       | FOtherwise { instances = 1} ->
         in_stack stack'
       | FOtherwise r ->
@@ -191,15 +191,16 @@ and pending_realize state p v =
   p.pend_value <- PendVal v;
   concat2_map p.pend_waiters ~f:(fun ({ stack } as thread) ->
       if is_alive stack
-      then tick state thread
+      then tick state thread false
       else ([], []))
 and pending_stop state p =
   p.pend_value <- PendStopped;
   concat2_map p.pend_waiters ~f:(fun thread ->
-      tick state thread)
+      tick state thread false)
 and tick
     ({ instance; inter } as state)
-    ({ op = (pc, c); stack; env} as thread) =
+    ({ op = (pc, c); stack; env} as thread)
+    subscribe =
   (* print_debug inter (pc, c) env; *)
   let realized arg =
     (match env.(arg) with
@@ -211,27 +212,20 @@ and tick
      | (_, Value v) -> `Value v) in
   let realized_multi args =
     let args' = Array.map args ~f:realized in
-    if Array.find args' ~f:(function
-        | `Stopped -> true
-        | _ -> false) |> Option.is_some
-    then `Stopped
-    else
-      let values = (Array.create ~len:(Array.length args) (VConst (Ast.Null))) in
-      let rec step = function
-        | i when Int.equal (Array.length args) i -> `Values values
-        | i ->
-          match args'.(i) with
-          | `Pending p -> `Pending p
-          | `Stopped -> `Stopped
-          | `Value v ->
-            values.(i) <- v;
-            step (i + 1) in
-      step 0 in
+    let (values, pendings, stopped) = Array.fold args' ~init:([], [], false)
+        ~f:(fun (values, pendings, stopped) v ->
+            match v with
+            | `Pending p -> (values, p::pendings, stopped)
+            | `Value v -> (v::values, pendings, stopped)
+            | `Stopped -> (values, pendings, true)) in
+    if stopped then `Stopped
+    else if List.length pendings > 0 then `Pendings pendings
+    else `Values (Array.of_list_rev values) in
   let call_tuple vs args =
     (* TODO log errors *)
     (match realized args.(0) with
      | `Pending p ->
-       p.pend_waiters <- thread::p.pend_waiters;
+       if subscribe then p.pend_waiters <- thread::p.pend_waiters;
        ([], [])
      | `Stopped -> raise Util.TODO
      | `Value(VConst(Ast.Int i)) ->
@@ -241,8 +235,9 @@ and tick
      | `Value(_) -> halt state thread) in
   let call_ffc index args =
     match realized_multi args with
-    | `Pending p ->
-      p.pend_waiters <- thread::p.pend_waiters;
+    | `Pendings ps ->
+      if subscribe then
+        List.iter ps ~f:(fun p -> p.pend_waiters <- thread::p.pend_waiters);
       ([], [])
     | `Stopped -> halt state thread
     | `Values args' ->
@@ -264,7 +259,7 @@ and tick
          | [| VPending { pend_value = PendStopped } |] ->
            halt state thread
          | [| VPending p |] ->
-           p.pend_waiters <- thread::p.pend_waiters;
+           if subscribe then p.pend_waiters <- thread::p.pend_waiters;
            ([], [])
          | _ -> unsupported ())
       | "core.realize" ->
@@ -357,7 +352,7 @@ and tick
   | Call(TDynamic(i), args) ->
     (match realized i with
      | `Pending p ->
-       p.pend_waiters <- thread::p.pend_waiters;
+       if subscribe then p.pend_waiters <- thread::p.pend_waiters;
        ([], [])
      | `Stopped -> halt state thread
      | `Value(VClosure(pc', to_copy, closure_env)) ->
@@ -388,7 +383,7 @@ and tick
   | Coeffect arg ->
     (match realized arg with
      | `Pending p ->
-       p.pend_waiters <- thread::p.pend_waiters;
+       if subscribe then p.pend_waiters <- thread::p.pend_waiters;
        ([], [])
      | `Stopped -> halt state thread
      | `Value(descr) ->
@@ -403,7 +398,7 @@ and tick
   | TailCall(TDynamic(i), args) ->
     (match realized i with
      | `Pending p ->
-       p.pend_waiters <- thread::p.pend_waiters;
+       if subscribe then p.pend_waiters <- thread::p.pend_waiters;
        ([], [])
      | `Stopped -> halt state thread
      | `Value(VClosure(pc', to_copy, closure_env)) ->
@@ -449,7 +444,7 @@ let update_pos state ({ op = (pc, c) } as th) =
   { th with pos }
 
 let debug_tick state thread =
-  let (threads, trace) = tick state thread in
+  let (threads, trace) = tick state thread true in
   (List.map threads ~f:(update_pos state), trace)
 
 let debug_unblock state coeffect value =
@@ -478,7 +473,7 @@ let run_loop state threads =
   let rec step = function
     | [] -> ()
     | thread::threads ->
-      let (threads', _) = tick state thread in
+      let (threads', _) = tick state thread true in
       step (threads' @ threads) in
   step threads
 
