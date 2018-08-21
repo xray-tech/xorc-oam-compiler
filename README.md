@@ -1,8 +1,15 @@
 # xorc-oam-compiler
 
-## this is Xorc implementation of Orc Language version 2.1.2 with some extensions.
+This is Xorc implementation of [Orc Language](https://orc.csres.utexas.edu/) version 2.1.2 with some extensions.
 
-TODO: describe Xorc extensions and differences from Orc Austin 2.1.2
+
+## ORC resources
+
+- [Orc in 15 mins](https://orc.csres.utexas.edu/tutorial.shtml)
+- [Reference](https://orc.csres.utexas.edu/documentation/html/refmanual/index.html)
+
+
+
 
 ## Requirements
 
@@ -51,6 +58,10 @@ jbuilder build testkit/testkit.exe
 
 ./_build/default/testkit/testkit.exe exec ./_build/default/bin/orc.exe -- tests-server
 ```
+
+## diff Austin
+
+TODO: describe Xorc extensions and differences from Orc Austin 2.1.2
 
 
 
