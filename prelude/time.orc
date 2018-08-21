@@ -1,7 +1,7 @@
 refer from core((-))
 def Rclock () =
-  val now = `time.now`()
-  def time () = `time.now`() - now
-  {. time=time .}
+  val now = Coeffect({. kind="now" .})
+  def time () =  Coeffect({. kind="now" .}) - now
+  now>>{. time=time .} --
      
 def Rwait(x) = Coeffect({. kind = "rwait", delay = x .})

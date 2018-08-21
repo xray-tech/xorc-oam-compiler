@@ -251,10 +251,15 @@ let run_loop state_path unblock res =
     | None | Some(_) -> let x = Random.bits () in
       on_air := !on_air - 1;
       unblock' id (V.VConst(C.Int x))
+  and handle_now id _ =
+    let t = Int64.to_float(Mtime_clock.now_ns ()) /. Mtime.s_to_ns in
+    on_air := !on_air - 1;
+    unblock' id (V.VConst(C.Float t))
   and handlers = [
     ("rwait", handle_rwait);
     ("println", handle_println);
-    ("random", handle_random)]
+    ("random", handle_random);
+    ("now", handle_now)]
   and coeffect_handler v =
     let open Option.Let_syntax in
     let%bind (kind, pairs) = coeffect_kind v in
