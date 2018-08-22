@@ -1,7 +1,7 @@
 FROM eu.gcr.io/xray2poc/opam as builder
 
 RUN opam repository add remote https://opam.ocaml.org && opam update
-RUN opam install jbuilder menhir core async async_extended msgpck sedlex ppx_jane benchmark
+RUN opam install jbuilder menhir core async async_extended msgpck sedlex ppx_jane benchmark yojson mtime
 
 COPY . /workspace
 
