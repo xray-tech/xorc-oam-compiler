@@ -44,6 +44,12 @@ def Channel() =
       >> `core.set`(queue, queue'')
       >> head(queue')
 
+  def getAll() =
+    val queue' = `core.deref`(queue)
+    if (empty(queue')) 
+    then []
+    else `core.set`(queue,[])>> queue'
+
   def pendingCreateIfNeedAndRead(box) =
     (val pend = `core.deref`(box)
      if pend = null
@@ -77,7 +83,7 @@ def Channel() =
     if empty(`core.deref`(queue))
     then signal
     else pendingCreateIfNeedAndRead(emptyWait)
-  {. get = get, getD = getD, put = put, close = close .}
+  {. get = get, getD = getD, getAll = getAll, put = put, close = close .}
 
 def Counter() =
   refer from core ((+), (-))

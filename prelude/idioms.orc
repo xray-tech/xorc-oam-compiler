@@ -1,3 +1,5 @@
+refer from state(Channel)
+
 def curry(f) = lambda(x) = lambda(y) = f(x,y)
 
 def curry3(f) = lambda(x) = lambda(y) = lambda(z) = f(x,y,z)
@@ -67,8 +69,7 @@ def pand(p:ps) =
   )
 
 
--- def collect[A](lambda () :: A) :: List[A]
--- def collect(p) =
---   val b = Channel[A]()
---   p() >x> b.put(x) >> stop
---   ; b.getAll()
+def collect(p) =
+   val b = Channel[A]()
+   p() >x> b.put(x) >> stop
+   ; b.getAll()
