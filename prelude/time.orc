@@ -1,7 +1,8 @@
 refer from core((-))
 def Rclock () =
-  val now = Coeffect({. kind="now" .})
-  def time () =  Coeffect({. kind="now" .}) - now
+  def clock() = Coeffect({. name="clock", kind="MONOTONIC" .})
+  val now = clock()
+  def time () =  clock() - now
   now>>{. time=time .} --
      
-def Rwait(x) = Coeffect({. kind = "rwait", delay = x .})
+def Rwait(x) = Coeffect({. name = "rwait", delay = x .})

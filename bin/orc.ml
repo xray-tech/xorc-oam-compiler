@@ -219,9 +219,9 @@ let run_loop state_path unblock res =
       Writer.save state_path
         ~contents:(Msgpck.String.to_string msgpck |> Bytes.to_string)
     | _ -> return () in
-  let coeffect_kind = function
+  let coeffect_name = function
     | V.VRecord(pairs) ->
-      (match List.Assoc.find pairs ~equal:String.equal "kind" with
+      (match List.Assoc.find pairs ~equal:String.equal "name" with
        | Some(V.VConst(C.String v)) -> Some(v, pairs)
        | _ -> None)
     | _ -> None in
@@ -251,18 +251,31 @@ let run_loop state_path unblock res =
     | None | Some(_) -> let x = Random.bits () in
       on_air := !on_air - 1;
       unblock' id (V.VConst(C.Int x))
-  and handle_now id _ =
-    let t = Int64.to_float(Mtime_clock.now_ns ()) /. Mtime.s_to_ns in
-    on_air := !on_air - 1;
-    unblock' id (V.VConst(C.Float t))
+  and handle_clock id r =
+    match List.Assoc.find r ~equal:String.equal "kind" with
+    | Some(V.VConst(C.String v)) ->
+      (match v with
+      | "MONOTONIC" ->
+        let t =  Int64.to_float(Mtime_clock.now_ns ()) /. Mtime.s_to_ns in
+        on_air := !on_air - 1;
+        unblock' id (V.VConst(C.Float t))
+      | "REAL-TIME" | "REALTIME" ->
+        on_air := !on_air -1;
+        unblock' id (V.VConst(C.Float (Unix.gettimeofday ())))
+      | v ->
+        error "%s: unknown clock kind" v;
+        return ())
+    | _ ->
+      error "Bad type for clock kind";
+      return ()
   and handlers = [
     ("rwait", handle_rwait);
     ("println", handle_println);
     ("random", handle_random);
-    ("now", handle_now)]
+    ("clock", handle_clock)]
   and coeffect_handler v =
     let open Option.Let_syntax in
-    let%bind (kind, pairs) = coeffect_kind v in
+    let%bind (kind, pairs) = coeffect_name v in
     let%map handler = List.Assoc.find handlers ~equal:String.equal kind in
     (handler, pairs)
   and tick {Orcml.Res.values; coeffects; instance} =

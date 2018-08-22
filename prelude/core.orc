@@ -22,7 +22,7 @@ def floor(x) = `core.floor`(x)
 def sqrt(x) = `core.sqrt`(x)
 def Let(x) = `core.let`(x)
 
-def Println(x) = Coeffect({. kind = "println", value = x .})
+def Println(x) = Coeffect({. name = "println", value = x .})
 def Error(x) = Println("Error: " + x)
 
 def abs(x) = if x <: 0 then -x else x

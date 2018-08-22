@@ -65,7 +65,7 @@ let pseudo_ffc = [ "core.make-pending"; "core.pending-read";
 
 let () =
   List.iter pseudo_ffc ~f:(fun x ->
-    register_ffc x (fun _ -> PrimUnsupported))
+      register_ffc x (fun _ -> PrimUnsupported))
 
 let core = [
   ("core.let", function
@@ -318,4 +318,4 @@ let _ =
         let s = Yojson.Basic.to_string (to_json x) in
         PrimVal(VConst (String s))
       | _ -> PrimUnsupported)
-  
+
