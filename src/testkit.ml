@@ -4,8 +4,7 @@ type msg = Execute of Inter.bc
          | Benchmark of Inter.bc * int
 
 type res = { values : Inter.v list;
-             coeffects : Inter.coeffect list;
-             killed : int list }
+             coeffects : Inter.coeffect list}
 
 
 module Serializer = struct
@@ -33,21 +32,20 @@ module Serializer = struct
           Benchmark(v, iter))
     | _ -> Error(`BadFormat)
 
-  let dump_res {Inter.Res.values; coeffects; killed} =
+  let dump_res {Inter.Res.values; coeffects} =
     let values' = List.map values ~f:(fun v ->
         M.List (Serializer.dump_simple_value v)) in
     let dump_coeffect (id, v) =
       M.List ((M.Int id)::(Serializer.dump_simple_value v)) in
     M.List [
       M.List values';
-      M.List (List.map coeffects ~f:dump_coeffect);
-      M.List (List.map killed ~f:(fun x -> M.Int x))]
+      M.List (List.map coeffects ~f:dump_coeffect)]
 
   let load_res v =
     with_return (fun r ->
         let bad_format () = r.return (Error `BadFormat) in
         match v with
-        | M.List [M.List values; M.List coeffects; M.List killed] ->
+        | M.List [M.List values; M.List coeffects] ->
           let values' = List.map values ~f:(function
               | M.List xs ->
                 (match Serializer.load_simple_value xs with
@@ -60,12 +58,8 @@ module Serializer = struct
                  | Ok((v, _)) -> (id, v)
                  | _ -> bad_format ())
               | _ -> bad_format ()) in
-          let killed' = List.map killed ~f:(function
-              | M.Int v -> v
-              | _ -> bad_format ()) in
           Ok { values = values';
-               coeffects = coeffects';
-               killed = killed'}
+               coeffects = coeffects'}
         | _ -> bad_format ())
 
   let dump_bench_res res =

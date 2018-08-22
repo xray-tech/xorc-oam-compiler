@@ -32,15 +32,6 @@ let run_loop p compiled checks =
 
   Serializer.dump_msg (T.Execute compiled) |> Protocol.write input;
 
-  let check_killed check actual =
-    let check' = Int.Set.of_list check in
-    let actual' = Int.Set.of_list actual in
-    if Int.Set.equal check' actual'
-    then `Ok
-    else `Fail (sprintf "expected killed: %s; actual: %s"
-                  ([%sexp_of: int list] check |> Sexp.to_string_hum)
-                  ([%sexp_of: int list] actual |> Sexp.to_string_hum)) in
-
   let check_values check actual =
     match check with
     | Tests.AllOf expected ->
@@ -68,30 +59,22 @@ let run_loop p compiled checks =
          `Fail (sprintf "expected only one of %s\nactual: %s"
                   ([%sexp_of: Orcml.Value.t list] expected' |> Sexp.to_string_hum)
                   ([%sexp_of: Orcml.Value.t list] vals |> Sexp.to_string_hum))) in
-  let rec tick killed_to_check check =
-    let%bind {T.values = actual; killed = actual_killed} = Protocol.read_res output in
+  let rec tick check =
+    let%bind {T.values = actual} = Protocol.read_res output in
     match check with
-    | Tests.WithKilled { killed; values} ->
-      (match check_killed killed actual_killed with
-       | `Ok ->
-         check_values values actual |> return
-       | other -> return other)
     | Tests.Check expected ->
-      (match check_killed killed_to_check actual_killed with
-       | `Ok ->
-         check_values expected actual |> return
-       | other -> return other)
-    | Tests.CheckAndResume { values; unblock = (id, v); next; killed } ->
+      check_values expected actual |> return
+    | Tests.CheckAndResume { values; unblock = (id, v); next} ->
       (match check_values values actual  with
        | `Ok ->
          (match Orcml.parse_value v with
           | Error _ -> assert false
           | Ok(v) ->
             T.Continue(id, v) |> Serializer.dump_msg |> Protocol.write input;
-            tick killed next)
+            tick next)
        | other -> return other)
   in
-  tick [] checks
+  tick checks
 
 let implicit_core =
   ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
