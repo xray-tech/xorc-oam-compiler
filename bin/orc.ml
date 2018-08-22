@@ -90,7 +90,7 @@ let implicit_prelude =
    ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
                "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
                "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";
-               "pand"]);
+               "pand"; "collect"]);
    ("list", ["each"; "map"; "reverse"; "filter"; "head"; "tail"; "init"; "last";
              "empty"; "index"; "append"; "foldl"; "foldl1"; "foldr"; "foldr1";
              "afold"; "zipWith"; "zip"; "unzip"; "concat"; "length"; "take"; "drop";
@@ -101,7 +101,7 @@ let implicit_prelude =
    ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "Semaphore"; "?"; ":="]);
    ("time", ["Rwait"; "Rclock"]);
    ("util", ["for"; "upto"; "Random"; "URandom"]);
-   ("web", ["ReadJSON"; "WriteJSON"])
+   ("web", ["ReadJSON"; "WriteJSON"; "HTTP"])
   ]
 
 let compile_source loader include_prelude prog =
