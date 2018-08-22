@@ -1,4 +1,4 @@
-refer from core ((=))
+refer from core ((=), (-))
 
 def Ref(init) =
   val v = `core.make-ref`(init)
@@ -109,6 +109,15 @@ def Counter() =
   def getValue() = `core.deref`(value)
 
   {. inc = inc, dec = dec, onZero = onZero, value = getValue .}
+
+def Semaphore(n) =
+  val b = Channel()
+  def acquire() = b.get()
+  def acquireD() = b.getD()
+  def release() = b.put(signal)
+  def add(0) = signal
+  def add(i) = release() >> add(i-1)
+  add(n) >> {. acquire = acquire, acquireD = acquireD, release = release .}
 
 def (?)(r) = r.read()
 

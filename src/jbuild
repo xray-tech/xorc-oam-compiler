@@ -1,7 +1,7 @@
 (library
  ((name orcml)
   (public_name orcml)
-  (libraries (base menhirLib sedlex stdio msgpck sexplib))
+  (libraries (base menhirLib sedlex stdio msgpck sexplib yojson mtime.clock.os))
   (preprocess (pps (ppx_jane)))
   (flags (:standard -w -9 -w -39))
 ))
