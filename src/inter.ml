@@ -465,7 +465,8 @@ let inter {ffc; code} =
 
 let unblock inter { current_coeffect; blocks } coeffect value =
   (* we don't want to mutate original instance *)
-  let instance' = { current_coeffect; blocks } in
+  let instance' = { current_coeffect;
+                    blocks = List.Assoc.remove blocks ~equal:Int.equal coeffect } in
   let state = { thread_id = 0;
                 inter; instance = instance';
                 values = [];
