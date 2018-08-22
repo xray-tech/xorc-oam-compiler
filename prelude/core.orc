@@ -37,3 +37,5 @@ def min(x,y) = if y <: x then y else x
 def max(x,y) = if x :> y then x else y
 
 def eq(x,y) = (x = y)
+
+def assoc(m, k, v) = m + `core.make-record`(k, v)
