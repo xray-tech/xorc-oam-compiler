@@ -40,11 +40,23 @@ let register_ffc name prim =
   Hashtbl.set t.ffc_mapping ~key:name ~data:(Array.length t.ffc);
   t.ffc <- Array.append t.ffc [| (name, prim) |]
 
-let to_string = function
+let rec to_string = function
   | Inter0.VConst(Ast.String x) -> x
-  | Inter0.VConst(Ast.Int x) -> Int.to_string x
-  | Inter0.VConst(Ast.Float x) -> Float.to_string x
-  (* TODO *)
+  | VConst(Ast.Int x) -> Int.to_string x
+  | VConst(Ast.Float x) -> Float.to_string x
+  | VConst(Ast.Bool x) -> Bool.to_string x
+  | VConst(Ast.Signal) -> "signal"
+  | VConst(Ast.Null) -> "null"
+  | VClosure (fun_, _, _) -> Printf.sprintf "<closure #%d>" fun_
+  | VLabel fun_ -> Printf.sprintf "<label #%d>" fun_
+  | VRecord pairs ->
+    let format_pair (k, v) = Printf.sprintf "%s = %s" k (to_string v) in
+    let pairs' = List.map pairs ~f:format_pair in
+    Printf.sprintf "{. %s .}" (String.concat ~sep:", " pairs')
+  | VTuple xs ->
+    Printf.sprintf "(%s)" (String.concat ~sep:", " (List.map xs ~f:to_string))
+  | VList xs ->
+    Printf.sprintf "[%s]" (String.concat ~sep:", " (List.map xs ~f:to_string))
   | _ -> "<value>"
 
 let pseudo_ffc = [ "core.make-pending"; "core.pending-read";
