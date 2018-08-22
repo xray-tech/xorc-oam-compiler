@@ -70,6 +70,6 @@ def pand(p:ps) =
 
 
 def collect(p) =
-   val b = Channel[A]()
+   val b = Channel()
    p() >x> b.put(x) >> stop
    ; b.getAll()
