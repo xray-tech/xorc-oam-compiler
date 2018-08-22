@@ -97,7 +97,6 @@ type instance
 module Res : sig
   type t = { values : Value.t list;
              coeffects : coeffect list;
-             killed : int list;
              instance : instance}
 end
 
@@ -129,8 +128,7 @@ module Testkit : sig
            | Continue of int * Value.t
            | Benchmark of bc * int
   type res = { values : Value.t list;
-               coeffects : coeffect list;
-               killed : int list }
+               coeffects : coeffect list}
   module Serializer : sig
     type load_error = [`BadFormat]
     val dump_msg : msg -> Msgpck.t
