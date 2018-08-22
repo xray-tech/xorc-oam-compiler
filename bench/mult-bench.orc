@@ -1,3 +1,7 @@
+{-
+ - Adapted from https://github.com/orc-lang/orc/blob/v2.1.2/OrcExamples/synchronization/readers-writers.orc
+ - see phil().think for a rough tuning of run duration
+ -}
 def shuffle(a,b) = if (Random(2) = 1) then (a,b) else (b,a)
 
 def take((a,b)) =    
@@ -24,9 +28,10 @@ def load_it() =
 def phil(n,a,b) =
   def think() = 
     Println("thinking: "+n) >> 
-    (if (Random(500) <: 499)
+    -- (if (Random(10) <: 9)
+    (if (Random(100) <: 99)
       then Rwait(1500+Random(4000)) -- 3.5 secons average
-      else stop)
+      else Println("phil="+n+" stop")>>stop)
   def can_work() = take((a,b))
   def work() = 
     Println("working: "+n) >> 
