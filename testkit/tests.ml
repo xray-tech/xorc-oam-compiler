@@ -377,8 +377,7 @@ let tests =
         Check (allof ["true"]))]);
    ("state", [
      ("val c = Semaphore(1)
-       c.acquire() >> Coeffect(1) >> c.release() >> 1
-",
+       c.acquire() >> Coeffect(1) >> c.release() >> 1",
      CheckAndResume
              { values = allof [];
                unblock = (0, "signal");
