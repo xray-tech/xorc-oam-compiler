@@ -179,3 +179,5 @@ module Debugger : sig
 
   val v_to_string : v -> string
 end
+
+val implicit_prelude : (string * string) list

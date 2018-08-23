@@ -4,6 +4,8 @@ open! Log.Global
 
 open Orcml_testkit
 
+module Lib = Orcml_bin_lib
+
 type results = { mutable success : int;
                  mutable failed : int }
 
@@ -76,24 +78,16 @@ let run_loop p compiled checks =
   in
   tick checks
 
-let implicit_core =
-  ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
-   ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
-   "floor"; "sqrt"; "Let"; "Rwait"; "Println"]
-
-let prelude = List.map implicit_core ~f:(fun ident -> ("core", ident))
-
-let make_repository path =
-  let repository = Orcml.Repository.create () in
-  let code = In_channel.read_all path in
-  Orcml.add_module ~repository ~path:"core" code
-  |> Result.map_error ~f:(fun _ -> "Core compilation error")
-  |> Result.ok_or_failwith;
-  repository
+let repository =
+  let (module Loader : Lib.ModuleLoader) = Lib.static_prelude in
+  let%bind modules = Loader.all_modules () in
+  match%map Lib.add_modules Lib.static_prelude modules with
+  | Error _ -> assert false
+  | Ok(repository) -> repository
 
 let run_test repository results p (code, checks) =
   debug "Run test: %s" code;
-  let res = Orcml.compile ~prelude ~repository code in
+  let res = Orcml.compile ~prelude:Orcml.implicit_prelude ~repository code in
   let fail reason =
     results.failed <- results.failed + 1;
     error "Test program:\n%s\nFailed with error: %s\n\n" code reason in
@@ -132,9 +126,10 @@ let with_prog (prog, args) tests f =
         exit code
       | _ -> exit 1
 
-let exec_tests repository prog tests =
+let exec_tests prog tests =
+  let%bind repository' = repository in
   let results = { success = 0; failed = 0 } in
-  with_prog prog tests (run_test repository results) >>| fun () ->
+  with_prog prog tests (run_test repository' results) >>| fun () ->
   info "Success: %i; Failed: %i\n" results.success results.failed;
   if results.failed > 0
   then exit 1
@@ -158,20 +153,19 @@ let exec =
       let prog = anon ("PROG" %: string)
       and args = flag "--" escape ~doc:"PROG arguments"
       and suits = flag "-s" (listed string) ~doc: "Run only provided test suites"
-      and prelude_path = prelude_flag
       and verbose = flag "-verbose" no_arg ~doc:"Verbose logging" in
       fun () ->
         (if verbose then Log.Global.set_level `Debug);
         let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
         Log.Global.set_output [output];
         let tests' = filter_tests suits in
-        let repository = make_repository prelude_path in
-        exec_tests repository (prog, Option.value args ~default:[]) tests' |> ignore;
+        exec_tests (prog, Option.value args ~default:[]) tests' |> ignore;
         Scheduler.go () |> never_returns]
 
-let bench_test repository n p (code, _checks) =
+let bench_test n p (code, _checks) =
+  let%bind repository' = repository in
   info "Bench program:\n%s" code;
-  let res = Orcml.compile ~prelude ~repository code in
+  let res = Orcml.compile ~prelude:Orcml.implicit_prelude ~repository:repository' code in
   let fail reason =
     error "Failed with error: %s\n\n" reason in
   match res with
@@ -192,8 +186,8 @@ let bench_test repository n p (code, _checks) =
   | Error(err) ->
     fail (Orcml.error_to_string_hum err); return ()
 
-let bench_tests prelude_path prog n tests =
-  with_prog prog tests (bench_test prelude_path n) >>= fun () -> exit 0
+let bench_tests prog n tests =
+  with_prog prog tests (bench_test n) >>= fun () -> exit 0
 
 let benchmark =
   let open Command.Let_syntax in
@@ -203,12 +197,10 @@ let benchmark =
       let prog = anon ("PROG" %: string)
       and n = flag "-n" (optional_with_default 1000 int) ~doc:"Number of iterations"
       and args = flag "--" escape ~doc:"PROG arguments"
-      and prelude_path = prelude_flag
       and suits = flag "-s" (listed string) ~doc:"Run only provided test suites" in
       fun () ->
         let tests' = filter_tests suits in
-        let repository = make_repository prelude_path in
-        bench_tests repository (prog, Option.value args ~default:[]) n tests' |> ignore;
+        bench_tests (prog, Option.value args ~default:[]) n tests' |> ignore;
         Scheduler.go () |> never_returns]
 
 

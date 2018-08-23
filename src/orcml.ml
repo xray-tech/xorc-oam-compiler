@@ -137,3 +137,27 @@ module Debugger = struct
     | Value x -> Inter.Value.to_string x
     | Pending x -> Inter.Value.pending_to_string x
 end
+
+let implicit_prelude' =
+  [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
+             ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
+             "floor"; "sqrt"; "Let"; "Println"; "assoc"]);
+   ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
+               "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
+               "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";
+               "pand"; "collect"]);
+   ("list", ["each"; "map"; "reverse"; "filter"; "head"; "tail"; "init"; "last";
+             "empty"; "index"; "append"; "foldl"; "foldl1"; "foldr"; "foldr1";
+             "afold"; "zipWith"; "zip"; "unzip"; "concat"; "length"; "take"; "drop";
+             "member"; "merge"; "mergeBy"; "sort"; "sortBy"; "mergeUnique";
+             "mergeUniqueBy"; "sortUnique"; "sortUniqueBy"; "group"; "groupBy";
+             "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
+             "minimum"; "maximum"]);
+   ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "Semaphore"; "?"; ":="]);
+   ("time", ["Rwait"; "Rclock"]);
+   ("util", ["for"; "upto"; "Random"; "URandom"]);
+   ("web", ["ReadJSON"; "WriteJSON"; "HTTP"])
+  ]
+
+let implicit_prelude = List.concat_map implicit_prelude' ~f:(fun (mod_, idents) ->
+    List.map idents ~f:(fun ident -> (mod_, ident)))

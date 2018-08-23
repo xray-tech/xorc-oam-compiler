@@ -3,6 +3,7 @@ open! Async
 open! Async_interactive
 open! Log.Global
 
+module Lib = Orcml_bin_lib
 module D = Orcml.Debugger
 
 let print_trace = function

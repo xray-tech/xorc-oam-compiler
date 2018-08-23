@@ -2,6 +2,8 @@ open! Core
 open! Async
 open! Log.Global
 
+module Lib = Orcml_bin_lib
+
 let set_logging verbose =
   (if verbose then set_level `Debug);
   let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stderr)) in
@@ -22,96 +24,13 @@ let list_position l ~f =
     | _::xs -> step (acc + 1) xs in
   step 0 l
 
-let add_modules (module Loader : Lib.ModuleLoader) modules =
-  let repository = Orcml.Repository.create () in
-  let rec step = function
-    | [] -> return (Ok repository)
-    | mod_::xs ->
-      match%bind Loader.load mod_ with
-      | None -> Error(`CantLoadMod mod_) |> return
-      | Some(code) ->
-        match Orcml.add_module ~repository ~path:mod_ code with
-        | Error _ as err -> return err
-        | Ok(()) -> step xs in
-  step modules
-
-let optional_file_contents path =
-  Monitor.try_with (fun () -> Reader.file_contents path >>| Option.some )
-  >>| function
-  | Ok(v) -> v
-  | Error(_) -> None
-
-let file_contents path =
-  let%map res = Monitor.try_with (fun () -> Reader.file_contents path ) in
-  Result.map_error res ~f:(fun e -> Error.of_exn e )
-
-let fs path =
-  (module struct
-    let load mod_ =
-      let mod_' = String.Search_pattern.(replace_all (create "\\.") ~in_:mod_ ~with_:"/") ^ ".orc" in
-      optional_file_contents (Filename.concat path mod_')
-    (* TODO nested directories *)
-    let all_modules () =
-      let%map dirs = Sys.ls_dir path in
-      List.filter_map dirs ~f:(fun n ->
-          match Filename.split_extension n with
-          | (mod_, Some("orc")) -> Some(mod_)
-          | _ -> None)
-  end : Lib.ModuleLoader)
-
-let multiloader loaders =
-  (module struct
-    let load mod_ = Deferred.List.find_map loaders ~f:(fun (module Loader : Lib.ModuleLoader) ->
-        Loader.load mod_)
-
-    let all_modules () =
-      Deferred.List.concat_map loaders ~f:(fun (module Loader : Lib.ModuleLoader) ->
-          Loader.all_modules ())
-  end : Lib.ModuleLoader)
-
-let empty_loader =
-  (module struct
-    let load _mod = return None
-    let all_modules () = return []
-  end : Lib.ModuleLoader)
-
-let static_loader modules =
-  (module struct
-    let load mod_ = return (List.Assoc.find modules ~equal:String.equal mod_)
-    let all_modules () = return (List.map modules ~f:Tuple2.get1)
-  end : Lib.ModuleLoader)
-
-let static_prelude = static_loader [%static_modules_dir "../../prelude"]
-
-let implicit_prelude =
-  [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
-             ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
-             "floor"; "sqrt"; "Let"; "Println"; "assoc"]);
-   ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
-               "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
-               "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";
-               "pand"; "collect"]);
-   ("list", ["each"; "map"; "reverse"; "filter"; "head"; "tail"; "init"; "last";
-             "empty"; "index"; "append"; "foldl"; "foldl1"; "foldr"; "foldr1";
-             "afold"; "zipWith"; "zip"; "unzip"; "concat"; "length"; "take"; "drop";
-             "member"; "merge"; "mergeBy"; "sort"; "sortBy"; "mergeUnique";
-             "mergeUniqueBy"; "sortUnique"; "sortUniqueBy"; "group"; "groupBy";
-             "rangeBy"; "range"; "any"; "all"; "sum"; "product"; "and"; "or";
-             "minimum"; "maximum"]);
-   ("state", ["Channel"; "Cell"; "Ref"; "Counter"; "Semaphore"; "?"; ":="]);
-   ("time", ["Rwait"; "Rclock"]);
-   ("util", ["for"; "upto"; "Random"; "URandom"]);
-   ("web", ["ReadJSON"; "WriteJSON"; "HTTP"])
-  ]
-
 let compile_source loader include_prelude prog =
   let (module Loader : Lib.ModuleLoader) = loader in
   let prelude = if include_prelude
-    then List.concat_map implicit_prelude ~f:(fun (mod_, idents) ->
-        List.map idents ~f:(fun ident -> (mod_, ident)))
+    then Orcml.implicit_prelude
     else [] in
   let%bind modules = Loader.all_modules () in
-  match%map add_modules loader modules with
+  match%map Lib.add_modules loader modules with
   | Error(err) -> Error(err)
   | Ok(repository) ->
     match Orcml.compile ~prelude ~repository prog with
@@ -184,7 +103,7 @@ let compile =
       let exec () =
         let open Async.Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (static_prelude::(List.map includes ~f:fs)) in
+        let loader = Lib.multiloader (Lib.static_prelude::(List.map includes ~f:Lib.fs)) in
         let%bind res = compile_source loader (not no_prelude) prog  in
         (match res with
          | Error(err) ->
@@ -347,7 +266,7 @@ let exec =
         let open Deferred.Let_syntax in
         load_exts exts;
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (static_prelude::(List.rev_map includes ~f:fs)
+        let loader = Lib.multiloader (Lib.static_prelude::(List.rev_map includes ~f:Lib.fs)
                                   |> List.rev) in
         compile_input_and_deps (not no_prelude) loader bc prog
         >>= fun inter ->
@@ -363,6 +282,10 @@ let exec =
         exec () |> ignore;
         Scheduler.go () |> never_returns
     ]
+
+let file_contents path =
+  let%map res = Monitor.try_with (fun () -> Reader.file_contents path ) in
+  Result.map_error res ~f:(fun e -> Error.of_exn e )
 
 let load_instance path =
   match%bind file_contents path with
@@ -401,7 +324,7 @@ let unblock =
       let exec () =
         let open Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
-        let loader = multiloader (List.map includes ~f:fs) in
+        let loader = Lib.multiloader (List.map includes ~f:Lib.fs) in
         compile_input_and_deps (not no_prelude) loader bc prog
         >>= fun inter ->
         load_instance load >>= fun instance ->
