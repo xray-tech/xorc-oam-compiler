@@ -374,7 +374,15 @@ let tests =
          def ReadJSON(s) = `web.json_parse`(s)
          def WriteJSON(v) = `web.json_generate`(v)
          ReadJSON(WriteJSON(V)) = V",
-         Check (allof ["true"]))])]
+        Check (allof ["true"]))]);
+   ("state", [
+     ("val c = Semaphore(1)
+       c.acquire() >> Coeffect(1) >> c.release() >> 1
+",
+     CheckAndResume
+             { values = allof [];
+               unblock = (0, "signal");
+               next = Check (allof ["1"])})])]
 
 (* TODO killing *)
 
