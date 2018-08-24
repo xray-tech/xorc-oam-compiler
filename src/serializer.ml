@@ -194,7 +194,8 @@ let dump_instance { current_coeffect; blocks } =
       `New id in
   let dedup cache obj =
     match in_cache cache obj with
-    | `Exists id | `New id -> M.Int id in
+    | `Exists id | `New id ->
+      M.Int id in
   let on_new cache obj f =
     match in_cache cache obj with
     | `Exists _ -> ()
@@ -261,9 +262,16 @@ let dump_instance { current_coeffect; blocks } =
          | PendVal v -> walk_v v
          | _ -> ());
         List.iter pend_waiters ~f:walk_token)
+  and walk_ref v =
+    on_new refs v (fun () ->
+      walk_v !v)
   and walk_v = function
     | VClosure(_,_,env) -> walk_env env
     | VPending(pending) -> walk_pending pending
+    | VRef v ->  walk_ref v
+    | VList xs -> List.iter xs ~f:walk_v
+    | VTuple xs -> List.iter xs ~f:walk_v
+    | VRecord xs -> List.iter xs ~f:(fun (_, v) -> walk_v v)
     | _ -> ()
   and walk_env env =
     on_new envs env (fun () ->

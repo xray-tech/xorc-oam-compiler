@@ -376,12 +376,18 @@ let tests =
          ReadJSON(WriteJSON(V)) = V",
         Check (allof ["true"]))]);
    ("state", [
-     ("val c = Semaphore(1)
-       c.acquire() >> Coeffect(1) >> c.release() >> 1",
-     CheckAndResume
-             { values = allof [];
-               unblock = (0, "signal");
-               next = Check (allof ["1"])})])]
+       ("val c = `core.make-ref`(1)
+        Coeffect(1) >> `core.deref`(c)",
+        CheckAndResume
+          { values = allof [];
+            unblock = (0, "signal");
+            next = Check (allof ["1"])});
+       ("val c = Semaphore(1)
+         c.acquire() >> Coeffect(1) >> c.release() >> 1",
+       CheckAndResume
+               { values = allof [];
+                 unblock = (0, "signal");
+                 next = Check (allof ["1"])})])]
 
 (* TODO killing *)
 
@@ -406,4 +412,3 @@ let tests =
  *                          unblock = (0, "0");
  *                          killed = [1];
  *                          next = Check (allof ["3"])}) *)
-

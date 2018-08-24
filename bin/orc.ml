@@ -355,8 +355,12 @@ let tests_server =
                   |> Result.ok_or_failwith in
       handle_res (Some inter) (Orcml.run inter)
     | Continue(id, v) ->
-      let res = Orcml.unblock (Option.value_exn inter)
-          (Option.value_exn state) id v in
+      let instance = state
+                     |> Option.value_exn
+                     |> Orcml.Serializer.load_instance
+                     |> Result.map_error ~f:Orcml.error_to_string_hum
+                     |> Result.ok_or_failwith in
+      let res = Orcml.unblock (Option.value_exn inter) instance id v in
       handle_res inter res
     | Benchmark(bc, iter) ->
       let inter = Orcml.inter bc
@@ -370,7 +374,7 @@ let tests_server =
       | _ -> assert false)
   and handle_res inter ({Orcml.Res.instance} as v) =
     write_result v;
-    server inter (Some instance) in
+    server inter (Some (Orcml.Serializer.dump_instance instance)) in
   let open Command.Let_syntax in
   Command.basic
     ~summary: "tests-server. supports TestKit protocol"
@@ -395,5 +399,3 @@ let () =
      ("unblock", unblock);
      ("tests-server", tests_server)]
   |> Command.run
-
-
