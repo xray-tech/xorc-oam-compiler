@@ -293,13 +293,14 @@ let dump_instance { current_coeffect; blocks } =
           M.List (List.concat_map !envs ~f:serialize_env);
           M.List (List.concat_map blocks ~f:serialize_block)]
 
-let serialize_result {Inter.Res.coeffects; values} =
+let serialize_result {Inter.Res.coeffects; killed; values} =
   let values' = (List.concat_map values ~f:dump_simple_value) in
   let serialize_coeffect (id, v) =
     M.List ((M.Int id)::(dump_simple_value v)) in
   M.List
     [M.List values';
-     M.List (List.map coeffects ~f:serialize_coeffect)]
+     M.List (List.map coeffects ~f:serialize_coeffect);
+     M.List (List.map killed ~f:(fun i -> M.Int i))]
   |> Msgpck.String.to_string
 
 let load_instance packed =

@@ -305,6 +305,13 @@ let compile_e env e =
               match closure_vars env.ctx all with
               | Ok v -> (ident, (v, fix_links))
               | Error _ as err -> r.return err) in
+          let all_free_vars = List.fold closure_vars ~init:(Set.empty (module String)) ~f:(fun s (_, (free_vars, _)) ->
+              List.fold free_vars ~init:s ~f:Set.add) in
+          let all_free_vars_indexes = Set.to_list all_free_vars
+                                      |> List.map ~f:(fun v ->
+                                          match ctx_find v with
+                                          | BindVar index -> index
+                                          | _ -> assert false) in
           let closures = analyze_functions_graph closure_vars in
           let index' = ref env.index in
           let binds = List.map2_exn fs closures ~f:(fun (ident, params, body) (_, is_closure) ->
@@ -341,7 +348,12 @@ let compile_e env e =
             | _ -> assert false in
           let init = (env.shift + len body, []) in
           let (_, closures) = List.fold2_exn (List.rev binds) (List.rev fs) ~init ~f:make_fun in
-          (s, closures @ body)
+          let wait_for_vars = if List.length all_free_vars_indexes > 0
+            then let shift = env.shift + len body + len closures in
+              [(I.Sequential(shift, None, (shift - 1)), pos);
+               (I.FFC(get_ffc env.state "core.noop", List.to_array all_free_vars_indexes), pos)]
+            else [] in
+          (s, wait_for_vars @ closures @ body)
         | ECall(ident, args) ->
           if need_preprocess args
           then preprocess_args args (ast_e, pos_range) (fun args' ->

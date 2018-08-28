@@ -68,6 +68,7 @@ let () =
       register_ffc x (fun _ -> PrimUnsupported))
 
 let core = [
+  ("core.noop", fun _ -> PrimVal (VConst Signal));
   ("core.let", function
       | [| |] -> PrimVal(VConst Signal)
       | [| v |] -> PrimVal v

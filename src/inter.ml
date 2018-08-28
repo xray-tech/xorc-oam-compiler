@@ -70,6 +70,7 @@ end
 module Res = struct
   type t = { values : v list;
              coeffects : coeffect list;
+             killed : int list;
              instance : instance}
 end
 
@@ -96,6 +97,13 @@ let get_code inter pc =
 
 (* TODO *)
 let call_bindings _ _ = []
+
+let rec is_alive = function
+  | [] -> true
+  | FPruning { pending = { pend_value = PendStopped } }::_
+  | FPruning { pending = { pend_value = PendVal(_)} }::_ ->
+    false
+  | _::xs -> is_alive xs
 
 let concat2_map l ~f =
   List.fold l ~init:([], []) ~f:(fun (part1, part2) v ->
@@ -181,8 +189,10 @@ and publish_and_halt state thread v =
   concat2 [r1; r2]
 and pending_realize state p v =
   p.pend_value <- PendVal v;
-  concat2_map p.pend_waiters ~f:(fun thread ->
-      tick state thread false)
+  concat2_map p.pend_waiters ~f:(fun ({ stack } as thread) ->
+      if is_alive stack
+      then tick state thread false
+      else ([], []))
 and pending_stop state p =
   p.pend_value <- PendStopped;
   concat2_map p.pend_waiters ~f:(fun thread ->
@@ -420,6 +430,17 @@ and tick
        (* TODO log error *)
        halt state thread)
 
+let check_killed ?(ignore_fun=(fun _ -> false)) instance =
+  let f (killed, acc) ((id, {stack}) as block) =
+    if ignore_fun id
+    then (killed, acc)
+    else if is_alive stack
+    then (killed, block::acc)
+    else (id::killed, acc) in
+  let (killed, blocks) = List.fold instance.blocks ~init:([], []) ~f in
+  instance.blocks <- blocks;
+  killed
+
 let update_pos state ({ op = (pc, c) } as th) =
   let (_, _, proc) = get_code state.inter pc in
   let (_, pos) = proc.(c) in
@@ -462,14 +483,17 @@ let run_loop state threads =
 let run inter =
   let (state, threads) = init inter in
   run_loop state threads;
+  let killed = check_killed state.instance in
   Res.{ values = state.values;
         coeffects = state.coeffects;
+        killed;
         instance = state.instance}
 
 let inter {ffc; code} =
   let open Result.Let_syntax in
   let%map env_snapshot = Env.snapshot ffc in
   { code; env_snapshot }
+
 
 let unblock inter { current_coeffect; blocks } coeffect value =
   (* we don't want to mutate original instance *)
@@ -482,12 +506,15 @@ let unblock inter { current_coeffect; blocks } coeffect value =
   match List.Assoc.find blocks ~equal:Int.equal coeffect with
   | None -> Res.{ values = [];
                   coeffects = [];
+                  killed = [];
                   instance = instance'}
   | Some(thread) ->
     let (threads, _) = publish_and_halt state thread value in
     run_loop state threads;
+    let killed = check_killed ~ignore_fun:(fun id -> Int.equal id coeffect) instance' in
     Res.{ values = state.values;
           coeffects = state.coeffects;
+          killed;
           instance = state.instance}
 
 let is_running { blocks } =
