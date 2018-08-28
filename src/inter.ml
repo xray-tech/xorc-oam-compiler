@@ -123,6 +123,11 @@ let copy_env ~vars ~offset ~to_ ~from ~args =
       to'.(offset + i) <- (var, v));
   to'
 
+let copy_stack stack =
+  List.map stack ~f:(function
+      | FCall env -> FCall (Array.copy env)
+      | v -> v)
+
 let rec publish state ({stack; env} as thread) v =
   match stack with
   | [] -> assert false
@@ -291,7 +296,10 @@ and tick
     increment_instances stack;
     let new_id = new_thread_id state in
     ([{thread with op = (pc, c1)};
-      { id = new_id; env = (Array.copy env); op = (pc, c2); stack; pos = thread.pos }],
+      { id = new_id;
+        env = (Array.copy env);
+        stack = copy_stack stack;
+        op = (pc, c2); pos = thread.pos }],
      [NewThread new_id])
   | Otherwise(c1, c2) ->
     let frame = FOtherwise { first_value = false;
