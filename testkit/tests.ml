@@ -287,7 +287,6 @@ let tests =
         Check (allof ["0"]));
        ("def tailrec(0) = 0 def tailrec(x) = val y = x - 1 stop | tailrec(y) tailrec(10000)",
         Check (allof ["0"]));
-
        ("def f(x)=if (x<:10000) then (stop|f(x+1)) else stop\n f(0)",
         Check (allof []));
        ("def tailadd(0,n) = n def tailadd(a,b) = tailadd(a-1,b+1) tailadd(40001, 10004)",
@@ -311,16 +310,16 @@ let tests =
        ("(2 | 3) >x> def foo() = x + 1 # foo() + Coeffect(1)",
         CheckAndResume { values = allof [];
                          unblock = (0, "1");
-                         next = CheckAndResume { values = allof ["4"];
+                         next = CheckAndResume { values = oneof ["4"; "5"];
                                                  unblock = (1, "1");
-                                                 next = Check (allof ["5"])}});
+                                                 next = Check (oneof ["4";"5"])}});
        ("def bar(f) = f(3) + Coeffect(1) #
          (1 | 2) >x> def foo(y) = x + y# bar(foo)",
         CheckAndResume { values = allof [];
                          unblock = (0, "1");
-                         next = CheckAndResume { values = allof ["5"];
+                         next = CheckAndResume { values = oneof ["5"; "6"];
                                                  unblock = (1, "1");
-                                                 next = Check (allof ["6"])}});
+                                                 next = Check (oneof ["5"; "6"])}});
        ("def even(x) = if x = 0 then true else odd(x - 1)
          def odd(x) = if x = 0 then false else even(x - 1)
          even(101)", Check (allof ["false"]))]);
@@ -347,14 +346,33 @@ let tests =
        def forkjoin(f:rest) = (f(), forkjoin(rest)) >> 3
 
       def example() = Coeffect(1)
-      forkjoin([example, example])"),
-     CheckAndResume
-       { values = allof [];
-         unblock = (1, "signal");
-         next = CheckAndResume
-             { values = allof [];
-               unblock = (0, "signal");
-               next = Check (allof ["3"])}}]);
+      forkjoin([example, example])",
+      CheckAndResume
+        { values = allof [];
+          unblock = (1, "signal");
+          next = CheckAndResume
+              { values = allof [];
+                unblock = (0, "signal");
+                next = Check (allof ["3"])}});
+     ("def extend(N,x,n) =
+         if (n = 0) then x
+         else extend(N, x,n-1) >y> upto(N) >j> (n,j):y
+       extend(2, [], 2)",
+      Check (allof ["[(2,0),(1,0)]";
+                    "[(2,1),(1,0)]";
+                    "[(2,0),(1,1)]";
+                    "[(2,1),(1,1)]"]));
+     ("val block = Coeffect(1)
+      def foo() = 0 | (block >> 1) | 2
+      def bar() = 3 | 4
+      bar() >x> foo() >y> (x,y)",
+      CheckAndResume
+        { values = allof ["(3,0)";
+                          "(3,2)";
+                          "(4,0)";
+                          "(4,2)"];
+          unblock = (0, "signal");
+          next = Check (allof ["(3,1)"; "(4,1)"]) })]);
    ("benchs", [
        ("def fact(n) = if (n :> 0) then n * fact(n-1) else 1
          fact(10)",
@@ -384,10 +402,13 @@ let tests =
             next = Check (allof ["1"])});
        ("val c = Semaphore(1)
          c.acquire() >> Coeffect(1) >> c.release() >> 1",
-       CheckAndResume
-               { values = allof [];
-                 unblock = (0, "signal");
-                 next = Check (allof ["1"])})])]
+        CheckAndResume
+          { values = allof [];
+            unblock = (0, "signal");
+            next = Check (allof ["1"])});
+       ("val b = Channel() #
+        (1 | 2) >x> b.put(x) >> stop; b.getAll()",
+        Check (oneof ["[1, 2]"; "[2, 1]"]))])]
 
 (* TODO killing *)
 
