@@ -125,7 +125,7 @@ let compile =
         Scheduler.go () |> never_returns]
 
 let run_loop state_path unblock res =
-  let _ = Random.self_init () in
+  Random.self_init ();
   let on_air = ref 0 in
   let stopped = Ivar.create () in
   let minstance = Moption.create () in
