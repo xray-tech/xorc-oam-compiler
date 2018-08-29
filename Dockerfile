@@ -1,8 +1,7 @@
 FROM eu.gcr.io/xray2poc/opam as builder
 
-RUN opam repository add remote https://opam.ocaml.org && opam update
 # explicit ppx_tools_versioned.5.2 is workaround for https://github.com/alainfrisch/sedlex/issues/64
-RUN opam install jbuilder menhir core async async_extended msgpck sedlex ppx_jane benchmark yojson mtime ppx_tools_versioned.5.2
+RUN opam repository add remote https://opam.ocaml.org && opam update && opam install jbuilder menhir core async async_extended msgpck sedlex ppx_jane benchmark yojson mtime ppx_tools_versioned.5.2
 
 COPY . /workspace
 
