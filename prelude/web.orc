@@ -8,7 +8,7 @@ def HTTP(uri) =
     def param(k, v) =
       Builder(coef + {. params = assoc(coef.params, k, v) .})
 
-    def get() = Coeffect(coef + {. requestType="post" .})
+    def get() = Coeffect(coef + {. requestType="get" .})
 
     def post(payload) =
       Coeffect(coef + {. requestType="post",
