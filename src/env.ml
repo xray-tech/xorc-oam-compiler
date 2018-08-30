@@ -160,24 +160,40 @@ let core = [
         PrimVal (VConst(Ast.Bool(x > y)))
       | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
         PrimVal (VConst(Ast.Bool Float.(x > y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.((Float.of_int x ) > y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x > (Float.of_int y))))
       | _ -> PrimUnsupported);
   ("core.gte", function
       | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
         PrimVal (VConst(Ast.Bool(x >= y)))
       | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
         PrimVal (VConst(Ast.Bool Float.(x >= y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.((Float.of_int x ) >= y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x >= (Float.of_int y))))
       | _ -> PrimUnsupported);
   ("core.lt", function
       | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
         PrimVal (VConst(Ast.Bool(x < y)))
       | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-        PrimVal (VConst(Ast.Bool Float.(x >= y)))
+        PrimVal (VConst(Ast.Bool Float.(x < y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.((Float.of_int x ) < y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x < (Float.of_int y))))
       | _ -> PrimUnsupported);
   ("core.lte", function
       | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
         PrimVal (VConst(Ast.Bool(x <= y)))
       | [| VConst(Ast.Float x); VConst(Ast.Float y) |] ->
-        PrimVal (VConst(Ast.Bool Float.(x >= y)))
+        PrimVal (VConst(Ast.Bool Float.(x <= y)))
+      | [| VConst(Ast.Int x); VConst(Ast.Float y) |] ->
+        PrimVal (VConst(Ast.Bool Float.((Float.of_int x ) <= y)))
+      | [| VConst(Ast.Float x); VConst(Ast.Int y) |] ->
+        PrimVal (VConst(Ast.Bool Float.(x <= (Float.of_int y))))
       | _ -> PrimUnsupported);
   ("core.and", function
       | [| VConst(Ast.Bool x); VConst(Ast.Bool y) |] ->

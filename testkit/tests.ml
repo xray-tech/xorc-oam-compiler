@@ -43,14 +43,14 @@ let tests =
        ("86 = true", Check (allof ["false"]));
        ("3 :> 2", Check (allof ["true"]));
        ("6 <: 7", Check (allof ["true"]));
-
+       ("[(1 <: 0.9, 1 <= 0.9 , 1 :> 0.9 , 1 >= 0.9),
+          (1.0 <: 9, 1.0 <= 9 , 1.0 :> 9 , 1.0 >= 9)]",
+       Check (allof ["[(false, false, true, true), (true, true, false, false)]"]));
        ("(7, 3, 2)", Check (allof ["(7, 3, 2)"]));
        ("[8, 9, 10]", Check (allof ["[8, 9, 10]"]));
        ("if false then 7 else 8", Check (allof ["8"]));
-
        ("val b = true
       Ift(b) >> \"true\" | Iff(b) >> \"false\"", Check (allof ["\"true\""]));
-
        ("val n = 5
       if n :> 0 then n-1 else n+1", Check (allof ["4"]));
 
