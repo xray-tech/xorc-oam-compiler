@@ -30,18 +30,20 @@ def do_8queens() =
 
 
 def do_http() =
-   val x = Random(8)
-   val url = (
-    if x=0 then "https://httpbin.org/get?show_env=1"
-    else if x=1 then "https://httpbin.org/delay/2?show_env=1"
-    else if x=2 then "https://avwx.aeronavmap.com/metar/EDDT"
-    else if x=3 then "https://avwx.aeronavmap.com/metar/EDDT?options=speech,info,translate,summary"
-    else if x=4 then "https://www.quandl.com/api/v3/datasets/WIKI/FB/data.json?api_key=m1zpbJJGLv3TT-xAkXGm"
-    else if x=5 then "https://www.quandl.com/api/v3/datasets/WIKI/AAPL.json?api_key=m1zpbJJGLv3TT-xAkXGm"
-    else if x=6 then "https://edition.cnn.com"
-    else "https://httpbin.org/status/200")
-   HTTP(url).get()>json>(if x/=7 && x/= 6 then ReadJSON(json) else signal)
+   val urls = [
+       "http://httpbin.default.svc.cluster.local/get?show_env=1", 
+       "http://httpbin.default.svc.cluster.local/2?show_env=1", 
+       "https://avwx.aeronavmap.com/metar/EDDT",
+       "https://avwx.aeronavmap.com/metar/EDDT?options=speech,info,translate,summary",
+       "https://www.quandl.com/api/v3/datasets/WIKI/FB/data.json?api_key=m1zpbJJGLv3TT-xAkXGm",
+       "https://www.quandl.com/api/v3/datasets/WIKI/AAPL.json?api_key=m1zpbJJGLv3TT-xAkXGm",
+       "https://edition.cnn.com",
+       "http://httpbin.default.svc.cluster.local/status/200"
+       ]
 
+  val x = Random(length(urls))
+  val url = index(urls, x)
+  HTTP(url).get()>json>(if x/=7 && x/= 6 then ReadJSON(json) else json)
 
 def shuffle(a,b) = if (Random(2) = 1) then (a,b) else (b,a)
 
