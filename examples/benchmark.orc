@@ -1,5 +1,5 @@
 -- returns true 9 times out of 10
-def still_alive() = URandom()>u> (u,0.9,u<:0.9)
+def still_alive() = URandom()>u> u<:0.9
 
 -- 3.5s avg think time
 def think_time() = 1000+Random(6000)
@@ -54,13 +54,14 @@ def drop(a,b) = (a.release(), b.release()) >> signal
 
 def phil(n,a,b) =
   def think() = 
-    Println("thinking: "+n) >> 
-    (if still_alive())
+    if still_alive()
       then
         val w = think_time()
-        Println("philosopher "+n+" thinking for "+w+"ms ">>
-        Rwait(w) -- 3.5 seconds average
-      else Println("philosopher "+n+": died of exhaustion.")
+        Println("philosopher "+n+" thinking for "+w+"ms ")>>
+        Rwait(w)
+      else
+        Println("philosopher "+n+" died of exhaustion.")>>
+        stop
   def can_work() = take((a,b))
   def work() =
     val clock = Rclock().time
