@@ -35,8 +35,8 @@ def do_http() =
        "http://httpbin.default.svc.cluster.local/2?show_env=1", 
        "https://avwx.aeronavmap.com/metar/EDDT",
        "https://avwx.aeronavmap.com/metar/EDDT?options=speech,info,translate,summary",
-       "https://www.quandl.com/api/v3/datasets/WIKI/FB/data.json?api_key=m1zpbJJGLv3TT-xAkXGm",
-       "https://www.quandl.com/api/v3/datasets/WIKI/AAPL.json?api_key=m1zpbJJGLv3TT-xAkXGm",
+       "http://httpbin.default.svc.cluster.local/xjson/FB.json",
+       "http://httpbin.default.svc.cluster.local/xjson/APPL.json",
        "https://edition.cnn.com",
        "http://httpbin.default.svc.cluster.local/status/200"
        ]
