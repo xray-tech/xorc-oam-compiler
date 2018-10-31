@@ -1,0 +1,21 @@
+opam-version: "1.2"
+maintainer: "support@xorc.io"
+authors: ["xorc.io"]
+homepage: "https://xorc.io"
+bug-reports: "https://github.com/xorc-io/oam-compiler/issues"
+dev-repo: "https://github.com/xorc-io/oam-compiler"
+license: "Apache-2.0"
+build: [
+  ["jbuilder" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "base"
+  "menhirLib"
+  "sedlex"
+  "stdio"
+  "js_of_ocaml"
+  "msgpck"
+  "ppx_jane"
+]
+available: [ ocaml-version >= "4.04.1" ]
+descr: "Orc programming language"

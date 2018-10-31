@@ -1,0 +1,6 @@
+(library
+ ((name orcml_lib_prelude)
+  (libraries (orcml))
+  (preprocess (pps (ppx_jane)))))
+
+(jbuild_version 1)

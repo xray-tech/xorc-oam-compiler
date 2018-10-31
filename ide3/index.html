@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Orc IDE</title>
+</head>
+
+<body>
+    <div id="container-fluid" class="h-100">
+        <div class="row h-100">
+            <div class="col-7">
+                <div class="row h-100">
+                    <div id="editor" class="col h-100"></div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="row">
+                    <div class="col">
+                        <button id="run" type="button" class="btn btn-primary m-1">Run</button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <div class="h2">Published values</div>
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item">321</li>
+                            <li class="list-group-item">
+                                <span class="badge badge-success">+ 123 msec</span> 123</li>
+                            <li class="list-group-item">
+                                <span class="badge badge-success">+ 432 msec</span> 4122</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <script src="/js/main.bc.js"></script>
+    <script src="/app.bundle.js"></script>
+</body>
+
+</html>
