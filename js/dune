@@ -1,0 +1,6 @@
+(executables
+ (names main)
+ (libraries orcml js_of_ocaml js_of_ocaml.weak)
+ (preprocess
+  (pps js_of_ocaml-ppx ppx_jane ppx_driver.runner -- -ite-check))
+ (flags :standard -w -8-9))

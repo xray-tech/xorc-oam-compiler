@@ -22,10 +22,10 @@ brew install opam
 # Debian 
 apt-get install opam
 
-opam switch 4.05.0
+opam switch 4.07.1
 eval `opam config env`
 
-opam install dune menhir core async async_extended msgpck sedlex ppx_jane benchmark
+opam install dune menhir core async async_extended msgpck "sedlex<2.0" ppx_jane benchmark
 ```
 
 ## How to build
@@ -76,7 +76,7 @@ Build [the Kotlin OAM](https://github.com/xray-tech/xorc-kotlin-oam)
 
 ## Austin TX's implementation
 
-See the [difference document](https://github.com/xray-tech/xorc-oam-compiler/blob/master/Compatibility.md) for a description of the compability between xorc.io and [Orc 2.1.2](https://github.com/orc-lang/orc/tree/v2.1.2) from the [Orc Project](https://orc.csres.utexas.edu) at UTexas.
+See the [difference document](https://github.com/xray-tech/xorc-oam-compiler/blob/master/Compatibility.md) for a description of the compability between xorc.io and [Orc 2.1.2](https://github.com/orc-lang/orc/tree/v2.1.2) from the [Orc Project](https://orc.csres.utexas.edu) University of Texas at Austin. 
 
 
 

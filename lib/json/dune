@@ -1,0 +1,5 @@
+(library
+ (name orcml_lib_json)
+ (libraries orcml yojson)
+ (preprocess
+  (pps ppx_jane)))
