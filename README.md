@@ -76,7 +76,7 @@ Build [the Kotlin OAM](https://github.com/xray-tech/xorc-kotlin-oam)
 
 ## Austin TX's implementation
 
-See the [difference document](https://github.com/xray-tech/xorc-xray-platform/blob/master/language/Compatibility.md) that describes the Xorc extensions and differences from Orc Austin 2.1.2
+See the [difference document](https://github.com/xray-tech/xorc-oam-compiler/blob/master/Compatibility.md) for a description of the compability between xorc.io and [Orc 2.1.2](https://github.com/orc-lang/orc/tree/v2.1.2) from the [Orc Project](https://orc.csres.utexas.edu) at UTexas.
 
 
 
