@@ -1,0 +1,11 @@
+(executable
+ (name test_runner)
+ (modules test_runner)
+ (libraries orcml alcotest))
+
+(alias
+ (name runtest)
+ (deps
+  (:< test_runner.exe))
+ (action
+  (run %{<})))

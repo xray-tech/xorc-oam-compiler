@@ -1,5 +1,6 @@
 open Common
 
+
 type prim = (Inter0.v array -> Inter0.prim_v)
 
 type prim_res = Inter0.prim_v =
@@ -149,11 +150,11 @@ let core = [
       | _ -> PrimUnsupported);
   ("core.eq", function
       | [| v1; v2 |] ->
-        PrimVal (VConst(Ast.Bool (Polymorphic_compare.equal v1 v2)))
+        PrimVal (VConst(Ast.Bool (Poly.equal v1 v2)))
       | _ -> PrimUnsupported);
   ("core.not-eq", function
       | [| VConst(v1); VConst(v2) |] ->
-        PrimVal (VConst(Ast.Bool (not (Polymorphic_compare.equal v1 v2))))
+        PrimVal (VConst(Ast.Bool (not (Poly.equal v1 v2))))
       | _ -> PrimUnsupported);
   ("core.gt", function
       | [| VConst(Ast.Int x); VConst(Ast.Int y) |] ->
