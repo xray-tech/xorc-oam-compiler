@@ -7,7 +7,7 @@ COPY . /workspace
 
 WORKDIR /workspace
 
-RUN opam config exec -- jbuilder build bin/orc.exe testkit/testkit.exe
+RUN opam config exec -- dune build bin/orc.exe testkit/testkit.exe
 
 FROM debian:stable-slim
 
