@@ -1,7 +1,7 @@
 FROM xorcio/opam as builder
 
 # explicit ppx_tools_versioned.5.2 is workaround for https://github.com/alainfrisch/sedlex/issues/64
-RUN opam repository add remote https://opam.ocaml.org && opam update && opam install dune menhir core async async_extended msgpck sedlex ppx_jane benchmark yojson mtime ppx_tools_versioned.5.2
+RUN opam repository add remote https://opam.ocaml.org && opam update && opam install -y dune menhir core async async_extended msgpck "sedlex<2.0.0" ppx_jane benchmark yojson mtime ppx_tools_versioned.5.2
 
 COPY . /workspace
 
