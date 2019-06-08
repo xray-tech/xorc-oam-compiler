@@ -22,7 +22,7 @@ brew install opam
 # Debian 
 apt-get install opam
 
-opam switch 4.07.0
+opam switch 4.07.1
 eval `opam config env`
 
 opam install dune menhir core async async_extended msgpck "sedlex<2.0" ppx_jane benchmark
