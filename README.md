@@ -25,7 +25,7 @@ apt-get install opam
 opam switch 4.07.0
 eval `opam config env`
 
-opam install dune menhir core async async_extended msgpck "sedlex<2.0.0" ppx_jane benchmark
+opam install dune menhir core async async_extended msgpck "sedlex<2.0" ppx_jane benchmark
 ```
 
 ## How to build
