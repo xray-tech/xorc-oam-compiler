@@ -141,7 +141,7 @@ end
 let implicit_prelude' =
   [("core", ["abs"; "signum"; "min"; "max"; "+"; "-"; "*"; "/"; "%"; "**"; "="; "/=";
              ":>"; ">="; "<:"; "<="; "||"; "&&"; "~"; ":"; "Ift"; "Iff"; "ceil";
-             "floor"; "sqrt"; "Let"; "Println"; "assoc"]);
+             "floor"; "sqrt"; "Let"; "Println"; "assoc"; "get"]);
    ("idioms", ["curry"; "curry3"; "uncurry"; "uncurry3"; "flip"; "constant"; "defer";
                "defer2"; "ignore"; "ignore2"; "compose"; "while"; "repeat"; "fork";
                "forkMap"; "seq"; "seqMap"; "join"; "joinMap"; "alt"; "altMap"; "por";

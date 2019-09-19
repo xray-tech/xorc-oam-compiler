@@ -39,3 +39,5 @@ def max(x,y) = if x :> y then x else y
 def eq(x,y) = (x = y)
 
 def assoc(m, k, v) = m + `core.make-record`(k, v)
+def get(m, k) = `core.field-access`(m, k)
+

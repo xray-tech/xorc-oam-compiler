@@ -8,7 +8,7 @@
 
 (library
  (name orcml_testkit)
- (libraries orcml async async_extended)
+ (libraries orcml async)
  (modules :standard \ testkit)
  (preprocess
   (pps ppx_jane))

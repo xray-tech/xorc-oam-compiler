@@ -6,7 +6,7 @@ module Lib = Orcml_bin_lib
 
 let set_logging verbose =
   (if verbose then set_level `Debug);
-  let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stderr)) in
+  let output = (Log.Output.stderr ()) in
   set_output [output]
 
 let verbose_flag =
@@ -54,11 +54,11 @@ let no_prelude_flag =
 
 let includes_flag =
   let open Command.Param in
-  flag "-i" (listed file) ~doc:"Directories to include"
+  flag "-i" (listed string) ~doc:"Directories to include"
 
 let exts_flag =
   let open Command.Param in
-  flag "-ext" (listed file) ~doc:"Extensions"
+  flag "-ext" (listed string) ~doc:"Extensions"
 
 let bc_flag =
   let open Command.Param in
@@ -66,7 +66,7 @@ let bc_flag =
 
 let dump_flag =
   let open Command.Param in
-  flag "-dump" (optional file) ~doc:"Path to store intermediate state if any"
+  flag "-dump" (optional string) ~doc:"Path to store intermediate state if any"
 
 let error_to_string_hum (module Loader : Lib.ModuleLoader) prog = function
   | `CantLoadMod mod_ -> return (sprintf "Can't load module %s" mod_)
@@ -94,8 +94,8 @@ let compile =
   Command.basic
     ~summary: "produce bytecode"
     [%map_open
-      let input = anon (maybe ("INPUT" %: file))
-      and output = flag "-output" (optional file) ~doc:"Output path"
+      let input = anon (maybe ("INPUT" %: string))
+      and output = flag "-output" (optional string) ~doc:"Output path"
       and k = flag "-k" no_arg ~doc:"Output in K format"
       and includes = includes_flag
       and no_prelude = no_prelude_flag
@@ -103,7 +103,8 @@ let compile =
       let exec () =
         let open Async.Deferred.Let_syntax in
         let%bind prog = read_file_or_stdin input in
-        let loader = Lib.multiloader (Lib.static_prelude::(List.map includes ~f:Lib.fs)) in
+        let loader = Lib.multiloader (Lib.static_prelude::(List.map includes ~f:Lib.fs)
+|> List.rev) in
         let%bind res = compile_source loader (not no_prelude) prog  in
         (match res with
          | Error(err) ->
@@ -254,7 +255,7 @@ let exec =
   Command.basic
     ~summary: "executes orc"
     [%map_open
-      let input = anon (maybe ("INPUT" %: file))
+      let input = anon (maybe ("INPUT" %: string))
       and bc = bc_flag
       and no_prelude = no_prelude_flag
       and dump = dump_flag
@@ -312,11 +313,11 @@ let unblock =
   Command.basic
     ~summary: "continue execution of serialized orc program"
     [%map_open
-      let input = anon (maybe ("INPUT" %: file))
+      let input = anon (maybe ("INPUT" %: string))
       and bc = bc_flag
       and no_prelude = no_prelude_flag
       and dump = dump_flag
-      and load = flag "-load" (required file) ~doc:"Serialized state"
+      and load = flag "-load" (required string) ~doc:"Serialized state"
       and id = flag "-id" (required int)  ~doc:"Coeffect's id"
       and value = flag "-value" (required string) ~doc:"Coeffect's value"
       and includes = includes_flag
