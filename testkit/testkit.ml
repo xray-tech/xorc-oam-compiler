@@ -173,7 +173,7 @@ let exec =
       and verbose = flag "-verbose" no_arg ~doc:"Verbose logging" in
       fun () ->
         (if verbose then Log.Global.set_level `Debug);
-        let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
+        let output = Log.Output.stdout () in
         Log.Global.set_output [output];
         let tests' = filter_tests suits in
         exec_tests (prog, Option.value args ~default:[]) tests' |> ignore;
@@ -222,7 +222,7 @@ let benchmark =
 
 
 let () =
-  let output = (Async_extended.Extended_log.Console.output (Lazy.force Writer.stdout)) in
+  let output = Log.Output.stdout () in
   Log.Global.set_output [output];
   Command.group ~summary:"Tests tool for Orcml"
     [("exec", exec);
