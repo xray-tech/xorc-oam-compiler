@@ -3,7 +3,7 @@
  (libraries orcml_testkit orcml_bin_lib)
  (modules testkit)
  (preprocess
-  (pps ppx_jane))
+  (pps ppx_jane -allow-unannotated-ignores))
  (flags :standard -w -9))
 
 (library

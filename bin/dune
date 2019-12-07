@@ -4,7 +4,7 @@
    async_interactive dynlink)
  (modules :standard \ orcml_bin_lib)
  (preprocess
-  (pps ppx_static ppx_jane))
+  (pps ppx_static ppx_jane -allow-unannotated-ignores))
  (flags :standard -w -9))
 
 (library
